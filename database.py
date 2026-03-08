@@ -443,6 +443,32 @@ class GeneratedDiscount(BaseModel):
         table_name = "generated_discounts"
 
 
+
+class SuppressionEntry(BaseModel):
+    """Email addresses that should never be sent to (hard bounces, complaints, invalid)."""
+    email       = CharField(unique=True, index=True)
+    reason      = CharField(default="")        # hard_bounce | complaint | invalid | manual
+    source      = CharField(default="")        # ses_notification | import_validation | admin
+    detail      = TextField(default="")        # bounce type, diagnostic code, etc.
+    created_at  = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "suppression_list"
+
+
+class BounceLog(BaseModel):
+    """Log of every bounce/complaint event from SES SNS notifications."""
+    email       = CharField(index=True)
+    event_type  = CharField(default="")        # Bounce | Complaint
+    sub_type    = CharField(default="")        # Permanent | Transient | abuse | not-spam
+    diagnostic  = TextField(default="")
+    campaign_id = IntegerField(default=0)
+    timestamp   = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "bounce_log"
+
+
 def init_db():
     db.connect(reuse_if_open=True)
     db.create_tables(
@@ -452,7 +478,8 @@ def init_db():
          OmnisendOrder, OmnisendOrderItem, CustomerProfile,
          ShopifyOrder, ShopifyOrderItem, ShopifyCustomer,
          CustomerActivity, PendingTrigger, AIGeneratedEmail,
-         ProductImageCache, GeneratedDiscount],
+         ProductImageCache, GeneratedDiscount,
+         SuppressionEntry, BounceLog],
         safe=True
     )
     _migrate_contact_columns()

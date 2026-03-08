@@ -307,10 +307,40 @@
       </div>
     </div>
 
+
+    <!-- Complaint Rate (Phase I) -->
+    <div style="margin-bottom:24px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+        <span style="font-size:13px;font-weight:600;color:var(--text);">Complaint Rate</span>
+        <span style="font-size:28px;font-weight:900;
+          color:{% if complaint_rate < 0.1 %}#22c55e{% elif complaint_rate < 0.3 %}#f97316{% else %}#ef4444{% endif %};"
+          id="complaintRate">{{ complaint_rate }}%</span>
+      </div>
+      <div class="metric-bar-wrap">
+        <div class="metric-bar-track">
+          <div class="metric-bar-fill" style="
+            width:{{ [complaint_rate * 100, 100]|min }}%;
+            background:{% if complaint_rate < 0.1 %}#22c55e{% elif complaint_rate < 0.3 %}#f97316{% else %}#ef4444{% endif %};">
+          </div>
+        </div>
+      </div>
+      <div class="benchmark">
+        <span class="benchmark-pill bp-good">&lt;0.1% Target</span>
+        <span class="benchmark-pill bp-ok">0.1–0.3% Warning</span>
+        <span class="benchmark-pill bp-bad">&gt;0.3% HARD LIMIT</span>
+      </div>
+      {% if complaint_rate >= 0.3 %}
+      <div style="margin-top:8px;padding:10px 14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;font-size:12px;color:#ef4444;line-height:1.5;">
+        <strong>CRITICAL:</strong> Complaint rate exceeds Google/Yahoo 0.3% hard limit. Emails may be rejected.
+        Review your content, frequency, and ensure unsubscribe is prominent.
+      </div>
+      {% endif %}
+    </div>
+
     <div style="background:var(--surface2);border-radius:8px;padding:12px 16px;font-size:12px;color:var(--text2);line-height:1.6;">
-      <strong style="color:var(--text);">What Klaviyo & others monitor:</strong><br>
-      Open rate &gt;20% + Bounce rate &lt;2% = green light to scale up.
-      If bounce rate exceeds 5%, ISPs will start routing to spam.
+      <strong style="color:var(--text);">2026 Gmail/Yahoo/Microsoft Requirements:</strong><br>
+      Open rate &gt;20% + Bounce rate &lt;1% + Complaint rate &lt;0.1% = green light to scale.
+      Complaint rate above 0.3% triggers email rejections. Bounce rate above 5% = spam folder.
     </div>
   </div>
 
@@ -362,6 +392,159 @@
     Always start with your <strong>most engaged customers</strong> (recent buyers, repeat shoppers) during Phase 1–3.
   </div>
 </div>
+
+
+<!-- ── Row 3b: Deliverability Intelligence (Phase I) ── -->
+<div class="two-col">
+
+  <!-- Suppression & Compliance -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title"><i class="fas fa-shield-check" style="color:var(--green);margin-right:8px;"></i>Compliance & Suppression</div>
+      <span class="badge badge-sent">RFC 8058</span>
+    </div>
+
+    <!-- Auto-detected compliance items -->
+    <div style="margin-bottom:20px;">
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <i class="fas fa-circle-check" style="color:#22c55e;"></i>
+        <span style="font-size:13px;color:var(--text);">List-Unsubscribe Header</span>
+        <span style="margin-left:auto;font-size:11px;color:#22c55e;font-weight:600;">ACTIVE</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <i class="fas fa-circle-check" style="color:#22c55e;"></i>
+        <span style="font-size:13px;color:var(--text);">One-Click Unsubscribe (RFC 8058)</span>
+        <span style="margin-left:auto;font-size:11px;color:#22c55e;font-weight:600;">ACTIVE</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <i class="fas fa-circle-check" style="color:#22c55e;"></i>
+        <span style="font-size:13px;color:var(--text);">Feedback-ID (Google Postmaster)</span>
+        <span style="margin-left:auto;font-size:11px;color:#22c55e;font-weight:600;">ACTIVE</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;">
+        <i class="fas fa-circle-check" style="color:#22c55e;"></i>
+        <span style="font-size:13px;color:var(--text);">Bounce/Complaint Auto-Suppression</span>
+        <span style="margin-left:auto;font-size:11px;color:#22c55e;font-weight:600;">ACTIVE</span>
+      </div>
+    </div>
+
+    <!-- Suppression stats -->
+    <div style="background:var(--surface2);border-radius:10px;padding:16px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px;">Suppression List</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div style="text-align:center;padding:10px;background:var(--surface);border-radius:8px;border:1px solid var(--border);">
+          <div style="font-size:22px;font-weight:800;color:var(--text);">{{ total_suppressed }}</div>
+          <div style="font-size:11px;color:var(--text3);">Total Suppressed</div>
+        </div>
+        <div style="text-align:center;padding:10px;background:var(--surface);border-radius:8px;border:1px solid var(--border);">
+          <div style="font-size:22px;font-weight:800;color:#ef4444;">{{ suppression_by_reason.hard_bounce }}</div>
+          <div style="font-size:11px;color:var(--text3);">Hard Bounces</div>
+        </div>
+        <div style="text-align:center;padding:10px;background:var(--surface);border-radius:8px;border:1px solid var(--border);">
+          <div style="font-size:22px;font-weight:800;color:#f59e0b;">{{ suppression_by_reason.complaint }}</div>
+          <div style="font-size:11px;color:var(--text3);">Complaints</div>
+        </div>
+        <div style="text-align:center;padding:10px;background:var(--surface);border-radius:8px;border:1px solid var(--border);">
+          <div style="font-size:22px;font-weight:800;color:#94a3b8;">{{ suppression_by_reason.invalid }}</div>
+          <div style="font-size:11px;color:var(--text3);">Invalid Emails</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Domain Reputation Table -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title"><i class="fas fa-globe" style="color:var(--cyan);margin-right:8px;"></i>Domain Reputation</div>
+      <span style="font-size:12px;color:#94a3b8;">Last 14 days</span>
+    </div>
+
+    {% if domain_stats %}
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border);">
+          <th style="text-align:left;padding:10px 8px;color:var(--text2);font-weight:600;">Domain</th>
+          <th style="text-align:right;padding:10px 8px;color:var(--text2);font-weight:600;">Sent</th>
+          <th style="text-align:right;padding:10px 8px;color:var(--text2);font-weight:600;">Opens</th>
+          <th style="text-align:right;padding:10px 8px;color:var(--text2);font-weight:600;">Open Rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in domain_stats %}
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:10px 8px;color:var(--text);font-weight:500;">
+            {% if 'gmail' in d.domain %}<i class="fab fa-google" style="color:#ea4335;margin-right:6px;"></i>
+            {% elif 'outlook' in d.domain or 'hotmail' in d.domain or 'live' in d.domain %}<i class="fab fa-microsoft" style="color:#00a4ef;margin-right:6px;"></i>
+            {% elif 'yahoo' in d.domain %}<i class="fab fa-yahoo" style="color:#6001d2;margin-right:6px;"></i>
+            {% elif 'icloud' in d.domain or 'me.com' in d.domain %}<i class="fab fa-apple" style="color:#a2aaad;margin-right:6px;"></i>
+            {% else %}<i class="fas fa-envelope" style="color:#64748b;margin-right:6px;"></i>{% endif %}
+            {{ d.domain }}
+          </td>
+          <td style="text-align:right;padding:10px 8px;color:var(--text2);">{{ d.sent }}</td>
+          <td style="text-align:right;padding:10px 8px;color:var(--text2);">{{ d.opens }}</td>
+          <td style="text-align:right;padding:10px 8px;">
+            <span style="font-weight:700;color:{% if d.open_rate >= 20 %}#22c55e{% elif d.open_rate >= 10 %}#f97316{% else %}#ef4444{% endif %};">
+              {{ d.open_rate }}%
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state" style="padding:30px;">
+      <i class="fas fa-globe" style="color:#e2e8f0;"></i>
+      <h3>No domain data yet</h3>
+      <p>Send campaigns to see per-domain stats (Gmail, Outlook, Yahoo, etc.)</p>
+    </div>
+    {% endif %}
+
+    {% if domain_stats %}
+    <div style="margin-top:12px;padding:10px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong style="color:var(--text);">Why this matters:</strong>
+      Gmail, Outlook, and Yahoo each evaluate your reputation independently.
+      A low open rate on one provider may indicate spam folder placement.
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- ── Row 3c: Recent Bounce/Complaint Events ── -->
+{% if recent_events %}
+<div class="card">
+  <div class="card-header">
+    <div class="card-title"><i class="fas fa-bell" style="color:#f59e0b;margin-right:8px;"></i>Recent Bounce & Complaint Events</div>
+    <span style="font-size:12px;color:#94a3b8;">Last 20 events</span>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead>
+      <tr style="border-bottom:1px solid var(--border);">
+        <th style="text-align:left;padding:8px;color:var(--text2);font-weight:600;">Email</th>
+        <th style="text-align:left;padding:8px;color:var(--text2);font-weight:600;">Event</th>
+        <th style="text-align:left;padding:8px;color:var(--text2);font-weight:600;">Type</th>
+        <th style="text-align:left;padding:8px;color:var(--text2);font-weight:600;">When</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for evt in recent_events %}
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px;color:var(--text);font-family:monospace;font-size:12px;">{{ evt.email }}</td>
+        <td style="padding:8px;">
+          {% if evt.event_type == "Bounce" %}
+            <span style="background:rgba(239,68,68,0.12);color:#ef4444;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600;">Bounce</span>
+          {% else %}
+            <span style="background:rgba(245,158,11,0.12);color:#f59e0b;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600;">Complaint</span>
+          {% endif %}
+        </td>
+        <td style="padding:8px;color:var(--text2);font-size:12px;">{{ evt.sub_type }}</td>
+        <td style="padding:8px;color:var(--text3);font-size:12px;">{{ evt.timestamp }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 
 <!-- ── Row 4: 14-day Trend Chart ── -->
 <div class="card">

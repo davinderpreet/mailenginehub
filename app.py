@@ -51,6 +51,8 @@ def require_auth():
         return
     if request.path.startswith("/webhooks/shopify/"):
         return  # Shopify webhooks — verified by HMAC, not admin login
+    if request.path.startswith("/webhooks/ses"):
+        return  # SES bounce/complaint SNS notifications — public endpoint
     if request.path in ("/api/track", "/api/identify"):
         return  # Shopify pixel / identity resolution — public
     auth = request.authorization
@@ -69,6 +71,135 @@ try:
 except ImportError:
     _ai_engine_available = False
 import atexit
+
+# ─────────────────────────────────
+#  SES BOUNCE/COMPLAINT WEBHOOK
+# ─────────────────────────────────
+@app.route("/webhooks/ses", methods=["POST"])
+def ses_webhook():
+    """Handle SES bounce/complaint notifications via SNS."""
+    import json as json_module
+    try:
+        # SNS sends with Content-Type: text/plain — use get_data() for raw body
+        raw_body = request.get_data(as_text=True)
+        if not raw_body:
+            print("[SES webhook] Empty request body")
+            return jsonify({"status": "ok", "message": "empty body"}), 200
+
+        payload = json_module.loads(raw_body)
+        msg_type = request.headers.get("x-amz-sns-message-type", "") or payload.get("Type", "")
+
+        # ── Subscription confirmation ────────────────────
+        if msg_type == "SubscriptionConfirmation":
+            subscribe_url = payload.get("SubscribeURL", "")
+            if subscribe_url:
+                import requests as req
+                req.get(subscribe_url, timeout=10)
+                print(f"[SNS] Confirmed subscription: {subscribe_url[:80]}")
+            return jsonify({"status": "confirmed"}), 200
+
+        # ── Notification ─────────────────────────────────
+        if msg_type == "Notification":
+            message = json_module.loads(payload.get("Message", "{}"))
+            notif_type = message.get("notificationType", "")
+
+            if notif_type == "Bounce":
+                bounce = message.get("bounce", {})
+                bounce_type = bounce.get("bounceType", "")
+                recipients = bounce.get("bouncedRecipients", [])
+
+                for r in recipients:
+                    email = r.get("emailAddress", "").lower().strip()
+                    if not email:
+                        continue
+
+                    diagnostic = r.get("diagnosticCode", "")
+
+                    # Log every bounce
+                    try:
+                        from database import BounceLog
+                        BounceLog.create(
+                            email=email,
+                            event_type="Bounce",
+                            sub_type=bounce_type,
+                            diagnostic=diagnostic[:500],
+                        )
+                    except Exception as e:
+                        print(f"[SES] BounceLog error: {e}")
+
+                    # Hard bounce → suppress
+                    if bounce_type == "Permanent":
+                        try:
+                            from database import SuppressionEntry
+                            SuppressionEntry.get_or_create(
+                                email=email,
+                                defaults={
+                                    "reason": "hard_bounce",
+                                    "source": "ses_notification",
+                                    "detail": diagnostic[:500],
+                                }
+                            )
+                            # Auto-unsubscribe
+                            try:
+                                contact = Contact.get(Contact.email == email)
+                                contact.subscribed = False
+                                contact.save()
+                            except Contact.DoesNotExist:
+                                pass
+                            print(f"[SES] Hard bounce suppressed: {email}")
+                        except Exception as e:
+                            print(f"[SES] Suppression error: {e}")
+
+            elif notif_type == "Complaint":
+                complaint = message.get("complaint", {})
+                recipients = complaint.get("complainedRecipients", [])
+                complaint_type = complaint.get("complaintFeedbackType", "abuse")
+
+                for r in recipients:
+                    email = r.get("emailAddress", "").lower().strip()
+                    if not email:
+                        continue
+
+                    # Log complaint
+                    try:
+                        from database import BounceLog
+                        BounceLog.create(
+                            email=email,
+                            event_type="Complaint",
+                            sub_type=complaint_type,
+                            diagnostic=f"Complaint via {complaint.get('userAgent', 'unknown')}",
+                        )
+                    except Exception as e:
+                        print(f"[SES] BounceLog error: {e}")
+
+                    # All complaints → suppress
+                    try:
+                        from database import SuppressionEntry
+                        SuppressionEntry.get_or_create(
+                            email=email,
+                            defaults={
+                                "reason": "complaint",
+                                "source": "ses_notification",
+                                "detail": f"Type: {complaint_type}",
+                            }
+                        )
+                        try:
+                            contact = Contact.get(Contact.email == email)
+                            contact.subscribed = False
+                            contact.save()
+                        except Contact.DoesNotExist:
+                            pass
+                        print(f"[SES] Complaint suppressed: {email}")
+                    except Exception as e:
+                        print(f"[SES] Suppression error: {e}")
+
+        return jsonify({"status": "processed"}), 200
+
+    except Exception as e:
+        print(f"[SES webhook] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 _scheduler = BackgroundScheduler(daemon=True)
 
 # ─────────────────────────────────
@@ -87,16 +218,16 @@ WARMUP_PHASES = {
 
 
 def _compute_health_score(config):
-    """Return int 0–100 based on checklist + sending performance."""
+    """Return int 0–100 based on checklist + sending performance + complaint rate."""
     score = 0
-    # Checklist (50 pts max)
+    # Checklist (45 pts max)
     if config.check_spf:          score += 10
     if config.check_dkim:         score += 10
     if config.check_dmarc:        score += 8
-    if config.check_sandbox:      score += 10
-    if config.check_list_cleaned: score += 6
-    if config.check_subdomain:    score += 6
-    # Sending performance — last 14 days (50 pts max)
+    if config.check_sandbox:      score += 8
+    if config.check_list_cleaned: score += 4
+    if config.check_subdomain:    score += 5
+    # Sending performance — last 14 days (40 pts max)
     cutoff = (date.today() - timedelta(days=14)).isoformat()
     recent = (CampaignEmail
               .select()
@@ -107,12 +238,29 @@ def _compute_health_score(config):
     if total_sent > 0:
         open_rate   = total_opened  / total_sent * 100
         bounce_rate = total_bounced / total_sent * 100
-        if open_rate >= 20:   score += 25
-        elif open_rate >= 15: score += 15
-        elif open_rate >= 10: score += 8
-        if bounce_rate < 1:   score += 25
-        elif bounce_rate < 2: score += 15
-        elif bounce_rate < 5: score += 8
+        if open_rate >= 20:   score += 20
+        elif open_rate >= 15: score += 12
+        elif open_rate >= 10: score += 6
+        if bounce_rate < 1:   score += 20
+        elif bounce_rate < 2: score += 12
+        elif bounce_rate < 5: score += 6
+    # Complaint rate — last 14 days (15 pts max)
+    try:
+        from database import BounceLog
+        complaint_count = (BounceLog.select()
+                          .where(BounceLog.event_type == "Complaint",
+                                 BounceLog.timestamp >= cutoff)
+                          .count())
+        if total_sent > 0:
+            complaint_rate = complaint_count / total_sent * 100
+            if complaint_rate < 0.05:   score += 15   # Excellent
+            elif complaint_rate < 0.1:  score += 12   # Good (under target)
+            elif complaint_rate < 0.3:  score += 5    # Warning zone
+            # >= 0.3% = 0 points (danger zone)
+        else:
+            score += 15  # No sends = no complaints = full points
+    except Exception:
+        score += 15  # Table doesn't exist yet = full points
     return min(score, 100)
 
 
@@ -246,6 +394,59 @@ def contacts():
         countries=countries,
     )
 
+
+# ─────────────────────────────────
+#  EMAIL VALIDATION (Deliverability)
+# ─────────────────────────────────
+
+# Common disposable email domains (subset — blocks the worst offenders)
+_DISPOSABLE_DOMAINS = {
+    "mailinator.com", "guerrillamail.com", "tempmail.com", "throwaway.email",
+    "yopmail.com", "sharklasers.com", "guerrillamailblock.com", "grr.la",
+    "dispostable.com", "trashmail.com", "fakeinbox.com", "temp-mail.org",
+    "10minutemail.com", "mohmal.com", "harakirimail.com", "maildrop.cc",
+    "mailnesia.com", "tempr.email", "discard.email", "getnada.com",
+    "guerrillamail.info", "guerrillamail.net", "tempail.com", "spamgourmet.com",
+    "mytrashmail.com", "mailcatch.com", "mintemail.com", "safetymail.info",
+    "jetable.org", "trashmail.net", "trashmail.me", "yopmail.fr", "yopmail.net",
+    "mailexpire.com", "temporarymail.com", "anonbox.net", "binkmail.com",
+    "spaml.com", "spamcero.com", "wegwerfmail.de", "trash-mail.com",
+    "einrot.com", "cuvox.de", "armyspy.com", "dayrep.com", "fleckens.hu",
+    "gustr.com", "jourrapide.com", "rhyta.com", "superrito.com", "teleworm.us",
+}
+
+def _validate_email(email):
+    """
+    Validate email for deliverability. Returns (valid: bool, reason: str).
+    Checks: syntax, disposable domain, MX record.
+    """
+    import re as re_mod
+    email = email.strip().lower()
+
+    # 1. Basic syntax check
+    if not re_mod.match(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$', email):
+        return False, "invalid_syntax"
+
+    domain = email.split("@")[1]
+
+    # 2. Disposable domain check
+    if domain in _DISPOSABLE_DOMAINS:
+        return False, "disposable_domain"
+
+    # 3. MX record check (verify domain can receive email)
+    try:
+        import dns.resolver
+        try:
+            dns.resolver.resolve(domain, "MX")
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers):
+            return False, "no_mx_record"
+        except dns.resolver.LifetimeTimeout:
+            pass  # Timeout = assume valid (don't block on slow DNS)
+    except ImportError:
+        pass  # dnspython not installed — skip MX check
+
+    return True, "valid"
+
 @app.route("/contacts/import-csv", methods=["POST"])
 def import_csv():
     import csv, io
@@ -258,12 +459,25 @@ def import_csv():
     reader  = csv.DictReader(io.StringIO(content))
     imported = 0
     skipped  = 0
+    invalid_syntax = 0
+    invalid_domain = 0
+    invalid_mx     = 0
 
     for row in reader:
         email = row.get("email") or row.get("Email") or row.get("EMAIL", "").strip()
         if not email:
             skipped += 1
             continue
+
+        # Validate email before importing
+        valid, reason = _validate_email(email)
+        if not valid:
+            if reason == "invalid_syntax":    invalid_syntax += 1
+            elif reason == "disposable_domain": invalid_domain += 1
+            elif reason == "no_mx_record":    invalid_mx += 1
+            skipped += 1
+            continue
+
         contact, created = Contact.get_or_create(
             email=email.lower(),
             defaults={
@@ -281,7 +495,14 @@ def import_csv():
         else:
             skipped += 1
 
-    flash(f"Imported {imported} contacts. Skipped {skipped} duplicates.", "success")
+    skip_detail = []
+    if invalid_syntax > 0: skip_detail.append(f"invalid syntax: {invalid_syntax}")
+    if invalid_domain > 0: skip_detail.append(f"disposable domain: {invalid_domain}")
+    if invalid_mx > 0:     skip_detail.append(f"no MX record: {invalid_mx}")
+    dup_count = skipped - invalid_syntax - invalid_domain - invalid_mx
+    if dup_count > 0:      skip_detail.append(f"duplicates: {dup_count}")
+    detail_str = f" ({', '.join(skip_detail)})" if skip_detail else ""
+    flash(f"Imported {imported} contacts. Skipped {skipped}{detail_str}.", "success")
     return redirect(url_for("contacts"))
 
 _shopify_sync_state = {"running": False, "synced": 0, "error": None, "done": False}
@@ -413,7 +634,7 @@ def webhook_shopify_customer_update():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/contacts/unsubscribe/<email>")
+@app.route("/contacts/unsubscribe/<email>", methods=["GET", "POST"])
 def unsubscribe(email):
     try:
         contact = Contact.get(Contact.email == email)
@@ -426,6 +647,28 @@ def unsubscribe(email):
         return render_template("unsubscribe.html", email=email, success=True)
     except:
         return render_template("unsubscribe.html", email=email, success=False)
+
+
+
+@app.route("/contacts/unsubscribe-oneclick", methods=["POST"])
+def unsubscribe_oneclick():
+    """RFC 8058 one-click unsubscribe endpoint.
+    Email clients POST: List-Unsubscribe=One-Click to this URL."""
+    email = request.args.get("email", "").strip().lower()
+    if not email:
+        return "Missing email", 400
+    try:
+        contact = Contact.get(Contact.email == email)
+        contact.subscribed = False
+        contact.save()
+        (FlowEnrollment.update(status="cancelled")
+                       .where(FlowEnrollment.contact == contact,
+                              FlowEnrollment.status == "active")
+                       .execute())
+        return "Unsubscribed", 200
+    except Contact.DoesNotExist:
+        return "OK", 200  # Don't reveal whether email exists
+
 
 # ─────────────────────────────────
 #  TEMPLATES
@@ -578,6 +821,14 @@ def _send_campaign_async(campaign_id):
     for contact in contacts:
         if not contact.subscribed:
             continue
+        # ── Suppression list check ───────────────────────────
+        try:
+            from database import SuppressionEntry
+            if SuppressionEntry.select().where(SuppressionEntry.email == contact.email).exists():
+                CampaignEmail.create(campaign=campaign, contact=contact, status="suppressed", error_msg="on suppression list")
+                continue
+        except Exception:
+            pass  # Table may not exist yet
         # ── Daily limit check ─────────────────────────────────────
         if daily_limit is not None and warmup.emails_sent_today >= daily_limit:
             campaign.status = "paused"
@@ -597,13 +848,16 @@ def _send_campaign_async(campaign_id):
 
         subject = template.subject.replace("{{first_name}}", contact.first_name or "Friend")
 
+        unsub_url = f"https://mailenginehub.com/contacts/unsubscribe/{contact.email}"
         success, error = send_campaign_email(
             to_email   = contact.email,
             to_name    = f"{contact.first_name} {contact.last_name}".strip(),
             from_email = campaign.from_email,
             from_name  = campaign.from_name,
             subject    = subject,
-            html_body  = html
+            html_body  = html,
+            unsubscribe_url = unsub_url,
+            campaign_id = campaign_id,
         )
 
         status = "sent" if success else "failed"
@@ -626,10 +880,31 @@ def _send_campaign_async(campaign_id):
         _update_warmup_log(warmup.current_phase, daily_limit or 999999)
 
 def _get_campaign_contacts(campaign):
+    """Get campaign contacts sorted by engagement (most engaged first).
+    During warmup, sending to engaged contacts first maximizes open rates
+    and builds sender reputation faster."""
+    from peewee import fn, SQL
+
     query = Contact.select().where(Contact.subscribed == True)
     if campaign.segment_filter and campaign.segment_filter != "all":
         query = query.where(Contact.tags.contains(campaign.segment_filter))
-    return list(query)
+
+    # Count recent opens per contact (last 30 days)
+    cutoff_30d = (date.today() - timedelta(days=30)).isoformat()
+    recent_opens = (CampaignEmail
+                    .select(CampaignEmail.contact, fn.COUNT(CampaignEmail.id).alias("open_count"))
+                    .where(CampaignEmail.opened == True, CampaignEmail.created_at >= cutoff_30d)
+                    .group_by(CampaignEmail.contact))
+
+    # Build a dict of contact_id → recent opens
+    open_counts = {}
+    for row in recent_opens:
+        open_counts[row.contact_id] = row.open_count
+
+    contacts = list(query)
+    # Sort: most engaged first (recent opens DESC, then total_orders DESC)
+    contacts.sort(key=lambda c: (open_counts.get(c.id, 0), c.total_orders), reverse=True)
+    return contacts
 
 # ─────────────────────────────────
 #  TRACKING
@@ -697,6 +972,71 @@ def warmup_dashboard():
     elif health >= 50: health_color = "#f97316"
     else:              health_color = "#ef4444"
 
+    # ── Complaint rate & suppression stats (Phase I) ──────────
+    complaint_rate = 0
+    total_complaints = 0
+    total_suppressed = 0
+    suppression_by_reason = {"hard_bounce": 0, "complaint": 0, "invalid": 0, "manual": 0}
+    recent_events = []
+    domain_stats = []
+
+    try:
+        from database import BounceLog, SuppressionEntry
+
+        # Complaint rate (last 14 days)
+        total_complaints = (BounceLog.select()
+                           .where(BounceLog.event_type == "Complaint",
+                                  BounceLog.timestamp >= cutoff)
+                           .count())
+        if total_sent > 0:
+            complaint_rate = round(total_complaints / total_sent * 100, 3)
+
+        # Suppression stats
+        total_suppressed = SuppressionEntry.select().count()
+        for reason in ["hard_bounce", "complaint", "invalid", "manual"]:
+            suppression_by_reason[reason] = (SuppressionEntry.select()
+                .where(SuppressionEntry.reason == reason).count())
+
+        # Recent bounce/complaint events (last 20)
+        recent_events = list(
+            BounceLog.select()
+            .order_by(BounceLog.timestamp.desc())
+            .limit(20)
+            .dicts()
+        )
+    except Exception:
+        pass  # Tables may not exist yet
+
+    # ── Domain-level stats ─────────────────────────────────
+    try:
+        from peewee import fn
+        # Get send/open/bounce stats per recipient domain (top 10)
+        domain_rows = (CampaignEmail
+            .select(
+                fn.SUBSTR(Contact.email, fn.INSTR(Contact.email, '@') + 1).alias('domain'),
+                fn.COUNT(CampaignEmail.id).alias('sent'),
+                fn.SUM(CampaignEmail.opened.cast('int')).alias('opens'),
+            )
+            .join(Contact, on=(CampaignEmail.contact == Contact.id))
+            .where(CampaignEmail.status == "sent", CampaignEmail.created_at >= cutoff)
+            .group_by(fn.SUBSTR(Contact.email, fn.INSTR(Contact.email, '@') + 1))
+            .order_by(fn.COUNT(CampaignEmail.id).desc())
+            .limit(10)
+            .dicts())
+
+        domain_stats = []
+        for row in domain_rows:
+            sent_ct = row.get("sent", 0)
+            open_ct = row.get("opens", 0) or 0
+            domain_stats.append({
+                "domain": row.get("domain", "unknown"),
+                "sent": sent_ct,
+                "opens": open_ct,
+                "open_rate": round(open_ct / sent_ct * 100, 1) if sent_ct > 0 else 0,
+            })
+    except Exception:
+        pass
+
     return render_template("warmup.html",
         config=config,
         health=health,
@@ -712,6 +1052,13 @@ def warmup_dashboard():
         chart_open_rate=json.dumps(chart_open_rate),
         chart_bounce_rate=json.dumps(chart_bounce_rate),
         warmup_phases=WARMUP_PHASES,
+        # Phase I additions
+        complaint_rate=complaint_rate,
+        total_complaints=total_complaints,
+        total_suppressed=total_suppressed,
+        suppression_by_reason=suppression_by_reason,
+        recent_events=recent_events,
+        domain_stats=domain_stats,
     )
 
 
@@ -836,6 +1183,16 @@ def _process_flow_enrollments():
             enrollment.save()
             continue
 
+        # ── Suppression list check ───────────────────────────
+        try:
+            from database import SuppressionEntry
+            if SuppressionEntry.select().where(SuppressionEntry.email == contact.email).exists():
+                enrollment.status = "cancelled"
+                enrollment.save()
+                continue
+        except Exception:
+            pass
+
         step = (FlowStep.select()
                 .where(FlowStep.flow == enrollment.flow,
                        FlowStep.step_order == enrollment.current_step)
@@ -866,6 +1223,7 @@ def _process_flow_enrollments():
         from_email = step.from_email or os.getenv("DEFAULT_FROM_EMAIL", "")
         from_name  = step.from_name
 
+        unsub_url = f"https://mailenginehub.com/contacts/unsubscribe/{contact.email}"
         success, error = send_campaign_email(
             to_email=contact.email,
             to_name=f"{contact.first_name} {contact.last_name}".strip(),
@@ -873,6 +1231,8 @@ def _process_flow_enrollments():
             from_name=from_name,
             subject=subject,
             html_body=html,
+            unsubscribe_url=unsub_url,
+            campaign_id=0,
         )
 
         fe = FlowEmail.create(
