@@ -13,6 +13,7 @@ import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
+from token_utils import create_token
 
 
 # ── SES Configuration Set name (created in AWS Console / CLI) ────
@@ -29,9 +30,8 @@ def _get_ses_client():
 
 
 def _inject_tracking_params(html_body, to_email):
-    """Append ?meh_e=EMAIL to all LDAS Electronics store links so we can identify visitors from email clicks."""
-    import urllib.parse
-    encoded = urllib.parse.quote(to_email, safe='')
+    """Append signed tracking token to all LDAS Electronics store links."""
+    token = create_token({"p": "click", "e": to_email})
     store_domains = ['ldas-electronics', 'ldas.ca', 'ldaselectronics']
 
     def add_param(m):
@@ -39,7 +39,7 @@ def _inject_tracking_params(html_body, to_email):
         if not any(d in href for d in store_domains):
             return m.group(0)
         sep = '&' if '?' in href else '?'
-        return f'href="{href}{sep}meh_e={encoded}"'
+        return f'href="{href}{sep}meh_t={token}"'
 
     return re.sub(r'href="(https?://[^"]+)"', add_param, html_body)
 
@@ -68,7 +68,7 @@ def send_campaign_email(to_email, to_name, from_email, from_name, subject, html_
     # ── Suppression check ──────────────────────────────────────────
     suppressed, reason = _check_suppression(to_email)
     if suppressed:
-        return False, reason
+        return False, reason, ""
 
     # ── Inject activity tracking params into store links ───────────
     html_body = _inject_tracking_params(html_body, to_email)
@@ -112,14 +112,23 @@ def send_campaign_email(to_email, to_name, from_email, from_name, subject, html_
             "Destinations": [to_email],
             "RawMessage": {"Data": msg.as_string()},
         }
-        # Attach configuration set if it exists (for event tracking)
+        # Attach configuration set for event tracking
+        send_args["ConfigurationSetName"] = SES_CONFIG_SET
+
+        # SES message tags for bounce/complaint attribution
+        tags = []
+        if campaign_id:
+            tags.append({"Name": "campaign_id", "Value": str(campaign_id)})
         try:
-            send_args["ConfigurationSetName"] = SES_CONFIG_SET
+            template_id = campaign_id  # Will be overridden by caller if available
         except Exception:
             pass
+        if tags:
+            send_args["Tags"] = tags
 
         response = client.send_raw_email(**send_args)
-        return True, None
+        message_id = response.get("MessageId", "")
+        return True, None, message_id
     except ClientError as e:
         error = e.response["Error"]["Message"]
         # If config set doesn't exist yet, retry without it
@@ -127,16 +136,17 @@ def send_campaign_email(to_email, to_name, from_email, from_name, subject, html_
             try:
                 del send_args["ConfigurationSetName"]
                 response = client.send_raw_email(**send_args)
-                return True, None
+                message_id = response.get("MessageId", "")
+                return True, None, message_id
             except ClientError as e2:
                 error = e2.response["Error"]["Message"]
                 print(f"SES Error sending to {to_email}: {error}")
-                return False, error
+                return False, error, ""
         print(f"SES Error sending to {to_email}: {error}")
-        return False, error
+        return False, error, ""
     except Exception as e:
         print(f"Unexpected error sending to {to_email}: {str(e)}")
-        return False, str(e)
+        return False, str(e), ""
 
 
 def test_ses_connection(test_email):
@@ -153,7 +163,7 @@ def test_ses_connection(test_email):
 
         from_email = os.getenv("DEFAULT_FROM_EMAIL") or verified[0]
 
-        success, error = send_campaign_email(
+        success, error, _msg_id = send_campaign_email(
             to_email   = test_email,
             to_name    = "Test",
             from_email = from_email,

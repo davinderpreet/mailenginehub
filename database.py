@@ -35,10 +35,29 @@ class Contact(BaseModel):
     country      = CharField(default="")      # from default_address.country_code
     total_orders = IntegerField(default=0)    # orders_count from Shopify
     total_spent  = CharField(default="0.00")  # total_spent string e.g. "149.99"
+    # ── Deliverability fields (Phase I) ──
+    fatigue_score       = IntegerField(default=0)        # 0-100
+    spam_risk_score     = IntegerField(default=0)        # 0-100
+    suppression_reason  = CharField(default="")          # hard_bounce | complaint | invalid | manual | fatigue
+    suppression_source  = CharField(default="")          # ses_notification | import_validation | admin | system
+    suppression_until   = DateTimeField(null=True)       # temporary suppression expiry
+    last_open_at        = DateTimeField(null=True)
+    last_click_at       = DateTimeField(null=True)
+    emails_received_7d  = IntegerField(default=0)
+    emails_received_30d = IntegerField(default=0)
 
     @property
     def full_name(self):
         return f"{self.first_name} {self.last_name}".strip() or self.email
+
+    @property
+    def is_suppressed(self):
+        """True if contact is currently suppressed (permanent or temporary)."""
+        if not self.suppression_reason:
+            return False
+        if self.suppression_until and self.suppression_until < datetime.now():
+            return False  # Temporary suppression expired
+        return True
 
     class Meta:
         table_name = "contacts"
@@ -458,15 +477,32 @@ class SuppressionEntry(BaseModel):
 
 class BounceLog(BaseModel):
     """Log of every bounce/complaint event from SES SNS notifications."""
-    email       = CharField(index=True)
-    event_type  = CharField(default="")        # Bounce | Complaint
-    sub_type    = CharField(default="")        # Permanent | Transient | abuse | not-spam
-    diagnostic  = TextField(default="")
-    campaign_id = IntegerField(default=0)
-    timestamp   = DateTimeField(default=datetime.now)
+    email            = CharField(index=True)
+    event_type       = CharField(default="")        # Bounce | Complaint
+    sub_type         = CharField(default="")        # Permanent | Transient | abuse | not-spam
+    diagnostic       = TextField(default="")
+    campaign_id      = IntegerField(default=0)
+    timestamp        = DateTimeField(default=datetime.now)
+    # ── Attribution fields (Phase I completion) ──
+    recipient_domain = CharField(default="")        # gmail.com, yahoo.com, etc.
+    template_id      = IntegerField(default=0)
+    subject_family   = CharField(default="")        # first ~50 chars of campaign subject
+    ses_message_id   = CharField(default="")        # SES MessageId for dedup
 
     class Meta:
         table_name = "bounce_log"
+
+
+
+class PreflightLog(BaseModel):
+    """Stores the result of campaign preflight checks."""
+    campaign_id = IntegerField()
+    overall     = CharField()       # PASS | WARN | BLOCK
+    checks_json = TextField()       # JSON array of check results
+    created_at  = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "preflight_log"
 
 
 def init_db():
@@ -479,14 +515,96 @@ def init_db():
          ShopifyOrder, ShopifyOrderItem, ShopifyCustomer,
          CustomerActivity, PendingTrigger, AIGeneratedEmail,
          ProductImageCache, GeneratedDiscount,
-         SuppressionEntry, BounceLog],
+         SuppressionEntry, BounceLog,
+         PreflightLog],
         safe=True
     )
     _migrate_contact_columns()
     _migrate_activity_fields()
+    _migrate_deliverability_fields()
+    _migrate_bounce_log_fields()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")
+
+
+
+def _migrate_deliverability_fields():
+    """Add Phase I deliverability columns to contacts table."""
+    new_cols = [
+        ("fatigue_score",       "INTEGER DEFAULT 0"),
+        ("spam_risk_score",     "INTEGER DEFAULT 0"),
+        ("suppression_reason",  "VARCHAR(50) DEFAULT ''"),
+        ("suppression_source",  "VARCHAR(50) DEFAULT ''"),
+        ("suppression_until",   "DATETIME"),
+        ("last_open_at",        "DATETIME"),
+        ("last_click_at",       "DATETIME"),
+        ("emails_received_7d",  "INTEGER DEFAULT 0"),
+        ("emails_received_30d", "INTEGER DEFAULT 0"),
+    ]
+    cursor = db.execute_sql("PRAGMA table_info(contacts)")
+    existing = {row[1] for row in cursor.fetchall()}
+    for col_name, col_def in new_cols:
+        if col_name not in existing:
+            db.execute_sql(f"ALTER TABLE contacts ADD COLUMN {col_name} {col_def}")
+            print(f"  [migrate] Added {col_name} to contacts")
+
+
+def _migrate_bounce_log_fields():
+    """Add attribution columns to bounce_log table."""
+    new_cols = [
+        ("recipient_domain", "VARCHAR(100) DEFAULT ''"),
+        ("template_id",      "INTEGER DEFAULT 0"),
+        ("subject_family",   "VARCHAR(100) DEFAULT ''"),
+        ("ses_message_id",   "VARCHAR(100) DEFAULT ''"),
+    ]
+    cursor = db.execute_sql("PRAGMA table_info(bounce_log)")
+    existing = {row[1] for row in cursor.fetchall()}
+    for col_name, col_def in new_cols:
+        if col_name not in existing:
+            db.execute_sql(f"ALTER TABLE bounce_log ADD COLUMN {col_name} {col_def}")
+            print(f"  [migrate] Added {col_name} to bounce_log")
+
+
+def get_bounce_stats_by_domain(days=30):
+    """Return bounce/complaint stats grouped by recipient domain."""
+    cutoff = (datetime.now() - __import__('datetime').timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        cursor = db.execute_sql("""
+            SELECT recipient_domain,
+                   SUM(CASE WHEN event_type = 'Bounce' THEN 1 ELSE 0 END) as bounces,
+                   SUM(CASE WHEN event_type = 'Complaint' THEN 1 ELSE 0 END) as complaints,
+                   COUNT(*) as total
+            FROM bounce_log
+            WHERE timestamp >= ? AND recipient_domain != ''
+            GROUP BY recipient_domain
+            ORDER BY total DESC
+            LIMIT 20
+        """, (cutoff,))
+        cols = ["domain", "bounces", "complaints", "total"]
+        return [dict(zip(cols, row)) for row in cursor.fetchall()]
+    except Exception:
+        return []
+
+
+def get_bounce_stats_by_template(days=30):
+    """Return bounce/complaint stats grouped by template."""
+    cutoff = (datetime.now() - __import__('datetime').timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        cursor = db.execute_sql("""
+            SELECT template_id, subject_family,
+                   SUM(CASE WHEN event_type = 'Bounce' THEN 1 ELSE 0 END) as bounces,
+                   SUM(CASE WHEN event_type = 'Complaint' THEN 1 ELSE 0 END) as complaints,
+                   COUNT(*) as total
+            FROM bounce_log
+            WHERE timestamp >= ? AND template_id > 0
+            GROUP BY template_id
+            ORDER BY total DESC
+        """, (cutoff,))
+        cols = ["template_id", "subject_family", "bounces", "complaints", "total"]
+        return [dict(zip(cols, row)) for row in cursor.fetchall()]
+    except Exception:
+        return []
 
 
 def _seed_example_templates():

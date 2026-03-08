@@ -8,8 +8,11 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from database import (db, Contact, EmailTemplate, Campaign, CampaignEmail, init_db,
                       WarmupConfig, WarmupLog, get_warmup_config,
-                      Flow, FlowStep, FlowEnrollment, FlowEmail, AgentMessage)
+                      Flow, FlowStep, FlowEnrollment, FlowEmail, AgentMessage,
+                      SuppressionEntry, BounceLog, PreflightLog,
+                      get_bounce_stats_by_domain)
 from email_sender import send_campaign_email, test_ses_connection
+from token_utils import create_token, verify_token
 from shopify_sync import sync_shopify_customers, verify_shopify_webhook, handle_shopify_customer_webhook
 import json
 import os
@@ -20,6 +23,7 @@ import threading
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change_this_secret_key_2024")
+SITE_URL = os.environ.get("SITE_URL", "https://mailenginehub.com").rstrip("/")
 
 @app.template_filter("fromjson")
 def _fromjson(s):
@@ -46,13 +50,15 @@ def _request_auth():
 
 @app.before_request
 def require_auth():
-    # Unsubscribe link must stay public (embedded in all sent emails)
-    if request.path.startswith("/contacts/unsubscribe"):
+    # Public routes: unsubscribe links, tracking pixels, webhooks, pixel
+    public_prefixes = (
+        "/contacts/unsubscribe",   # legacy unsubscribe format
+        "/unsubscribe/",           # new token-based unsubscribe
+        "/track/",                 # tracking pixels (old + new)
+        "/webhooks/",              # SES + Shopify webhooks
+    )
+    if any(request.path.startswith(p) for p in public_prefixes):
         return
-    if request.path.startswith("/webhooks/shopify/"):
-        return  # Shopify webhooks — verified by HMAC, not admin login
-    if request.path.startswith("/webhooks/ses"):
-        return  # SES bounce/complaint SNS notifications — public endpoint
     if request.path in ("/api/track", "/api/identify"):
         return  # Shopify pixel / identity resolution — public
     auth = request.authorization
@@ -77,7 +83,8 @@ import atexit
 # ─────────────────────────────────
 @app.route("/webhooks/ses", methods=["POST"])
 def ses_webhook():
-    """Handle SES bounce/complaint notifications via SNS."""
+    """Handle SES bounce/complaint notifications via SNS.
+    Verifies SNS message signature before processing."""
     import json as json_module
     try:
         # SNS sends with Content-Type: text/plain — use get_data() for raw body
@@ -87,6 +94,19 @@ def ses_webhook():
             return jsonify({"status": "ok", "message": "empty body"}), 200
 
         payload = json_module.loads(raw_body)
+
+        # ── SNS Signature Verification ───────────────────
+        try:
+            from sns_verify import verify_sns_message
+            is_valid, verify_error = verify_sns_message(payload)
+            if not is_valid:
+                print(f"[SES webhook] Signature verification FAILED: {verify_error}")
+                return jsonify({"error": "Signature verification failed"}), 403
+        except ImportError:
+            print("[SES webhook] sns_verify not available — skipping verification")
+        except Exception as verify_ex:
+            print(f"[SES webhook] Verification error (allowing): {verify_ex}")
+
         msg_type = request.headers.get("x-amz-sns-message-type", "") or payload.get("Type", "")
 
         # ── Subscription confirmation ────────────────────
@@ -103,6 +123,32 @@ def ses_webhook():
             message = json_module.loads(payload.get("Message", "{}"))
             notif_type = message.get("notificationType", "")
 
+            # ── Extract attribution from SES mail object ──
+            mail_obj = message.get("mail", {})
+            ses_msg_id = mail_obj.get("messageId", "")
+            ses_tags = mail_obj.get("tags", {})
+            attr_campaign_id = 0
+            attr_template_id = 0
+            attr_subject = ""
+            try:
+                attr_campaign_id = int(ses_tags.get("campaign_id", ["0"])[0])
+            except (IndexError, ValueError, TypeError):
+                pass
+            try:
+                attr_template_id = int(ses_tags.get("template_id", ["0"])[0])
+            except (IndexError, ValueError, TypeError):
+                pass
+            # Look up subject from campaign
+            if attr_campaign_id:
+                try:
+                    _camp = Campaign.get_by_id(attr_campaign_id)
+                    _tpl = EmailTemplate.get_by_id(_camp.template_id)
+                    attr_subject = _tpl.subject[:50]
+                    if not attr_template_id:
+                        attr_template_id = _camp.template_id
+                except Exception:
+                    pass
+
             if notif_type == "Bounce":
                 bounce = message.get("bounce", {})
                 bounce_type = bounce.get("bounceType", "")
@@ -114,15 +160,20 @@ def ses_webhook():
                         continue
 
                     diagnostic = r.get("diagnosticCode", "")
+                    domain = email.split("@")[-1] if "@" in email else ""
 
-                    # Log every bounce
+                    # Log every bounce with attribution
                     try:
-                        from database import BounceLog
                         BounceLog.create(
                             email=email,
                             event_type="Bounce",
                             sub_type=bounce_type,
                             diagnostic=diagnostic[:500],
+                            campaign_id=attr_campaign_id,
+                            recipient_domain=domain,
+                            template_id=attr_template_id,
+                            subject_family=attr_subject,
+                            ses_message_id=ses_msg_id,
                         )
                     except Exception as e:
                         print(f"[SES] BounceLog error: {e}")
@@ -130,7 +181,6 @@ def ses_webhook():
                     # Hard bounce → suppress
                     if bounce_type == "Permanent":
                         try:
-                            from database import SuppressionEntry
                             SuppressionEntry.get_or_create(
                                 email=email,
                                 defaults={
@@ -139,12 +189,14 @@ def ses_webhook():
                                     "detail": diagnostic[:500],
                                 }
                             )
-                            # Auto-unsubscribe
+                            # Auto-unsubscribe + set contact suppression fields
                             try:
-                                contact = Contact.get(Contact.email == email)
-                                contact.subscribed = False
-                                contact.save()
-                            except Contact.DoesNotExist:
+                                Contact.update(
+                                    subscribed=False,
+                                    suppression_reason="hard_bounce",
+                                    suppression_source="ses_notification",
+                                ).where(Contact.email == email).execute()
+                            except Exception:
                                 pass
                             print(f"[SES] Hard bounce suppressed: {email}")
                         except Exception as e:
@@ -160,21 +212,26 @@ def ses_webhook():
                     if not email:
                         continue
 
-                    # Log complaint
+                    domain = email.split("@")[-1] if "@" in email else ""
+
+                    # Log complaint with attribution
                     try:
-                        from database import BounceLog
                         BounceLog.create(
                             email=email,
                             event_type="Complaint",
                             sub_type=complaint_type,
                             diagnostic=f"Complaint via {complaint.get('userAgent', 'unknown')}",
+                            campaign_id=attr_campaign_id,
+                            recipient_domain=domain,
+                            template_id=attr_template_id,
+                            subject_family=attr_subject,
+                            ses_message_id=ses_msg_id,
                         )
                     except Exception as e:
                         print(f"[SES] BounceLog error: {e}")
 
                     # All complaints → suppress
                     try:
-                        from database import SuppressionEntry
                         SuppressionEntry.get_or_create(
                             email=email,
                             defaults={
@@ -184,10 +241,12 @@ def ses_webhook():
                             }
                         )
                         try:
-                            contact = Contact.get(Contact.email == email)
-                            contact.subscribed = False
-                            contact.save()
-                        except Contact.DoesNotExist:
+                            Contact.update(
+                                subscribed=False,
+                                suppression_reason="complaint",
+                                suppression_source="ses_notification",
+                            ).where(Contact.email == email).execute()
+                        except Exception:
                             pass
                         print(f"[SES] Complaint suppressed: {email}")
                     except Exception as e:
@@ -788,6 +847,37 @@ def send_campaign(campaign_id):
         flash("This campaign is already sending.", "error")
         return redirect(url_for("campaign_detail", campaign_id=campaign_id))
 
+    # ── Campaign Preflight Checks ──────────────────────────
+    try:
+        from campaign_preflight import run_preflight
+        preflight = run_preflight(campaign_id)
+
+        # Store preflight result
+        try:
+            PreflightLog.create(
+                campaign_id=campaign_id,
+                overall=preflight.overall,
+                checks_json=json.dumps(preflight.to_dict()["checks"]),
+            )
+        except Exception:
+            pass
+
+        if preflight.overall == "BLOCK":
+            blocked_checks = [c for c in preflight.checks if c.status == "BLOCK"]
+            reasons = "; ".join(c.message for c in blocked_checks)
+            flash(f"Campaign BLOCKED by preflight: {reasons}", "error")
+            return redirect(url_for("campaign_detail", campaign_id=campaign_id))
+
+        if preflight.overall == "WARN":
+            warn_checks = [c for c in preflight.checks if c.status == "WARN"]
+            warnings = "; ".join(c.message for c in warn_checks[:3])
+            flash(f"Preflight warnings (proceeding): {warnings}", "warning")
+    except ImportError:
+        pass  # campaign_preflight.py not deployed yet
+    except Exception as pf_err:
+        print(f"[Preflight] Error: {pf_err}")
+    # ───────────────────────────────────────────────────────
+
     # Launch send in background thread so UI stays responsive
     thread = threading.Thread(target=_send_campaign_async, args=(campaign_id,))
     thread.daemon = True
@@ -798,6 +888,32 @@ def send_campaign(campaign_id):
 
     flash("Campaign is sending! Refresh in a moment to see progress.", "success")
     return redirect(url_for("campaign_detail", campaign_id=campaign_id))
+
+# ── Token URL helpers (Phase I security) ────────────────────
+def _make_unsubscribe_url(contact):
+    """Generate a signed unsubscribe URL for a contact."""
+    token = create_token({"p": "unsub", "cid": contact.id, "e": contact.email})
+    return f"{SITE_URL}/unsubscribe/{token}"
+
+def _make_tracking_pixel_url(campaign_id, contact_id):
+    """Generate a signed open-tracking pixel URL."""
+    token = create_token({"p": "open", "cmp": campaign_id, "cid": contact_id})
+    return f"{SITE_URL}/track/open/{token}"
+
+def _make_flow_tracking_pixel_url(enrollment_id, step_id, contact_id):
+    """Generate a signed flow open-tracking pixel URL."""
+    token = create_token({"p": "fopen", "eid": enrollment_id, "sid": step_id, "cid": contact_id})
+    return f"{SITE_URL}/track/flow-open/{token}"
+
+def _increment_contact_send_counters(contact_id):
+    """Increment the 7d and 30d email counters for a contact."""
+    try:
+        Contact.update(
+            emails_received_7d=Contact.emails_received_7d + 1,
+            emails_received_30d=Contact.emails_received_30d + 1,
+        ).where(Contact.id == contact_id).execute()
+    except Exception:
+        pass
 
 def _send_campaign_async(campaign_id):
     campaign = Campaign.get_by_id(campaign_id)
@@ -837,19 +953,20 @@ def _send_campaign_async(campaign_id):
                 _update_warmup_log(warmup.current_phase, daily_limit)
             return
         # ─────────────────────────────────────────────────────────
-        # Personalise
+        # Personalise with signed token URLs
         html = template.html_body
         html = html.replace("{{first_name}}", contact.first_name or "Friend")
         html = html.replace("{{last_name}}",  contact.last_name  or "")
         html = html.replace("{{email}}",      contact.email)
-        html += f'<img src="https://mailenginehub.com/track/open/{campaign_id}/{contact.id}" width="1" height="1" />'
-        html = html.replace("{{unsubscribe_url}}",
-            f"https://mailenginehub.com/contacts/unsubscribe/{contact.email}")
+
+        unsub_url = _make_unsubscribe_url(contact)
+        pixel_url = _make_tracking_pixel_url(campaign_id, contact.id)
+        html += f'<img src="{pixel_url}" width="1" height="1" />'
+        html = html.replace("{{unsubscribe_url}}", unsub_url)
 
         subject = template.subject.replace("{{first_name}}", contact.first_name or "Friend")
 
-        unsub_url = f"https://mailenginehub.com/contacts/unsubscribe/{contact.email}"
-        success, error = send_campaign_email(
+        success, error, _msg_id = send_campaign_email(
             to_email   = contact.email,
             to_name    = f"{contact.first_name} {contact.last_name}".strip(),
             from_email = campaign.from_email,
@@ -869,6 +986,7 @@ def _send_campaign_async(campaign_id):
         )
         if success:
             sent_count += 1
+            _increment_contact_send_counters(contact.id)
             if daily_limit is not None:
                 warmup.emails_sent_today += 1
                 warmup.save()
@@ -920,12 +1038,88 @@ def track_open(campaign_id, contact_id):
             ce.opened    = True
             ce.opened_at = datetime.now()
             ce.save()
+        # Update contact-level last_open_at
+        try:
+            Contact.update(last_open_at=datetime.now()).where(Contact.id == contact_id).execute()
+        except Exception:
+            pass
     except:
         pass
     # Return a transparent 1x1 pixel
     from flask import Response
     pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
     return Response(pixel, mimetype="image/gif")
+
+
+# ── Token-based unsubscribe + tracking (Phase I security) ────
+@app.route("/unsubscribe/<token>", methods=["GET", "POST"])
+def unsubscribe_token(token):
+    """Token-based unsubscribe (replaces plain email in URL)."""
+    payload = verify_token(token)
+    if not payload or payload.get("p") != "unsub":
+        return render_template("unsubscribe.html", email="", success=False), 400
+
+    email = payload.get("e", "")
+    try:
+        contact = Contact.get(Contact.email == email)
+        contact.subscribed = False
+        contact.save()
+        (FlowEnrollment.update(status="cancelled")
+                       .where(FlowEnrollment.contact == contact,
+                              FlowEnrollment.status == "active")
+                       .execute())
+        return render_template("unsubscribe.html", email=email, success=True)
+    except Exception:
+        return render_template("unsubscribe.html", email=email, success=False)
+
+
+@app.route("/track/open/<token>")
+def track_open_token(token):
+    """Token-based open tracking."""
+    payload = verify_token(token)
+    if payload and payload.get("p") == "open":
+        campaign_id = payload.get("cmp")
+        contact_id = payload.get("cid")
+        try:
+            ce = CampaignEmail.get(
+                CampaignEmail.campaign == campaign_id,
+                CampaignEmail.contact  == contact_id
+            )
+            if not ce.opened:
+                ce.opened    = True
+                ce.opened_at = datetime.now()
+                ce.save()
+            Contact.update(last_open_at=datetime.now()).where(Contact.id == contact_id).execute()
+        except Exception:
+            pass
+    pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
+    from flask import Response as Resp
+    return Resp(pixel, mimetype="image/gif")
+
+
+@app.route("/track/flow-open/<token>")
+def track_flow_open_token(token):
+    """Token-based flow open tracking."""
+    payload = verify_token(token)
+    if payload and payload.get("p") == "fopen":
+        enrollment_id = payload.get("eid")
+        step_id = payload.get("sid")
+        contact_id = payload.get("cid")
+        try:
+            fe = FlowEmail.get(
+                FlowEmail.enrollment == enrollment_id,
+                FlowEmail.step == step_id,
+            )
+            if not fe.opened:
+                fe.opened    = True
+                fe.opened_at = datetime.now()
+                fe.save()
+            Contact.update(last_open_at=datetime.now()).where(Contact.id == contact_id).execute()
+        except Exception:
+            pass
+    pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
+    from flask import Response as Resp
+    return Resp(pixel, mimetype="image/gif")
 
 # ─────────────────────────────────
 #  WARMUP / DELIVERABILITY
@@ -1037,6 +1231,51 @@ def warmup_dashboard():
     except Exception:
         pass
 
+    # ── Phase I completion: decision layer data ────────────
+    preflight_result = None
+    try:
+        last_pf = (PreflightLog.select()
+                   .order_by(PreflightLog.created_at.desc())
+                   .first())
+        if last_pf:
+            preflight_result = {
+                "overall": last_pf.overall,
+                "checks": json.loads(last_pf.checks_json),
+                "campaign_id": last_pf.campaign_id,
+                "timestamp": last_pf.created_at.strftime("%Y-%m-%d %H:%M"),
+            }
+    except Exception:
+        pass
+
+    sent_today = config.emails_sent_today if config.is_active else 0
+    safe_send_volume = max(0, daily_limit - sent_today) if config.is_active else daily_limit
+
+    blocked_count = Contact.select().where(
+        (Contact.suppression_reason != "") | (Contact.subscribed == False)
+    ).count()
+
+    suppression_breakdown = {}
+    for reason in ["hard_bounce", "complaint", "invalid", "manual", "fatigue"]:
+        cnt = Contact.select().where(Contact.suppression_reason == reason).count()
+        if cnt > 0:
+            suppression_breakdown[reason] = cnt
+
+    risky_domains = []
+    try:
+        risky_domains = [d for d in get_bounce_stats_by_domain(days=30) if d["total"] >= 3]
+    except Exception:
+        pass
+
+    if config.current_phase <= 2:
+        recommended_speed = "Slow (1 email / 2 sec)"
+    elif config.current_phase <= 4:
+        recommended_speed = "Moderate (1 / sec)"
+    elif config.current_phase <= 6:
+        recommended_speed = "Fast (2-3 / sec)"
+    else:
+        recommended_speed = "Full speed (5+ / sec)"
+    # ────────────────────────────────────────────────────────
+
     return render_template("warmup.html",
         config=config,
         health=health,
@@ -1059,6 +1298,13 @@ def warmup_dashboard():
         suppression_by_reason=suppression_by_reason,
         recent_events=recent_events,
         domain_stats=domain_stats,
+        # Phase I completion — decision layer
+        preflight_result=preflight_result,
+        safe_send_volume=safe_send_volume,
+        blocked_count=blocked_count,
+        suppression_breakdown=suppression_breakdown,
+        risky_domains=risky_domains,
+        recommended_speed=recommended_speed,
     )
 
 
@@ -1212,10 +1458,9 @@ def _process_flow_enrollments():
         html = html.replace("{{first_name}}", contact.first_name or "Friend")
         html = html.replace("{{last_name}}",  contact.last_name  or "")
         html = html.replace("{{email}}",      contact.email)
-        html = html.replace("{{unsubscribe_url}}",
-                            f"https://mailenginehub.com/contacts/unsubscribe/{contact.email}")
-        html += (f'<img src="https://mailenginehub.com/track/flow-open/{enrollment.id}/{step.id}"'
-                 f' width="1" height="1" />')
+        html = html.replace("{{unsubscribe_url}}", _make_unsubscribe_url(contact))
+        flow_pixel = _make_flow_tracking_pixel_url(enrollment.id, step.id, contact.id)
+        html += f'<img src="{flow_pixel}" width="1" height="1" />'
 
         subject = step.subject_override or template.subject
         subject = subject.replace("{{first_name}}", contact.first_name or "Friend")
@@ -1223,8 +1468,8 @@ def _process_flow_enrollments():
         from_email = step.from_email or os.getenv("DEFAULT_FROM_EMAIL", "")
         from_name  = step.from_name
 
-        unsub_url = f"https://mailenginehub.com/contacts/unsubscribe/{contact.email}"
-        success, error = send_campaign_email(
+        unsub_url = _make_unsubscribe_url(contact)
+        success, error, _msg_id = send_campaign_email(
             to_email=contact.email,
             to_name=f"{contact.first_name} {contact.last_name}".strip(),
             from_email=from_email,
@@ -1242,6 +1487,8 @@ def _process_flow_enrollments():
             status="sent" if success else "failed",
         )
 
+        if success:
+            _increment_contact_send_counters(contact.id)
         if success and warmup.is_active:
             warmup.emails_sent_today += 1
             warmup.save()
@@ -1725,6 +1972,11 @@ def track_flow_open(enrollment_id, step_id):
             fe.opened    = True
             fe.opened_at = datetime.now()
             fe.save()
+        # Update contact-level last_open_at
+        try:
+            Contact.update(last_open_at=datetime.now()).where(Contact.id == fe.contact_id).execute()
+        except Exception:
+            pass
     except Exception:
         pass
     from flask import Response
@@ -2861,11 +3113,79 @@ def activity_sync_trigger():
     return jsonify({"ok": True, "message": "Activity sync started — refresh in ~30 seconds"})
 
 
+
+def _recalculate_deliverability_scores():
+    """Nightly: recalculate fatigue_score, spam_risk_score, and reset rolling counters."""
+    try:
+        now = datetime.now()
+        seven_days_ago = now - timedelta(days=7)
+        thirty_days_ago = now - timedelta(days=30)
+        ninety_days_ago = now - timedelta(days=90)
+
+        for contact in Contact.select():
+            # Recount from CampaignEmail + FlowEmail
+            ce_7d = CampaignEmail.select().where(
+                CampaignEmail.contact == contact, CampaignEmail.status == "sent",
+                CampaignEmail.created_at >= seven_days_ago).count()
+            fe_7d = FlowEmail.select().where(
+                FlowEmail.contact == contact, FlowEmail.status == "sent",
+                FlowEmail.sent_at >= seven_days_ago).count()
+            emails_7d = ce_7d + fe_7d
+
+            ce_30d = CampaignEmail.select().where(
+                CampaignEmail.contact == contact, CampaignEmail.status == "sent",
+                CampaignEmail.created_at >= thirty_days_ago).count()
+            fe_30d = FlowEmail.select().where(
+                FlowEmail.contact == contact, FlowEmail.status == "sent",
+                FlowEmail.sent_at >= thirty_days_ago).count()
+            emails_30d = ce_30d + fe_30d
+
+            # Fatigue score (0-100)
+            fatigue = 0
+            if emails_7d >= 5: fatigue += 40
+            elif emails_7d >= 3: fatigue += 20
+            elif emails_7d >= 2: fatigue += 10
+            if emails_30d >= 15: fatigue += 30
+            elif emails_30d >= 8: fatigue += 15
+            if contact.last_open_at and contact.last_open_at < thirty_days_ago:
+                fatigue += 20
+            elif not contact.last_open_at and emails_30d > 0:
+                fatigue += 30
+            fatigue = min(fatigue, 100)
+
+            # Spam risk score (0-100)
+            spam_risk = 0
+            if fatigue >= 60: spam_risk += 30
+            if contact.last_open_at and contact.last_open_at < ninety_days_ago:
+                spam_risk += 40
+            elif not contact.last_open_at and emails_30d > 0:
+                spam_risk += 50
+            if emails_7d >= 4: spam_risk += 20
+            spam_risk = min(spam_risk, 100)
+
+            # Clear expired temporary suppressions
+            supp_reason = contact.suppression_reason
+            if supp_reason and contact.suppression_until:
+                if contact.suppression_until < now:
+                    supp_reason = ""
+
+            Contact.update(
+                emails_received_7d=emails_7d,
+                emails_received_30d=emails_30d,
+                fatigue_score=fatigue,
+                spam_risk_score=spam_risk,
+                suppression_reason=supp_reason,
+            ).where(Contact.id == contact.id).execute()
+
+        print("[OK] Deliverability scores recalculated")
+    except Exception as e:
+        print(f"[ERROR] Deliverability score recalc: {e}")
+
 # ─────────────────────────────────
 #  START BACKGROUND SCHEDULER
 # ─────────────────────────────────
 # Guard prevents double-scheduling in Flask debug/reloader mode.
-if not _scheduler.running:
+if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
     _scheduler.add_job(_process_flow_enrollments, "interval", seconds=60,
                        id="flow_processor", replace_existing=True)
     _scheduler.add_job(_check_passive_triggers, "interval", minutes=30,
@@ -2885,11 +3205,17 @@ if not _scheduler.running:
         except Exception as _e:
             app.logger.error(f"Nightly activity sync failed: {_e}")
 
+    _scheduler.add_job(_recalculate_deliverability_scores, "cron", hour=4, minute=0,
+                       id="deliverability_scores", replace_existing=True)
     _scheduler.add_job(_run_nightly_activity_sync, "cron", hour=3, minute=0,
                        id="activity_sync_nightly", replace_existing=True)
 
     _scheduler.start()
     atexit.register(lambda: _scheduler.shutdown(wait=False))
+    print("[OK] Background scheduler started (ENABLE_SCHEDULER=1)")
+else:
+    if os.environ.get("ENABLE_SCHEDULER", "1") != "1":
+        print("[INFO] Scheduler disabled (ENABLE_SCHEDULER != 1)")
 
 if __name__ == "__main__":
     init_db()
