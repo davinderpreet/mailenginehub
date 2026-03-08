@@ -2795,6 +2795,166 @@ def send_quick_email(contact_id):
     return jsonify({"success": False, "error": error or "Send failed"}), 500
 
 
+# ═══════════════════════════════════════════════════════════════
+# Phase 2C: Campaign Planner Routes
+# ═══════════════════════════════════════════════════════════════
+
+@app.route("/campaign-planner")
+def campaign_planner_page():
+    from database import SuggestedCampaign, OpportunityScanLog
+    import json as _j2c
+    today = datetime.now().strftime("%Y-%m-%d")
+    suggestions = list(
+        SuggestedCampaign.select()
+        .where(SuggestedCampaign.scan_date == today)
+        .order_by(SuggestedCampaign.quality_score.desc())
+    )
+    total_opps = len(suggestions)
+    total_eligible = sum(s.segment_size for s in suggestions)
+    total_predicted_revenue = sum(s.predicted_revenue for s in suggestions)
+    total_predicted_profit = sum(s.net_profit for s in suggestions)
+    avg_quality = round(sum(s.quality_score for s in suggestions) / max(1, total_opps), 1)
+    scan_history = list(
+        OpportunityScanLog.select()
+        .order_by(OpportunityScanLog.created_at.desc())
+        .limit(14)
+    )
+    for s in suggestions:
+        s._warnings = _j2c.loads(s.preflight_warnings_json or "[]")
+        s._products = _j2c.loads(s.top_products_json or "[]")
+    return render_template("campaign_planner.html",
+        suggestions=suggestions,
+        total_opps=total_opps,
+        total_eligible=total_eligible,
+        total_predicted_revenue=total_predicted_revenue,
+        total_predicted_profit=total_predicted_profit,
+        avg_quality=avg_quality,
+        scan_history=scan_history,
+        today=today,
+    )
+
+
+@app.route("/api/campaign-planner/scan", methods=["POST"])
+def campaign_planner_scan():
+    import threading
+    def _run():
+        import sys as _sp; _sp.path.insert(0, "/var/www/mailengine")
+        from campaign_planner import scan_opportunities
+        scan_opportunities()
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "Opportunity scan started"})
+
+
+@app.route("/api/campaign-planner/<int:sc_id>/accept", methods=["POST"])
+def campaign_planner_accept(sc_id):
+    try:
+        import sys as _sa; _sa.path.insert(0, "/var/www/mailengine")
+        from campaign_planner import accept_opportunity
+        campaign_id = accept_opportunity(sc_id)
+        return jsonify({"ok": True, "campaign_id": campaign_id})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.route("/api/campaign-planner/<int:sc_id>/dismiss", methods=["POST"])
+def campaign_planner_dismiss(sc_id):
+    try:
+        from database import SuggestedCampaign
+        sc = SuggestedCampaign.get_by_id(sc_id)
+        sc.status = "dismissed"
+        sc.save()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.route("/api/campaign-planner/<int:sc_id>/brief")
+def campaign_planner_brief(sc_id):
+    try:
+        from database import SuggestedCampaign
+        sc = SuggestedCampaign.get_by_id(sc_id)
+        return jsonify({"ok": True, "brief": sc.brief_text, "campaign_name": sc.campaign_name})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 404
+
+
+# ═══════════════════════════════════════════════════════════════
+# Phase 2D: Profit Dashboard Route
+# ═══════════════════════════════════════════════════════════════
+
+@app.route("/profits")
+def profit_dashboard():
+    from database import ProductCommercial, SuggestedCampaign, CustomerProfile, Contact
+    from peewee import fn
+    today = datetime.now().strftime("%Y-%m-%d")
+    total_products = ProductCommercial.select().count()
+    total_revenue_30d = (ProductCommercial
+        .select(fn.SUM(ProductCommercial.revenue_30d))
+        .scalar()) or 0
+    total_profit_30d = (ProductCommercial
+        .select(fn.SUM(ProductCommercial.profit_30d))
+        .where(ProductCommercial.profit_30d.is_null(False))
+        .scalar()) or 0
+    avg_margin = (ProductCommercial
+        .select(fn.AVG(ProductCommercial.margin_pct))
+        .where(ProductCommercial.margin_pct.is_null(False))
+        .scalar()) or 0
+    products = list(
+        ProductCommercial.select()
+        .order_by(ProductCommercial.profitability_score.desc())
+        .limit(100)
+    )
+    do_not_promote = list(
+        ProductCommercial.select()
+        .where(ProductCommercial.promotion_eligible == False)
+        .order_by(ProductCommercial.product_title)
+    )
+    no_discount_customers = []
+    try:
+        _ndc_profiles = list(
+            CustomerProfile.select()
+            .where(
+                (CustomerProfile.price_tier == "premium") &
+                (CustomerProfile.discount_sensitivity < 0.2) &
+                (CustomerProfile.total_orders >= 1)
+            )
+            .order_by(CustomerProfile.total_spent.desc())
+            .limit(50)
+        )
+        for cp in _ndc_profiles:
+            try:
+                c = Contact.get_by_id(cp.contact_id)
+                no_discount_customers.append({
+                    "name": f"{c.first_name or ''} {c.last_name or ''}".strip() or c.email,
+                    "email": c.email,
+                    "price_tier": cp.price_tier,
+                    "total_spent": cp.total_spent,
+                    "total_orders": cp.total_orders,
+                    "discount_sensitivity": cp.discount_sensitivity,
+                    "reason": "Buys full price -- no discount needed",
+                })
+            except Exception:
+                pass
+    except Exception:
+        pass
+    campaign_forecasts = list(
+        SuggestedCampaign.select()
+        .where(SuggestedCampaign.scan_date == today)
+        .where(SuggestedCampaign.status != "dismissed")
+        .order_by(SuggestedCampaign.net_profit.desc())
+    )
+    return render_template("profit_dashboard.html",
+        total_products=total_products,
+        total_revenue_30d=total_revenue_30d,
+        total_profit_30d=total_profit_30d,
+        avg_margin=avg_margin,
+        products=products,
+        do_not_promote=do_not_promote,
+        no_discount_customers=no_discount_customers,
+        campaign_forecasts=campaign_forecasts,
+    )
+
+
 @app.route("/api/profiles/<int:contact_id>/decide", methods=["POST"])
 def recompute_decision(contact_id):
     """Recompute next-best-action for a single contact on-demand."""
@@ -3351,8 +3511,34 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
 
     _scheduler.add_job(_run_nightly_decisions, "cron", hour=4, minute=0,
                        id="nightly_decisions", replace_existing=True)
+    def _run_nightly_opportunity_scan():
+        try:
+            import sys as _so; _so.path.insert(0, '/var/www/mailengine')
+            from campaign_planner import scan_opportunities
+            app.logger.info("Nightly opportunity scan starting...")
+            opps = scan_opportunities()
+            app.logger.info(f"Opportunity scan complete: {len(opps)} opportunities found")
+        except Exception as _e:
+            app.logger.error(f"Nightly opportunity scan failed: {_e}")
+
+    def _run_nightly_profit_scoring():
+        try:
+            import sys as _sp2; _sp2.path.insert(0, '/var/www/mailengine')
+            from profit_engine import sync_product_commercial_data, compute_product_scores
+            app.logger.info("Nightly profit scoring starting...")
+            sync_result = sync_product_commercial_data()
+            app.logger.info(f"Product sync: {sync_result}")
+            count = compute_product_scores()
+            app.logger.info(f"Profit scoring complete: {count} products scored")
+        except Exception as _e:
+            app.logger.error(f"Nightly profit scoring failed: {_e}")
+
+    _scheduler.add_job(_run_nightly_opportunity_scan, "cron", hour=4, minute=15,
+                       id="opportunity_scan", replace_existing=True)
     _scheduler.add_job(_recalculate_deliverability_scores, "cron", hour=4, minute=30,
                        id="deliverability_scores", replace_existing=True)
+    _scheduler.add_job(_run_nightly_profit_scoring, "cron", hour=4, minute=45,
+                       id="profit_scoring", replace_existing=True)
     _scheduler.add_job(_run_nightly_activity_sync, "cron", hour=3, minute=0,
                        id="activity_sync_nightly", replace_existing=True)
 

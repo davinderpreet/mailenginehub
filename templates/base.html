@@ -422,6 +422,13 @@
       <i class="fas fa-brain"></i> AI Engine
       <span class="nav-badge">AUTO</span>
     </a>
+    <a href="/campaign-planner" class="nav-item {% if '/campaign-planner' in request.path %}active{% endif %}">
+      <i class="fas fa-rocket"></i> Campaign Planner
+      <span class="nav-badge" style="background:var(--cyan);">NEW</span>
+    </a>
+    <a href="/profits" class="nav-item {% if '/profits' in request.path %}active{% endif %}">
+      <i class="fas fa-dollar-sign"></i> Profit Brain
+    </a>
     <a href="/warmup" class="nav-item {% if '/warmup' in request.path %}active{% endif %}">
       <i class="fas fa-fire"></i> Deliverability
     </a>

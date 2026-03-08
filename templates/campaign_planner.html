@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block title %}Campaign Planner{% endblock %}
+{% block page_title %}Campaign Planner{% endblock %}
+
+{% block topbar_actions %}
+<button onclick="scanNow()" class="btn btn-primary" id="scanBtn">
+  <i class="fas fa-radar"></i> Scan Now
+</button>
+{% endblock %}
+
+{% block content %}
+<style>
+  .opp-card { background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:0;margin-bottom:16px;overflow:hidden;transition:all 0.2s; }
+  .opp-card:hover { border-color:var(--border2);transform:translateY(-1px); }
+  .opp-header { display:flex;align-items:center;gap:16px;padding:20px 24px;cursor:pointer; }
+  .opp-score { min-width:56px;height:56px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900; }
+  .opp-score.green { background:rgba(16,185,129,0.12);color:var(--green); }
+  .opp-score.amber { background:rgba(245,158,11,0.12);color:var(--amber); }
+  .opp-score.red { background:rgba(239,68,68,0.12);color:var(--red); }
+  .opp-meta { flex:1; }
+  .opp-name { font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px; }
+  .opp-desc { font-size:12px;color:var(--text3);line-height:1.5; }
+  .opp-metrics { display:flex;gap:20px;padding:0 24px 16px;flex-wrap:wrap; }
+  .opp-metric { font-size:12px; }
+  .opp-metric-value { font-weight:700;color:var(--text);font-size:14px; }
+  .opp-metric-label { color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:0.5px; }
+  .opp-actions { display:flex;gap:8px;align-items:center; }
+  .urgency-badge { padding:3px 8px;border-radius:99px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px; }
+  .urgency-critical { background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.3); }
+  .urgency-high { background:rgba(245,158,11,0.15);color:var(--amber);border:1px solid rgba(245,158,11,0.3); }
+  .urgency-medium { background:rgba(6,182,212,0.12);color:var(--cyan);border:1px solid rgba(6,182,212,0.25); }
+  .urgency-low { background:var(--surface2);color:var(--text3);border:1px solid var(--border); }
+  .preflight-badge { padding:3px 8px;border-radius:99px;font-size:9px;font-weight:700;text-transform:uppercase; }
+  .preflight-PASS { background:rgba(16,185,129,0.15);color:var(--green);border:1px solid rgba(16,185,129,0.3); }
+  .preflight-WARN { background:rgba(245,158,11,0.15);color:var(--amber);border:1px solid rgba(245,158,11,0.3); }
+  .preflight-BLOCK { background:rgba(239,68,68,0.15);color:var(--red);border:1px solid rgba(239,68,68,0.3); }
+  .opp-brief { display:none;padding:16px 24px;border-top:1px solid var(--border);background:var(--surface); }
+  .opp-brief pre { font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.7;color:var(--text2);white-space:pre-wrap;margin:0; }
+  .opp-brief.show { display:block; }
+  .type-badge { padding:3px 10px;border-radius:99px;font-size:10px;font-weight:700;white-space:nowrap; }
+  .profit-bar { display:flex;gap:2px;height:6px;border-radius:99px;overflow:hidden;margin-top:6px; }
+  .profit-bar .rev { background:var(--purple);border-radius:99px 0 0 99px; }
+  .profit-bar .prof { background:var(--green);border-radius:0 99px 99px 0; }
+</style>
+
+<!-- Hero Banner -->
+<div style="background:linear-gradient(135deg,rgba(124,58,237,0.15),rgba(6,182,212,0.1));border:1px solid rgba(124,58,237,0.25);border-radius:16px;padding:28px 32px;margin-bottom:24px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div>
+      <h2 style="font-size:22px;font-weight:800;margin:0 0 6px;">
+        <span class="grad-text">Campaign Planner</span>
+      </h2>
+      <p style="font-size:13px;color:var(--text2);margin:0;">
+        AI-powered campaign suggestions based on {{ total_eligible|default(0) }} individual contact decisions
+      </p>
+    </div>
+    <div style="text-align:right;font-size:11px;color:var(--text3);">
+      {% if scan_history %}
+        Last scan: {{ scan_history[0].scan_date }} ({{ scan_history[0].scan_duration_seconds }}s)
+      {% else %}
+        No scans yet
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Stats Grid -->
+<div class="stats-grid" style="margin-bottom:24px;">
+  <div class="stat-card purple">
+    <div class="stat-icon"><i class="fas fa-lightbulb"></i></div>
+    <div class="stat-value">{{ total_opps }}</div>
+    <div class="stat-label">Opportunities Today</div>
+  </div>
+  <div class="stat-card cyan">
+    <div class="stat-icon"><i class="fas fa-users"></i></div>
+    <div class="stat-value">{{ "{:,}".format(total_eligible) }}</div>
+    <div class="stat-label">Eligible Contacts</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-icon"><i class="fas fa-dollar-sign"></i></div>
+    <div class="stat-value">${{ "{:,.0f}".format(total_predicted_revenue) }}</div>
+    <div class="stat-label">Predicted Revenue</div>
+  </div>
+  <div class="stat-card pink">
+    <div class="stat-icon"><i class="fas fa-chart-line"></i></div>
+    <div class="stat-value">${{ "{:,.0f}".format(total_predicted_profit) }}</div>
+    <div class="stat-label">Predicted Profit</div>
+  </div>
+</div>
+
+<!-- Campaign Opportunity Cards -->
+<div class="section-header" style="margin-bottom:14px;">
+  <span class="section-title">Today's Campaign Suggestions</span>
+  <span style="font-size:12px;color:var(--text3);">{{ today }}</span>
+</div>
+
+{% if suggestions %}
+  {% for s in suggestions %}
+  <div class="opp-card" id="opp-{{ s.id }}" {% if s.status == 'dismissed' %}style="opacity:0.4;pointer-events:none;"{% endif %}>
+    <div class="opp-header" onclick="toggleBrief({{ s.id }})">
+      <!-- Score -->
+      <div class="opp-score {% if s.quality_score >= 70 %}green{% elif s.quality_score >= 40 %}amber{% else %}red{% endif %}">
+        {{ s.quality_score }}
+      </div>
+
+      <!-- Info -->
+      <div class="opp-meta">
+        <div class="opp-name">
+          <i class="fas {{ {'reorder_reminder':'fa-redo','cross_sell':'fa-random','upsell':'fa-arrow-up','new_product':'fa-star','winback':'fa-heart-broken','education':'fa-book-open','loyalty_reward':'fa-crown','discount_offer':'fa-tag'}.get(s.campaign_type, 'fa-bullhorn') }}" style="margin-right:6px;opacity:0.6;"></i>
+          {{ s.campaign_name }}
+        </div>
+        <div class="opp-desc">{{ s.target_description[:150] }}{% if s.target_description|length > 150 %}...{% endif %}</div>
+      </div>
+
+      <!-- Badges -->
+      <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+        <span class="urgency-badge urgency-{{ s.urgency }}">{{ s.urgency }}</span>
+        <span class="preflight-badge preflight-{{ s.preflight_status }}">{{ s.preflight_status }}</span>
+      </div>
+    </div>
+
+    <!-- Metrics Row -->
+    <div class="opp-metrics">
+      <div class="opp-metric">
+        <div class="opp-metric-value">{{ "{:,}".format(s.segment_size) }}</div>
+        <div class="opp-metric-label">Contacts</div>
+      </div>
+      <div class="opp-metric">
+        <div class="opp-metric-value">${{ "{:,.0f}".format(s.predicted_revenue) }}</div>
+        <div class="opp-metric-label">Revenue</div>
+      </div>
+      <div class="opp-metric">
+        <div class="opp-metric-value" style="color:var(--green);">${{ "{:,.0f}".format(s.net_profit) }}</div>
+        <div class="opp-metric-label">Profit</div>
+      </div>
+      {% if s.predicted_margin_pct > 0 %}
+      <div class="opp-metric">
+        <div class="opp-metric-value">{{ "%.0f"|format(s.predicted_margin_pct) }}%</div>
+        <div class="opp-metric-label">Margin</div>
+      </div>
+      {% endif %}
+      <div class="opp-metric">
+        <div class="opp-metric-value" style="{% if s.predicted_complaint_risk >= 5 %}color:var(--amber);{% endif %}">{{ "%.1f"|format(s.predicted_complaint_risk) }}%</div>
+        <div class="opp-metric-label">Complaint Risk</div>
+      </div>
+      <div class="opp-metric">
+        <div class="opp-metric-value">{{ "{:,}".format(s.safe_send_volume) }}</div>
+        <div class="opp-metric-label">Safe Volume</div>
+      </div>
+      <div style="flex:1;"></div>
+      {% if s.status == 'suggested' %}
+      <div class="opp-actions">
+        <button onclick="event.stopPropagation();acceptCampaign({{ s.id }})" class="btn btn-success btn-sm">
+          <i class="fas fa-check"></i> Accept
+        </button>
+        <button onclick="event.stopPropagation();dismissCampaign({{ s.id }})" class="btn btn-outline btn-sm">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      {% elif s.status == 'accepted' %}
+      <span class="badge-green" style="padding:4px 10px;border-radius:99px;font-size:10px;">Accepted</span>
+      {% endif %}
+    </div>
+
+    {% if s.margin_warning %}
+    <div style="padding:0 24px 12px;">
+      <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:8px 12px;font-size:11px;color:var(--amber);">
+        <i class="fas fa-exclamation-triangle" style="margin-right:4px;"></i> Margin warning: {{ s.margin_warning }}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Expandable Brief -->
+    <div class="opp-brief" id="brief-{{ s.id }}">
+      {% if s._warnings %}
+      <div style="margin-bottom:12px;">
+        {% for w in s._warnings %}
+        <div style="font-size:11px;color:var(--amber);margin-bottom:2px;">
+          <i class="fas fa-exclamation-circle"></i> {{ w }}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <pre>{{ s.brief_text }}</pre>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="card" style="text-align:center;padding:60px 24px;">
+    <i class="fas fa-rocket" style="font-size:40px;color:var(--text3);margin-bottom:16px;"></i>
+    <h3 style="font-size:16px;color:var(--text2);margin-bottom:8px;">No Campaign Suggestions Yet</h3>
+    <p style="font-size:13px;color:var(--text3);margin-bottom:16px;">Click "Scan Now" to generate today's campaign opportunities</p>
+    <button onclick="scanNow()" class="btn btn-primary btn-sm">
+      <i class="fas fa-radar"></i> Run First Scan
+    </button>
+  </div>
+{% endif %}
+
+<!-- Scan History -->
+{% if scan_history %}
+<div class="card" style="margin-top:24px;">
+  <div class="card-header">
+    <span class="card-title">Scan History</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Opportunities</th>
+          <th>Eligible Contacts</th>
+          <th>Duration</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in scan_history %}
+        <tr>
+          <td>{{ h.scan_date }}</td>
+          <td>{{ h.opportunities_found }}</td>
+          <td>{{ "{:,}".format(h.total_eligible_contacts) }}</td>
+          <td>{{ h.scan_duration_seconds }}s</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<script>
+function scanNow() {
+  var btn = document.getElementById('scanBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Scanning...';
+  fetch('/api/campaign-planner/scan', {method:'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      btn.innerHTML = '<i class="fas fa-check"></i> Scan Started';
+      setTimeout(function() { location.reload(); }, 25000);
+    })
+    .catch(function(e) { alert('Failed: ' + e); btn.disabled = false; btn.innerHTML = '<i class="fas fa-radar"></i> Scan Now'; });
+}
+
+function acceptCampaign(id) {
+  fetch('/api/campaign-planner/' + id + '/accept', {method:'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) { location.reload(); }
+      else { alert('Error: ' + d.error); }
+    })
+    .catch(function(e) { alert('Failed: ' + e); });
+}
+
+function dismissCampaign(id) {
+  fetch('/api/campaign-planner/' + id + '/dismiss', {method:'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        var card = document.getElementById('opp-' + id);
+        card.style.opacity = '0.3';
+        card.style.pointerEvents = 'none';
+      }
+    })
+    .catch(function(e) { alert('Failed: ' + e); });
+}
+
+function toggleBrief(id) {
+  var el = document.getElementById('brief-' + id);
+  el.classList.toggle('show');
+}
+</script>
+{% endblock %}
