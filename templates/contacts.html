@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% block title %}Contacts - MailEngine{% endblock %}
+{% block page_title %}Contacts{% endblock %}
+
+{% block topbar_actions %}
+  <form method="post" action="/contacts/sync-shopify" style="display:inline;" id="syncForm">
+    <button type="submit" class="btn btn-outline" id="syncBtn">
+      <i class="fab fa-shopify"></i> <span id="syncBtnText">Sync Shopify</span>
+    </button>
+  </form>
+  <button onclick="document.getElementById('csvModal').style.display='flex'" class="btn btn-primary">
+    <i class="fas fa-upload"></i> Import CSV
+  </button>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .sync-bar {
+    display: none; background: rgba(6,182,212,0.08); border: 1px solid rgba(6,182,212,0.25);
+    border-radius: 10px; padding: 10px 16px; margin-bottom: 16px;
+    font-size: 13px; color: var(--cyan); display: flex; align-items: center; gap: 10px;
+  }
+  .sync-bar.error { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.25); color: var(--red); }
+  .spin { animation: spin 1s linear infinite; display: inline-block; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .location-cell { color: var(--text3); font-size: 12px; }
+  .orders-cell { font-size: 13px; }
+  .orders-cell .spent { color: var(--green); font-weight: 600; }
+  .orders-cell .count { color: var(--text2); font-size: 11px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Sync status bar (hidden unless sync is running) -->
+<div class="sync-bar" id="syncStatusBar" style="display:none;">
+  <i class="fas fa-circle-notch spin" id="syncIcon"></i>
+  <span id="syncStatusText">Syncing Shopify contacts...</span>
+</div>
+
+<!-- Stats Row -->
+<div style="display:flex;gap:16px;margin-bottom:24px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 24px;flex:1;text-align:center;">
+    <div style="font-size:28px;font-weight:800;color:var(--text);" id="totalContactsCount">{{ "{:,}".format(total) }}</div>
+    <div style="color:var(--text2);font-size:13px;margin-top:4px;">Total Contacts</div>
+  </div>
+  <div style="background:var(--surface);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px 24px;flex:1;text-align:center;">
+    <div style="font-size:28px;font-weight:800;color:var(--green);" id="subscribedCount">
+      {{ "{:,}".format(contacts | selectattr('subscribed') | list | length if contacts else 0) }}
+    </div>
+    <div style="color:var(--text2);font-size:13px;margin-top:4px;">Subscribed</div>
+  </div>
+  <div style="background:var(--surface);border:1px solid rgba(6,182,212,0.2);border-radius:14px;padding:16px 24px;flex:1;text-align:center;">
+    <div style="font-size:28px;font-weight:800;color:var(--cyan);">
+      {{ "{:,}".format(shopify_total) }}
+    </div>
+    <div style="color:var(--text2);font-size:13px;margin-top:4px;">From Shopify</div>
+  </div>
+</div>
+
+<!-- Search & Filter -->
+<div class="card" style="margin-bottom:0;padding:16px 24px;">
+  <form method="get" action="/contacts">
+    <div style="display:flex;gap:10px;align-items:center;">
+      <input type="text" name="search" value="{{ search }}" placeholder="Search by name or email..."
+             style="flex:1;" onchange="this.form.submit()">
+      <input type="text" name="tag" value="{{ tag }}" placeholder="Filter by tag (e.g. shopify, vip)"
+             style="width:220px;" onchange="this.form.submit()">
+      <select name="country_filter" style="width:160px;" onchange="this.form.submit()">
+        <option value="">All countries</option>
+        {% for c in countries %}
+        <option value="{{ c }}" {% if country_filter == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-outline"><i class="fas fa-search"></i></button>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  {% if contacts %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Email</th>
+        <th>Name</th>
+        <th>Phone</th>
+        <th>Location</th>
+        <th>Orders</th>
+        <th>Tags</th>
+        <th>Source</th>
+        <th>Email Status</th>
+        <th>SMS Consent</th>
+        <th>Added</th>
+      </tr></thead>
+      <tbody>
+      {% for c in contacts %}
+      <tr>
+        <td style="font-weight:600;">{{ c.email }}</td>
+        <td>{{ c.full_name }}</td>
+        <td style="color:#64748b;font-size:13px;">
+          {% if c.phone %}<i class="fas fa-phone" style="margin-right:4px;"></i>{{ c.phone }}{% else %}-{% endif %}
+        </td>
+        <td class="location-cell">
+          {% if c.city or c.country %}
+            <i class="fas fa-location-dot" style="color:#cbd5e1;margin-right:4px;"></i>
+            {{ c.city }}{% if c.city and c.country %}, {% endif %}{{ c.country }}
+          {% else %}-{% endif %}
+        </td>
+        <td class="orders-cell">
+          {% if c.total_orders > 0 %}
+            <div class="spent">${{ c.total_spent }}</div>
+            <div class="count">{{ c.total_orders }} order{% if c.total_orders != 1 %}s{% endif %}</div>
+          {% else %}
+            <span style="color:#cbd5e1;">-</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if c.tags %}
+            {% for t in c.tags.split(',') %}
+              {% if t.strip() %}
+              <span style="background:rgba(124,58,237,0.12);color:var(--purple2);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;margin-right:3px;border:1px solid rgba(124,58,237,0.2);">{{ t.strip() }}</span>
+              {% endif %}
+            {% endfor %}
+          {% else %}-{% endif %}
+        </td>
+        <td>
+          {% if c.source == 'shopify' %}
+            <span style="color:#22c55e;font-size:12px;font-weight:600;"><i class="fab fa-shopify"></i> Shopify</span>
+          {% elif c.source == 'csv_import' %}
+            <span style="color:#3b82f6;font-size:12px;font-weight:600;"><i class="fas fa-file-csv"></i> CSV</span>
+          {% else %}
+            <span style="color:#64748b;font-size:12px;">Manual</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="badge badge-{{ 'subscribed' if c.subscribed else 'unsubscribed' }}">
+            {{ 'Email' if c.subscribed else 'Unsubscribed' }}
+          </span>
+        </td>
+        <td>
+          <span class="badge badge-{{ 'subscribed' if c.sms_consent else 'secondary' }}">
+            {{ 'Yes' if c.sms_consent else 'No' }}
+          </span>
+        </td>
+        <td>{{ c.created_at.strftime('%b %d, %Y') }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if total > per_page %}
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+    <span style="color:var(--text2);font-size:13px;">
+      Showing {{ (page-1)*per_page + 1 }}-{{ [page*per_page, total]|min }} of {{ "{:,}".format(total) }}
+    </span>
+    <div style="display:flex;gap:6px;">
+      {% if page > 1 %}
+      <a href="?page={{ page-1 }}&search={{ search }}&tag={{ tag }}&country_filter={{ country_filter }}" class="btn btn-outline btn-sm">< Prev</a>
+      {% endif %}
+      {% if page * per_page < total %}
+      <a href="?page={{ page+1 }}&search={{ search }}&tag={{ tag }}&country_filter={{ country_filter }}" class="btn btn-outline btn-sm">Next ></a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty-state">
+    <i class="fas fa-users"></i>
+    <h3>No contacts yet</h3>
+    <p>Import a CSV or sync your Shopify customers to get started.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- CSV Import Modal -->
+<div id="csvModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(8px);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:20px;padding:32px;width:500px;max-width:90vw;box-shadow:0 24px 64px rgba(0,0,0,.5);">
+    <h2 style="margin-bottom:6px;color:var(--text);font-size:18px;font-weight:700;">Import CSV</h2>
+    <p style="color:var(--text2);font-size:13.5px;margin-bottom:24px;">
+      Your CSV must have an <strong style="color:var(--text);">email</strong> column. Optional: first_name, last_name, phone, tags
+    </p>
+    <form method="post" action="/contacts/import-csv" enctype="multipart/form-data">
+      <div class="form-group">
+        <label>CSV File</label>
+        <input type="file" name="file" accept=".csv" style="padding:8px;">
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;font-size:13px;color:var(--text2);">
+        <strong style="color:var(--text);">Example CSV format:</strong><br>
+        <code style="color:var(--purple2);">email,first_name,last_name,tags</code><br>
+        <code style="color:var(--purple2);">john@example.com,John,Smith,vip</code>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button type="button" onclick="document.getElementById('csvModal').style.display='none'"
+                class="btn btn-outline" style="flex:1;">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="flex:1;">
+          <i class="fas fa-upload"></i> Import
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let reloadScheduled = false; // Prevent multiple reloads
+
+// Poll sync status every 3 seconds
+function pollSync() {
+  fetch('/api/contacts/sync-status')
+    .then(r => r.json())
+    .then(s => {
+      const bar  = document.getElementById('syncStatusBar');
+      const icon = document.getElementById('syncIcon');
+      const text = document.getElementById('syncStatusText');
+      const btn  = document.getElementById('syncBtn');
+
+      if (s.running) {
+        reloadScheduled = false; // Reset if sync restarts
+        bar.style.display = 'flex';
+        bar.classList.remove('error');
+        icon.className = 'fas fa-circle-notch spin';
+        text.textContent = 'Syncing Shopify contacts... ' + s.synced.toLocaleString() + ' processed so far';
+        btn.disabled = true;
+        document.getElementById('syncBtnText').textContent = 'Syncing...';
+        setTimeout(pollSync, 3000);
+
+      } else if (s.done && !reloadScheduled) {
+        reloadScheduled = true; // Mark reload as scheduled
+        if (s.error) {
+          bar.style.display = 'flex';
+          bar.classList.add('error');
+          icon.className = 'fas fa-exclamation-triangle';
+          text.textContent = 'Sync error: ' + s.error;
+        } else if (s.synced > 0) {
+          bar.style.display = 'flex';
+          bar.classList.remove('error');
+          icon.className = 'fas fa-check-circle';
+          icon.style.animation = 'none';
+          text.textContent = 'Sync complete - ' + s.synced.toLocaleString() + ' contacts synced. Reloading...';
+          setTimeout(() => location.reload(), 2000);
+        }
+        btn.disabled = false;
+        document.getElementById('syncBtnText').textContent = 'Sync Shopify';
+      }
+    })
+    .catch(() => setTimeout(pollSync, 5000));
+}
+
+// Start polling immediately in case a sync is already running
+pollSync();
+</script>
+{% endblock %}

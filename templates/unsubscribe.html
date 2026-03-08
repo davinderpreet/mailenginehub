@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Unsubscribe</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f4f4; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+    .box { background: #fff; border-radius: 12px; padding: 48px; max-width: 480px; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+    h1 { font-size: 24px; margin-bottom: 12px; }
+    p  { color: #666; font-size: 15px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    {% if success %}
+    <div style="font-size:48px;margin-bottom:16px;">✅</div>
+    <h1 style="color:#16a34a;">Unsubscribed</h1>
+    <p>{{ email }} has been unsubscribed and will no longer receive marketing emails from us.</p>
+    {% else %}
+    <div style="font-size:48px;margin-bottom:16px;">❓</div>
+    <h1 style="color:#dc2626;">Email Not Found</h1>
+    <p>We couldn't find <strong>{{ email }}</strong> in our list. You may already be unsubscribed.</p>
+    {% endif %}
+  </div>
+</body>
+</html>

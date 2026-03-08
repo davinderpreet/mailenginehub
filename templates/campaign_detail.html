@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}{{ campaign.name }} — MailEngine{% endblock %}
+{% block page_title %}{{ campaign.name }}{% endblock %}
+
+{% block topbar_actions %}
+  <a href="/campaigns" class="btn btn-outline"><i class="fas fa-arrow-left"></i> All Campaigns</a>
+  {% if campaign.status == 'draft' %}
+  <form method="post" action="/campaigns/{{ campaign.id }}/send" style="display:inline;"
+        onsubmit="return confirm('Send this campaign to {{ recipient_count }} subscribers? This cannot be undone.')">
+    <button type="submit" class="btn btn-success btn-lg">
+      <i class="fas fa-paper-plane"></i> Send to {{ "{:,}".format(recipient_count) }} subscribers
+    </button>
+  </form>
+  {% elif campaign.status == 'sending' %}
+  <button class="btn btn-outline" onclick="location.reload()">
+    <i class="fas fa-sync fa-spin"></i> Sending... Refresh
+  </button>
+  {% elif campaign.status == 'paused' %}
+  <form method="post" action="/campaigns/{{ campaign.id }}/send" style="display:inline;"
+        onsubmit="return confirm('Resume sending to remaining subscribers?')">
+    <button type="submit" class="btn btn-lg" style="background:#f97316;color:#fff;">
+      <i class="fas fa-play"></i> Resume Send
+    </button>
+  </form>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+
+<!-- Status Banner -->
+{% if campaign.status == 'sent' %}
+<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:16px 24px;margin-bottom:24px;display:flex;align-items:center;gap:12px;">
+  <i class="fas fa-check-circle" style="color:#16a34a;font-size:20px;"></i>
+  <span style="color:#166534;font-weight:600;">Campaign sent successfully on {{ campaign.sent_at.strftime('%B %d, %Y at %I:%M %p') }}</span>
+</div>
+{% elif campaign.status == 'sending' %}
+<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:16px 24px;margin-bottom:24px;display:flex;align-items:center;gap:12px;">
+  <i class="fas fa-spinner fa-spin" style="color:#d97706;font-size:20px;"></i>
+  <span style="color:#92400e;font-weight:600;">Campaign is sending... Refresh the page to see progress.</span>
+</div>
+{% elif campaign.status == 'paused' %}
+<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:16px 24px;margin-bottom:24px;display:flex;align-items:center;gap:12px;justify-content:space-between;">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <i class="fas fa-moon" style="color:#c2410c;font-size:20px;"></i>
+    <div>
+      <div style="color:#c2410c;font-weight:700;">Daily Warmup Limit Reached</div>
+      <div style="color:#9a3412;font-size:13px;margin-top:2px;">
+        This campaign hit today's sending limit and paused automatically.
+        The remaining contacts were not emailed. You can re-send tomorrow or
+        <a href="/warmup" style="color:#c2410c;font-weight:600;">adjust your warmup phase</a>.
+      </div>
+    </div>
+  </div>
+  <form method="post" action="/campaigns/{{ campaign.id }}/send" style="flex-shrink:0;"
+        onsubmit="return confirm('Resume sending to remaining subscribers?')">
+    <button type="submit" class="btn btn-sm" style="background:#f97316;color:#fff;">
+      <i class="fas fa-play"></i> Resume Send
+    </button>
+  </form>
+</div>
+{% endif %}
+
+<!-- Stats Grid -->
+<div class="stats-grid" style="grid-template-columns:repeat(4,1fr);">
+  <div class="stat-card blue">
+    <div class="stat-icon"><i class="fas fa-envelope"></i></div>
+    <div class="stat-value">{{ "{:,}".format(sent) }}</div>
+    <div class="stat-label">Emails Sent</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-icon"><i class="fas fa-eye"></i></div>
+    <div class="stat-value">{{ open_rate }}%</div>
+    <div class="stat-label">Open Rate ({{ opened }} opens)</div>
+  </div>
+  <div class="stat-card purple">
+    <div class="stat-icon"><i class="fas fa-mouse-pointer"></i></div>
+    <div class="stat-value">{{ click_rate }}%</div>
+    <div class="stat-label">Click Rate ({{ clicked }} clicks)</div>
+  </div>
+  <div class="stat-card orange">
+    <div class="stat-icon"><i class="fas fa-ban"></i></div>
+    <div class="stat-value">{{ bounce_rate }}%</div>
+    <div class="stat-label">Bounce Rate ({{ bounced }} bounces)</div>
+  </div>
+</div>
+
+<div class="two-col">
+  <!-- Campaign Details -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Campaign Details</span>
+      <span class="badge badge-{{ campaign.status }}">{{ campaign.status.title() }}</span>
+    </div>
+    <table style="width:100%;">
+      <tr>
+        <td style="padding:10px 0;color:#64748b;font-size:13px;width:40%;">From</td>
+        <td style="padding:10px 0;font-size:14px;font-weight:600;">{{ campaign.from_name }} &lt;{{ campaign.from_email }}&gt;</td>
+      </tr>
+      <tr style="border-top:1px solid #f1f5f9;">
+        <td style="padding:10px 0;color:#64748b;font-size:13px;">Subject</td>
+        <td style="padding:10px 0;font-size:14px;">{{ template.subject }}</td>
+      </tr>
+      <tr style="border-top:1px solid #f1f5f9;">
+        <td style="padding:10px 0;color:#64748b;font-size:13px;">Segment</td>
+        <td style="padding:10px 0;font-size:14px;">{{ campaign.segment_filter }}</td>
+      </tr>
+      <tr style="border-top:1px solid #f1f5f9;">
+        <td style="padding:10px 0;color:#64748b;font-size:13px;">Recipients</td>
+        <td style="padding:10px 0;font-size:14px;font-weight:700;">{{ "{:,}".format(recipient_count) }}</td>
+      </tr>
+      <tr style="border-top:1px solid #f1f5f9;">
+        <td style="padding:10px 0;color:#64748b;font-size:13px;">Template</td>
+        <td style="padding:10px 0;font-size:14px;">
+          <a href="/templates/{{ template.id }}/edit" style="color:#6366f1;">{{ template.name }}</a>
+        </td>
+      </tr>
+      <tr style="border-top:1px solid #f1f5f9;">
+        <td style="padding:10px 0;color:#64748b;font-size:13px;">Created</td>
+        <td style="padding:10px 0;font-size:14px;">{{ campaign.created_at.strftime('%B %d, %Y') }}</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Email Preview -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Email Preview</span>
+      <a href="/templates/{{ template.id }}/edit" class="btn btn-outline btn-sm">
+        <i class="fas fa-pen"></i> Edit Template
+      </a>
+    </div>
+    <div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;max-height:360px;overflow-y:auto;">
+      <div style="background:#f1f5f9;padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#64748b;">
+        <strong>Subject:</strong> {{ template.subject }}<br>
+        <strong>From:</strong> {{ campaign.from_name }} &lt;{{ campaign.from_email }}&gt;
+      </div>
+      <iframe srcdoc="{{ template.html_body | replace('"', '&quot;') }}"
+              style="width:100%;height:280px;border:none;" title="Email Preview"></iframe>
+    </div>
+  </div>
+</div>
+
+{% if campaign.status == 'draft' %}
+<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:24px;margin-top:4px;">
+  <h3 style="color:#1e40af;font-size:16px;margin-bottom:8px;"><i class="fas fa-info-circle"></i> Ready to Send?</h3>
+  <p style="color:#1e3a8a;font-size:14px;margin-bottom:16px;">
+    This will send to <strong>{{ "{:,}".format(recipient_count) }} subscribed contacts</strong>.
+    Make sure your Amazon SES sending email is verified and out of sandbox mode.
+  </p>
+  <form method="post" action="/campaigns/{{ campaign.id }}/send"
+        onsubmit="return confirm('Send to {{ recipient_count }} subscribers now?')">
+    <button type="submit" class="btn btn-success btn-lg">
+      <i class="fas fa-paper-plane"></i> Send Campaign Now
+    </button>
+  </form>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_scripts %}
+{% if campaign.status == 'sending' %}
+<script>
+  // Auto-refresh while sending
+  setTimeout(() => location.reload(), 5000);
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Campaigns — MailEngine{% endblock %}
+{% block page_title %}Campaigns{% endblock %}
+
+{% block topbar_actions %}
+  <a href="/campaigns/new" class="btn btn-primary">
+    <i class="fas fa-plus"></i> New Campaign
+  </a>
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+  {% if campaigns %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Campaign Name</th>
+        <th>From</th>
+        <th>Segment</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th>Sent At</th>
+        <th>Actions</th>
+      </tr></thead>
+      <tbody>
+      {% for c in campaigns %}
+      <tr>
+        <td>
+          <a href="/campaigns/{{ c.id }}" style="color:var(--purple2);text-decoration:none;font-weight:600;">
+            {{ c.name }}
+          </a>
+        </td>
+        <td style="font-size:13px;">
+          <div style="font-weight:600;">{{ c.from_name }}</div>
+          <div style="color:#94a3b8;">{{ c.from_email }}</div>
+        </td>
+        <td>
+          {% if c.segment_filter == 'all' %}
+            <span style="color:var(--text2);font-size:13px;">All subscribers</span>
+          {% else %}
+            <span style="background:rgba(124,58,237,0.12);color:var(--purple2);padding:2px 8px;border-radius:20px;font-size:12px;border:1px solid rgba(124,58,237,0.2);">{{ c.segment_filter }}</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="badge badge-{{ c.status }}">
+            {% if c.status == 'sending' %}<i class="fas fa-spinner fa-spin"></i> {% endif %}
+            {{ c.status.title() }}
+          </span>
+        </td>
+        <td>{{ c.created_at.strftime('%b %d, %Y') }}</td>
+        <td>{{ c.sent_at.strftime('%b %d, %Y %H:%M') if c.sent_at else '—' }}</td>
+        <td>
+          <a href="/campaigns/{{ c.id }}" class="btn btn-outline btn-sm">
+            <i class="fas fa-chart-bar"></i> View
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <i class="fas fa-paper-plane"></i>
+    <h3>No campaigns yet</h3>
+    <p style="margin:8px 0 20px;">Create your first campaign to start sending emails to your customers.</p>
+    <a href="/campaigns/new" class="btn btn-primary">Create First Campaign</a>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

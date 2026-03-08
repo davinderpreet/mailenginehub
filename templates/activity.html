@@ -1,0 +1,524 @@
+{% extends "base.html" %}
+{% block title %}Live Activity — MailEngineHub{% endblock %}
+{% block page_title %}Live Activity{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Stat cards ─────────────────────────────── */
+  .activity-stats {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 1200px) { .activity-stats { grid-template-columns: repeat(3, 1fr); } }
+
+  .act-stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    position: relative; overflow: hidden;
+  }
+  .act-stat::before {
+    content: ''; position: absolute; top: -30px; right: -30px;
+    width: 80px; height: 80px; border-radius: 50%; opacity: 0.12;
+  }
+  .act-stat.purple::before { background: var(--purple); }
+  .act-stat.cyan::before   { background: var(--cyan); }
+  .act-stat.green::before  { background: var(--green); }
+  .act-stat.amber::before  { background: var(--amber); }
+  .act-stat.red::before    { background: var(--red); }
+  .act-stat.pink::before   { background: var(--pink); }
+  .act-stat .val {
+    font-size: 26px; font-weight: 800; line-height: 1;
+    margin-bottom: 4px; position: relative; z-index: 1;
+  }
+  .act-stat.purple .val { color: var(--purple2); }
+  .act-stat.cyan .val   { color: var(--cyan); }
+  .act-stat.green .val  { color: var(--green); }
+  .act-stat.amber .val  { color: var(--amber); }
+  .act-stat.red .val    { color: var(--red); }
+  .act-stat.pink .val   { color: var(--pink); }
+  .act-stat .lbl {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--text3); position: relative; z-index: 1;
+  }
+
+  /* ── Controls row ───────────────────────────── */
+  .controls-row {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .filter-pill {
+    padding: 6px 14px; border-radius: 20px; font-size: 12.5px; font-weight: 600;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text2); text-decoration: none; cursor: pointer;
+    transition: all .15s;
+  }
+  .filter-pill:hover, .filter-pill.active {
+    background: rgba(124,58,237,0.15); border-color: rgba(124,58,237,0.35);
+    color: var(--purple2);
+  }
+  .sync-btn {
+    margin-left: auto;
+    padding: 8px 18px; border-radius: 20px; font-size: 12.5px; font-weight: 700;
+    background: linear-gradient(135deg, var(--purple), var(--cyan));
+    color: #fff; border: none; cursor: pointer;
+    display: flex; align-items: center; gap: 7px;
+    transition: opacity .15s;
+  }
+  .sync-btn:hover { opacity: 0.85; }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse-green 2s ease-in-out infinite;
+    display: inline-block; margin-right: 6px;
+  }
+  @keyframes pulse-green {
+    0%, 100% { opacity: 1; box-shadow: 0 0 8px var(--green); }
+    50% { opacity: 0.5; box-shadow: 0 0 3px var(--green); }
+  }
+
+  /* ── Activity feed ──────────────────────────── */
+  .feed-wrap { }
+  .feed-item {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.035);
+    transition: background .12s;
+    animation: slide-in .3s ease-out;
+  }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .feed-item:hover { background: rgba(255,255,255,0.025); }
+  .feed-item:last-child { border-bottom: none; }
+
+  .feed-icon {
+    width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+  }
+  .feed-icon.started_checkout  { background: rgba(245,158,11,0.12);  color: var(--amber); }
+  .feed-icon.abandoned_checkout{ background: rgba(239,68,68,0.12);   color: var(--red); }
+  .feed-icon.completed_checkout{ background: rgba(16,185,129,0.12);  color: var(--green); }
+  .feed-icon.placed_order      { background: rgba(16,185,129,0.12);  color: var(--green); }
+  .feed-icon.viewed_product    { background: rgba(6,182,212,0.12);   color: var(--cyan); }
+  .feed-icon.viewed_page       { background: rgba(124,58,237,0.12);  color: var(--purple2); }
+  .feed-icon.email_activity    { background: rgba(236,72,153,0.12);  color: var(--pink); }
+  .feed-icon.pixel_event       { background: rgba(124,58,237,0.12);  color: var(--purple2); }
+  .feed-icon.viewed_blog       { background: rgba(6,182,212,0.12);   color: var(--cyan); }
+  .feed-icon.viewed_collection { background: rgba(124,58,237,0.12);  color: var(--purple2); }
+  .feed-icon.searched          { background: rgba(245,158,11,0.12);  color: var(--amber); }
+  .feed-icon.viewed_cart       { background: rgba(245,158,11,0.12);  color: var(--amber); }
+
+  .feed-body { flex: 1; min-width: 0; }
+  .feed-main {
+    font-size: 13.5px; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: 3px;
+  }
+  .feed-main .name { font-weight: 700; color: var(--text); }
+  .feed-main .action { color: var(--text2); }
+  .feed-main .highlight { color: var(--cyan); font-weight: 600; }
+  .feed-main .order-highlight { color: var(--green); font-weight: 700; }
+  .feed-meta {
+    font-size: 11.5px; color: var(--text3);
+    display: flex; gap: 10px; align-items: center;
+  }
+  .source-badge {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.6px; padding: 2px 7px; border-radius: 5px;
+  }
+  .source-badge.shopify_checkout { background: rgba(16,185,129,0.12); color: var(--green); }
+  .source-badge.shopify_order    { background: rgba(16,185,129,0.12); color: var(--green); }
+  .source-badge.omnisend         { background: rgba(124,58,237,0.12); color: var(--purple2); }
+  .source-badge.pixel            { background: rgba(6,182,212,0.12);  color: var(--cyan); }
+
+  .feed-time {
+    flex-shrink: 0; font-size: 11.5px; color: var(--text3);
+    text-align: right; min-width: 80px;
+  }
+
+  /* ── Pixel snippet box ──────────────────────── */
+  .pixel-box {
+    background: rgba(6,182,212,0.06);
+    border: 1px solid rgba(6,182,212,0.2);
+    border-radius: 14px; padding: 20px 22px; margin-top: 24px;
+  }
+  .pixel-box .px-title {
+    font-size: 13px; font-weight: 700; color: var(--cyan);
+    margin-bottom: 6px; display: flex; align-items: center; gap: 8px;
+  }
+  .pixel-box .px-desc {
+    font-size: 12px; color: var(--text2); margin-bottom: 14px; line-height: 1.6;
+  }
+  .code-block {
+    background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px; padding: 14px 16px; font-family: monospace;
+    font-size: 11.5px; color: #a5f3fc; line-height: 1.7;
+    overflow-x: auto; max-height: 200px; overflow-y: auto;
+    white-space: pre;
+    position: relative;
+  }
+  .copy-btn {
+    position: absolute; top: 10px; right: 10px;
+    padding: 5px 12px; background: rgba(6,182,212,0.2); border: 1px solid rgba(6,182,212,0.3);
+    border-radius: 7px; color: var(--cyan); font-size: 11px; font-weight: 700;
+    cursor: pointer; transition: background .15s;
+  }
+  .copy-btn:hover { background: rgba(6,182,212,0.35); }
+
+  .empty-state-feed {
+    text-align: center; padding: 60px 20px; color: var(--text3);
+  }
+  .empty-state-feed i { font-size: 40px; margin-bottom: 16px; opacity: 0.3; }
+  .empty-state-feed h3 { font-size: 17px; color: var(--text2); margin-bottom: 8px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Header ───────────────────────────────────────────────── -->
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:24px;">
+  <div>
+    <h1 style="font-size:24px; font-weight:800; color:var(--text); margin:0;">
+      <span class="live-dot"></span>Live Activity
+    </h1>
+    <p style="font-size:13px; color:var(--text3); margin:4px 0 0;">
+      Real-time customer behaviour across your store
+    </p>
+  </div>
+  <button class="sync-btn" onclick="triggerSync(this)">
+    <i class="fas fa-sync-alt"></i> Sync Now
+  </button>
+</div>
+
+<!-- ── Stats Row ────────────────────────────────────────────── -->
+<div class="activity-stats">
+  <div class="act-stat purple">
+    <div class="val">{{ total_events|default(0) }}</div>
+    <div class="lbl">Total Events</div>
+  </div>
+  <div class="act-stat cyan">
+    <div class="val">{{ today_events|default(0) }}</div>
+    <div class="lbl">Today</div>
+  </div>
+  <div class="act-stat green">
+    <div class="val">{{ placed_orders|default(0) }}</div>
+    <div class="lbl">Orders</div>
+  </div>
+  <div class="act-stat amber">
+    <div class="val">{{ checkouts_done|default(0) }}</div>
+    <div class="lbl">Checkouts</div>
+  </div>
+  <div class="act-stat red">
+    <div class="val">{{ abandoned|default(0) }}</div>
+    <div class="lbl">Abandoned</div>
+  </div>
+  <div class="act-stat pink">
+    <div class="val">{{ week_events|default(0) }}</div>
+    <div class="lbl">This Week</div>
+  </div>
+</div>
+
+<!-- ── Filter Pills ─────────────────────────────────────────── -->
+<div class="controls-row">
+  <a href="/activity" class="filter-pill {% if not event_filter %}active{% endif %}">All Events</a>
+  <a href="/activity?type=placed_order"       class="filter-pill {% if event_filter=='placed_order' %}active{% endif %}">
+    <i class="fas fa-shopping-bag" style="margin-right:5px; color:var(--green);"></i>Orders
+  </a>
+  <a href="/activity?type=abandoned_checkout" class="filter-pill {% if event_filter=='abandoned_checkout' %}active{% endif %}">
+    <i class="fas fa-cart-xmark" style="margin-right:5px; color:var(--red);"></i>Abandoned
+  </a>
+  <a href="/activity?type=completed_checkout" class="filter-pill {% if event_filter=='completed_checkout' %}active{% endif %}">
+    <i class="fas fa-check-circle" style="margin-right:5px; color:var(--green);"></i>Completed
+  </a>
+  <a href="/activity?type=viewed_product"     class="filter-pill {% if event_filter=='viewed_product' %}active{% endif %}">
+    <i class="fas fa-eye" style="margin-right:5px; color:var(--cyan);"></i>Products
+  </a>
+  <a href="/activity?type=email_activity"     class="filter-pill {% if event_filter=='email_activity' %}active{% endif %}">
+    <i class="fas fa-envelope" style="margin-right:5px; color:var(--pink);"></i>Email
+  </a>
+  <a href="/activity?type=viewed_blog"        class="filter-pill {% if event_filter=='viewed_blog' %}active{% endif %}">
+    <i class="fas fa-book-open" style="margin-right:5px; color:var(--cyan);"></i>Blog
+  </a>
+  <a href="/activity?type=searched"           class="filter-pill {% if event_filter=='searched' %}active{% endif %}">
+    <i class="fas fa-magnifying-glass" style="margin-right:5px; color:var(--amber);"></i>Search
+  </a>
+</div>
+
+<!-- ── Live Feed ─────────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Activity Feed</span>
+    <span id="feed-count" style="font-size:12px; color:var(--text3);">
+      {{ feed|length }} events
+    </span>
+  </div>
+  <div class="feed-wrap" id="feed-container">
+    {% if feed %}
+      {% for item in feed %}
+      <div class="feed-item" data-id="{{ item.id }}">
+        <!-- Icon -->
+        <div class="feed-icon {{ item.event_type }}">
+          {% if item.event_type == 'placed_order' %}
+            <i class="fas fa-bag-shopping"></i>
+          {% elif item.event_type == 'abandoned_checkout' %}
+            <i class="fas fa-cart-arrow-down"></i>
+          {% elif item.event_type == 'completed_checkout' %}
+            <i class="fas fa-check-circle"></i>
+          {% elif item.event_type == 'viewed_product' %}
+            <i class="fas fa-eye"></i>
+          {% elif item.event_type == 'viewed_page' %}
+            <i class="fas fa-globe"></i>
+          {% elif item.event_type == 'email_activity' %}
+            <i class="fas fa-envelope"></i>
+          {% elif item.event_type == 'started_checkout' %}
+            <i class="fas fa-cart-plus"></i>
+          {% else %}
+            <i class="fas fa-bolt"></i>
+          {% endif %}
+        </div>
+
+        <!-- Body -->
+        <div class="feed-body">
+          <div class="feed-main">
+            <a href="/profiles/{{ item.event_data.get('contact_id', '') or '' }}"
+               style="color:var(--purple2); font-weight:700; text-decoration:none;">{{ item.name }}</a>
+
+            {% if item.event_type == 'placed_order' %}
+              <span class="action"> placed an order </span>
+              <span class="order-highlight">${{ "%.2f"|format(item.event_data.get('order_total', 0)) }} {{ item.event_data.get('currency', 'CAD') }}</span>
+              {% if item.event_data.get('discount') and item.event_data.get('discount') > 0 %}
+                <span style="color:var(--green); font-size:11.5px;"> · -${{ "%.2f"|format(item.event_data.get('discount', 0)) }} off</span>
+              {% endif %}
+
+            {% elif item.event_type == 'abandoned_checkout' %}
+              <span class="action"> abandoned checkout</span>
+              {% if item.event_data.get('products') %}
+                <span style="color:var(--text3); font-size:12px;"> — {{ item.event_data.get('products', [])|join(', ')|truncate(60) }}</span>
+              {% endif %}
+              {% if item.event_data.get('total') and item.event_data.get('total') > 0 %}
+                <span style="color:var(--amber); font-weight:600;"> (${{ "%.2f"|format(item.event_data.get('total', 0)) }})</span>
+              {% endif %}
+
+            {% elif item.event_type == 'completed_checkout' %}
+              <span class="action"> completed checkout</span>
+              {% if item.event_data.get('total') and item.event_data.get('total') > 0 %}
+                <span class="order-highlight"> ${{ "%.2f"|format(item.event_data.get('total', 0)) }}</span>
+              {% endif %}
+
+            {% elif item.event_type == 'viewed_product' %}
+              <span class="action"> viewed </span>
+              <span class="highlight">{{ item.event_data.get('product_title', 'a product') }}</span>
+
+            {% elif item.event_type == 'viewed_page' %}
+              <span class="action"> viewed page: </span>
+              <span style="color:var(--text2);">{{ item.event_data.get('page_title', item.event_data.get('url', '')) | truncate(60) }}</span>
+
+            {% elif item.event_type == 'email_activity' %}
+              <span class="action"> has email activity</span>
+              {% if item.event_data.get('status') %}
+                <span style="color:var(--text3); font-size:12px;"> · {{ item.event_data.get('status') }}</span>
+              {% endif %}
+
+            {% elif item.event_type == 'started_checkout' %}
+              <span class="action"> started checkout</span>
+
+            {% else %}
+              <span class="action"> · {{ item.event_type|replace('_', ' ')|title }}</span>
+            {% endif %}
+          </div>
+          <div class="feed-meta">
+            <span class="source-badge {{ item.source }}">{{ item.source|replace('_', ' ') }}</span>
+            <span>{{ item.email }}</span>
+          </div>
+        </div>
+
+        <!-- Time -->
+        <div class="feed-time">
+          {{ item.occurred_at.strftime('%b %d') if item.occurred_at else '—' }}<br>
+          <span style="font-size:11px;">{{ item.occurred_at.strftime('%H:%M') if item.occurred_at else '' }}</span>
+        </div>
+      </div>
+      {% endfor %}
+
+    {% else %}
+      <div class="empty-state-feed">
+        <i class="fas fa-satellite-dish"></i>
+        <h3>No activity yet</h3>
+        <p>Click <strong>Sync Now</strong> to pull historical data from Shopify & Omnisend</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Tracking Pixel Setup ──────────────────────────────────── -->
+<div class="pixel-box" style="margin-top:24px;">
+  <div class="px-title">
+    <i class="fas fa-code"></i> Tracking Pixel — Install on Your Shopify Store
+  </div>
+  <div class="px-desc">
+    Paste this snippet into your Shopify theme's <code style="color:var(--cyan);">theme.liquid</code> just before <code style="color:var(--cyan);">&lt;/body&gt;</code> to track real-time product views and page visits.
+  </div>
+  <div style="position:relative;">
+    <div class="code-block" id="pixel-code">
+&lt;!-- MailEngineHub Tracking Pixel v2 --&gt;
+&lt;!-- Step 1: Add this ABOVE the pixel in theme.liquid (identifies logged-in customers): --&gt;
+&lt;!-- {% if customer %}&lt;script&gt;window.meh_email='{{ customer.email }}';&lt;/script&gt;{% endif %} --&gt;
+&lt;script&gt;
+(function() {
+  var ENDPOINT = 'https://mailenginehub.com/api/track';
+  var sid = localStorage.getItem('meh_sid') || Math.random().toString(36).substr(2,9);
+  localStorage.setItem('meh_sid', sid);
+
+  // Email ID: Liquid injection &gt; URL param ?meh_e= &gt; localStorage &gt; anonymous
+  var email = window.meh_email || '';
+  if (!email) {
+    var urlEmail = new URLSearchParams(window.location.search).get('meh_e');
+    if (urlEmail) { email = urlEmail; localStorage.setItem('meh_email', decodeURIComponent(urlEmail)); }
+  }
+  if (!email) email = localStorage.getItem('meh_email') || '';
+
+  function track(type, data) {
+    var payload = { event_type: type, event_data: data, session_id: sid };
+    if (email) payload.email = email;
+    fetch(ENDPOINT, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) }).catch(function(){});
+  }
+
+  var meta = (window.ShopifyAnalytics &amp;&amp; window.ShopifyAnalytics.meta) || {};
+
+  track('viewed_page', { url: location.pathname, page_title: document.title });
+
+  if (meta.product)    track('viewed_product',    { product_id: String(meta.product.id), product_title: meta.product.title, url: location.pathname });
+  if (meta.article)    track('viewed_blog',        { article_id: String(meta.article.id||''), article_title: meta.article.title||document.title, blog_title: (meta.blog&amp;&amp;meta.blog.title)||'', url: location.pathname });
+  if (meta.collection) track('viewed_collection',  { collection_id: String(meta.collection.id), collection_title: meta.collection.title, url: location.pathname });
+
+  var sq = new URLSearchParams(location.search).get('q');
+  if (sq &amp;&amp; location.pathname.indexOf('/search') !== -1) track('searched', { query: sq, url: location.pathname });
+  if (location.pathname === '/cart') track('viewed_cart', { url: location.pathname });
+})();
+&lt;/script&gt;</div>
+    <button class="copy-btn" onclick="copyPixel()">Copy</button>
+  </div>
+  <p style="font-size:11.5px; color:var(--text3); margin-top:10px;">
+    <i class="fas fa-info-circle" style="color:var(--cyan);"></i>
+    Tracks: product views, blog reads, searches, cart visits, page views. Customers are auto-identified when logged in (via Liquid) or when clicking from an email link (via <code style="color:var(--cyan);">?meh_e=EMAIL</code>).
+  </p>
+</div>
+
+<script>
+// ── Sync trigger ────────────────────────────────────────
+function triggerSync(btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing...';
+  fetch('/activity/sync', { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'} })
+    .then(r => r.json())
+    .then(d => {
+      btn.innerHTML = '<i class="fas fa-check"></i> Started!';
+      setTimeout(() => { window.location.reload(); }, 5000);
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-sync-alt"></i> Sync Now';
+    });
+}
+
+// ── Copy pixel snippet ──────────────────────────────────
+function copyPixel() {
+  const code = document.getElementById('pixel-code').innerText;
+  navigator.clipboard.writeText(code).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 2000);
+  });
+}
+
+// ── Auto-refresh every 30s (newest events) ─────────────
+let maxId = {{ (feed[0].id if feed else 0) }};
+
+setInterval(function() {
+  fetch('/api/activity/feed?since_id=' + maxId + '&limit=10')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.items || data.items.length === 0) return;
+      const container = document.getElementById('feed-container');
+      const typeFilter = '{{ event_filter }}';
+
+      data.items.forEach(item => {
+        if (item.id <= maxId) return;
+        maxId = Math.max(maxId, item.id);
+
+        const el = buildFeedItem(item);
+        const first = container.querySelector('.feed-item');
+        if (first) container.insertBefore(el, first);
+        else container.appendChild(el);
+      });
+    })
+    .catch(() => {});
+}, 30000);
+
+function buildFeedItem(item) {
+  const icons = {
+    placed_order:        'fa-bag-shopping',
+    abandoned_checkout:  'fa-cart-arrow-down',
+    completed_checkout:  'fa-check-circle',
+    viewed_product:      'fa-eye',
+    viewed_blog:         'fa-book-open',
+    viewed_collection:   'fa-layer-group',
+    searched:            'fa-magnifying-glass',
+    viewed_cart:         'fa-cart-shopping',
+    viewed_page:         'fa-globe',
+    email_activity:      'fa-envelope',
+    started_checkout:    'fa-cart-plus',
+  };
+  const icon = icons[item.event_type] || 'fa-bolt';
+  const dt = item.occurred_at ? new Date(item.occurred_at) : new Date();
+  const timeStr = dt.toLocaleString('en-US', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+
+  let actionHtml = '';
+  if (item.event_type === 'placed_order') {
+    actionHtml = ` placed an order <span style="color:var(--green);font-weight:700;">$${parseFloat(item.event_data.order_total||0).toFixed(2)}</span>`;
+  } else if (item.event_type === 'abandoned_checkout') {
+    actionHtml = ` abandoned checkout` + (item.event_data.total > 0 ? ` <span style="color:var(--amber)">(${parseFloat(item.event_data.total).toFixed(2)})</span>` : '');
+  } else if (item.event_type === 'viewed_product') {
+    actionHtml = ` viewed <span style="color:var(--cyan)">${item.event_data.product_title||'a product'}</span>`;
+  } else if (item.event_type === 'viewed_blog') {
+    actionHtml = ` read blog: <span style="color:var(--cyan)">${item.event_data.article_title||'an article'}</span>`;
+  } else if (item.event_type === 'viewed_collection') {
+    actionHtml = ` browsed <span style="color:var(--purple2)">${item.event_data.collection_title||'a collection'}</span>`;
+  } else if (item.event_type === 'searched') {
+    actionHtml = ` searched for <span style="color:var(--amber)">"${item.event_data.query||''}"</span>`;
+  } else if (item.event_type === 'viewed_cart') {
+    actionHtml = ` <span style="color:var(--amber)">viewed cart</span>`;
+  } else if (item.event_type === 'viewed_page') {
+    actionHtml = ` viewed page: ${(item.event_data.page_title||item.event_data.url||'').substring(0,50)}`;
+  } else {
+    actionHtml = ` · ${item.event_type.replace(/_/g,' ')}`;
+  }
+
+  const div = document.createElement('div');
+  div.className = 'feed-item';
+  div.setAttribute('data-id', item.id);
+  div.innerHTML = `
+    <div class="feed-icon ${item.event_type}"><i class="fas ${icon}"></i></div>
+    <div class="feed-body">
+      <div class="feed-main">
+        <span style="color:var(--purple2);font-weight:700;">${item.name}</span>
+        <span style="color:var(--text2);">${actionHtml}</span>
+      </div>
+      <div class="feed-meta">
+        <span class="source-badge ${item.source}">${item.source.replace(/_/g,' ')}</span>
+        <span>${item.email}</span>
+      </div>
+    </div>
+    <div class="feed-time">${timeStr}</div>
+  `;
+  return div;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,41 @@
+# Secrets
+.env
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+*.log.*
+watchdog_log.txt
+watchdog_start.log
+
+# Runtime
+gunicorn.ctl
+*.pid
+*.sock
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

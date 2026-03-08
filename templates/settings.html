@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Settings — MailEngine{% endblock %}
+{% block page_title %}Settings & API Keys{% endblock %}
+
+{% block content %}
+<div style="max-width:720px;">
+
+  <!-- Amazon SES -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Amazon SES — Email Sending</div>
+        <div style="color:#64748b;font-size:13px;margin-top:2px;">$0.10 per 1,000 emails sent</div>
+      </div>
+      {% if config.aws_access_key %}
+        <span class="badge badge-sent"><i class="fas fa-check"></i> Connected</span>
+      {% else %}
+        <span class="badge badge-draft">Not configured</span>
+      {% endif %}
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;font-size:13px;color:var(--text2);">
+      <strong style="color:var(--text);">How to set up Amazon SES:</strong>
+      <ol style="margin:8px 0 0 16px;line-height:2;">
+        <li>Create a free AWS account at <strong style="color:var(--text);">aws.amazon.com</strong></li>
+        <li>Go to SES → Verified Identities → Verify your sending email</li>
+        <li>Create IAM user with <code style="color:var(--purple2);">AmazonSESFullAccess</code> permission</li>
+        <li>Copy the Access Key ID and Secret Access Key below</li>
+        <li>Request to exit "sandbox mode" so you can email any address</li>
+      </ol>
+    </div>
+
+    <table style="width:100%;margin-bottom:20px;">
+      <tr>
+        <td style="padding:10px 0;color:var(--text2);font-size:13px;width:40%;">AWS Region</td>
+        <td style="font-size:14px;color:var(--text);">{{ config.aws_region or '❌ Not set (add to .env)' }}</td>
+      </tr>
+      <tr style="border-top:1px solid var(--border);">
+        <td style="padding:10px 0;color:var(--text2);font-size:13px;">Access Key</td>
+        <td style="font-size:14px;color:var(--text);">{{ config.aws_access_key or '❌ Not set (add to .env)' }}</td>
+      </tr>
+      <tr style="border-top:1px solid var(--border);">
+        <td style="padding:10px 0;color:var(--text2);font-size:13px;">Default From Email</td>
+        <td style="font-size:14px;color:var(--text);">{{ config.from_email or '❌ Not set (add to .env)' }}</td>
+      </tr>
+    </table>
+
+    <div style="background:#0f172a;border-radius:8px;padding:16px;margin-bottom:20px;font-family:monospace;font-size:13px;color:#e2e8f0;">
+      <div style="color:#64748b;margin-bottom:8px;"># Add these to your .env file:</div>
+      <div style="color:#4ade80;">AWS_ACCESS_KEY_ID=your_key_here</div>
+      <div style="color:#4ade80;">AWS_SECRET_ACCESS_KEY=your_secret_here</div>
+      <div style="color:#4ade80;">AWS_REGION=us-east-1</div>
+      <div style="color:#4ade80;">DEFAULT_FROM_EMAIL=you@yourdomain.com</div>
+    </div>
+
+    <form method="post" action="/settings/test-ses" style="display:flex;gap:10px;">
+      <input type="email" name="test_email" placeholder="your@email.com — send test email to this address" required style="flex:1;">
+      <button type="submit" class="btn btn-primary">
+        <i class="fas fa-vial"></i> Test SES Connection
+      </button>
+    </form>
+  </div>
+
+  <!-- Shopify -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title"><i class="fab fa-shopify" style="color:#22c55e;"></i> Shopify Integration</div>
+        <div style="color:#64748b;font-size:13px;margin-top:2px;">Sync customers automatically</div>
+      </div>
+      {% if config.shopify_token_set %}
+        <span class="badge badge-sent"><i class="fas fa-check"></i> Configured</span>
+      {% else %}
+        <span class="badge badge-draft">Not configured</span>
+      {% endif %}
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;font-size:13px;color:var(--text2);">
+      <strong style="color:var(--text);">How to get your Shopify API token:</strong>
+      <ol style="margin:8px 0 0 16px;line-height:2;">
+        <li>In Shopify Admin → Apps → Develop apps</li>
+        <li>Create a new app → Set API scopes: <code style="color:var(--purple2);">read_customers</code></li>
+        <li>Install the app → Copy the Admin API access token</li>
+      </ol>
+    </div>
+
+    <table style="width:100%;margin-bottom:20px;">
+      <tr>
+        <td style="padding:10px 0;color:var(--text2);font-size:13px;width:40%;">Store URL</td>
+        <td style="font-size:14px;color:var(--text);">{{ config.shopify_store or '❌ Not set (add to .env)' }}</td>
+      </tr>
+      <tr style="border-top:1px solid var(--border);">
+        <td style="padding:10px 0;color:var(--text2);font-size:13px;">Access Token</td>
+        <td style="font-size:14px;color:var(--text);">{{ '✅ Configured' if config.shopify_token_set else '❌ Not set' }}</td>
+      </tr>
+    </table>
+
+    <div style="background:#0f172a;border-radius:8px;padding:16px;font-family:monospace;font-size:13px;color:#e2e8f0;">
+      <div style="color:#64748b;margin-bottom:8px;"># Add these to your .env file:</div>
+      <div style="color:#4ade80;">SHOPIFY_STORE_URL=https://your-store.myshopify.com</div>
+      <div style="color:#4ade80;">SHOPIFY_ACCESS_TOKEN=shpat_xxxxxxxxxxxxx</div>
+    </div>
+  </div>
+
+  <!-- .env reminder -->
+  <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:12px;padding:20px 24px;">
+    <h3 style="color:var(--amber);font-size:14px;margin-bottom:8px;"><i class="fas fa-file-alt"></i> Your .env file location</h3>
+    <p style="color:var(--text2);font-size:13px;">
+      Edit the <code style="background:rgba(245,158,11,0.12);color:var(--amber);padding:2px 6px;border-radius:4px;">.env</code> file
+      in the <code style="color:var(--text2);">email-platform/</code> folder to add your API keys.
+      The platform will pick them up automatically when you restart it.
+    </p>
+  </div>
+
+</div>
+{% endblock %}

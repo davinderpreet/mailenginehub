@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — MailEngine{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block topbar_actions %}
+  <a href="/campaigns/new" class="btn btn-primary">
+    <i class="fas fa-plus"></i> New Campaign
+  </a>
+{% endblock %}
+
+{% block content %}
+
+<div class="stats-grid">
+  <div class="stat-card purple">
+    <div class="stat-icon"><i class="fas fa-users"></i></div>
+    <div class="stat-value">{{ "{:,}".format(total_contacts) }}</div>
+    <div class="stat-label">Total Contacts</div>
+  </div>
+  <div class="stat-card cyan">
+    <div class="stat-icon"><i class="fas fa-paper-plane"></i></div>
+    <div class="stat-value">{{ "{:,}".format(total_campaigns) }}</div>
+    <div class="stat-label">Campaigns</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-icon"><i class="fas fa-envelope"></i></div>
+    <div class="stat-value">{{ "{:,}".format(total_sent) }}</div>
+    <div class="stat-label">Emails Sent</div>
+  </div>
+  <div class="stat-card pink">
+    <div class="stat-icon"><i class="fas fa-eye"></i></div>
+    <div class="stat-value">{{ open_rate }}%</div>
+    <div class="stat-label">Avg. Open Rate</div>
+  </div>
+</div>
+
+<div class="two-col">
+  <!-- Recent Campaigns -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Recent Campaigns</span>
+      <a href="/campaigns" class="btn btn-outline btn-sm">View All</a>
+    </div>
+    {% if recent_campaigns %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Campaign</th>
+          <th>Status</th>
+          <th>Date</th>
+        </tr></thead>
+        <tbody>
+        {% for c in recent_campaigns %}
+        <tr>
+          <td><a href="/campaigns/{{ c.id }}" style="color:var(--purple2);text-decoration:none;font-weight:600;">{{ c.name }}</a></td>
+          <td><span class="badge badge-{{ c.status }}">{{ c.status.title() }}</span></td>
+          <td>{{ c.created_at.strftime('%b %d, %Y') }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding:40px;">
+      <i class="fas fa-paper-plane" style="font-size:32px;"></i>
+      <h3>No campaigns yet</h3>
+      <p style="margin:8px 0 16px;font-size:14px;">Create your first campaign to start sending</p>
+      <a href="/campaigns/new" class="btn btn-primary btn-sm">Create Campaign</a>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Quick Actions -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Quick Actions</span>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <a href="/contacts/sync-shopify" onclick="return confirm('Sync all customers from Shopify?')"
+         style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--surface);border-radius:12px;text-decoration:none;border:1px solid var(--border);transition:all .2s;">
+        <div style="width:38px;height:38px;background:rgba(16,185,129,0.12);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">🛍️</div>
+        <div style="min-width:0;">
+          <div style="font-weight:600;color:var(--text);font-size:13.5px;">Sync Shopify Customers</div>
+          <div style="color:var(--text2);font-size:12px;">Pull latest customers into contacts</div>
+        </div>
+        <i class="fas fa-chevron-right" style="margin-left:auto;color:var(--text3);font-size:12px;"></i>
+      </a>
+
+      <a href="/contacts" style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--surface);border-radius:12px;text-decoration:none;border:1px solid var(--border);transition:all .2s;">
+        <div style="width:38px;height:38px;background:rgba(6,182,212,0.12);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">📋</div>
+        <div style="min-width:0;">
+          <div style="font-weight:600;color:var(--text);font-size:13.5px;">Import CSV Contacts</div>
+          <div style="color:var(--text2);font-size:12px;">Upload a CSV file of email addresses</div>
+        </div>
+        <i class="fas fa-chevron-right" style="margin-left:auto;color:var(--text3);font-size:12px;"></i>
+      </a>
+
+      <a href="/templates/new" style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--surface);border-radius:12px;text-decoration:none;border:1px solid var(--border);transition:all .2s;">
+        <div style="width:38px;height:38px;background:rgba(124,58,237,0.12);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">🎨</div>
+        <div style="min-width:0;">
+          <div style="font-weight:600;color:var(--text);font-size:13.5px;">Create Email Template</div>
+          <div style="color:var(--text2);font-size:12px;">Design reusable email templates</div>
+        </div>
+        <i class="fas fa-chevron-right" style="margin-left:auto;color:var(--text3);font-size:12px;"></i>
+      </a>
+
+      <a href="/settings" style="display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--surface);border-radius:12px;text-decoration:none;border:1px solid var(--border);transition:all .2s;">
+        <div style="width:38px;height:38px;background:rgba(245,158,11,0.12);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">⚙️</div>
+        <div style="min-width:0;">
+          <div style="font-weight:600;color:var(--text);font-size:13.5px;">Connect Amazon SES</div>
+          <div style="color:var(--text2);font-size:12px;">Configure your sending credentials</div>
+        </div>
+        <i class="fas fa-chevron-right" style="margin-left:auto;color:var(--text3);font-size:12px;"></i>
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- Deliverability Health Widget -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;gap:24px;backdrop-filter:blur(20px);">
+  {% set circ = 251.2 %}
+  {% set offset = circ - (warmup_health / 100 * circ) %}
+  <div style="position:relative;width:72px;height:72px;flex-shrink:0;">
+    <svg width="72" height="72" viewBox="0 0 96 96" style="transform:rotate(-90deg);">
+      <circle cx="48" cy="48" r="40" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="10"/>
+      <circle cx="48" cy="48" r="40" fill="none" stroke="{{ warmup_color }}" stroke-width="10"
+              stroke-linecap="round"
+              stroke-dasharray="{{ circ }}" stroke-dashoffset="{{ offset }}"/>
+    </svg>
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                font-size:20px;font-weight:900;color:{{ warmup_color }};">{{ warmup_health }}</div>
+  </div>
+  <div style="flex:1;">
+    <div style="font-size:15px;font-weight:700;color:var(--text);">Deliverability Health Score</div>
+    <div style="font-size:13px;color:var(--text2);margin-top:2px;">
+      {% if warmup_config.is_active %}
+        Warmup active — Phase {{ warmup_config.current_phase }}
+        ({{ warmup_phases[warmup_config.current_phase]['label'] }},
+        {{ warmup_config.emails_sent_today }}/{{ warmup_phases[warmup_config.current_phase]['daily_limit']|int|string }} sent today)
+      {% else %}
+        Warmup not active — enable it before your first send
+      {% endif %}
+    </div>
+    {% set done_count = [warmup_config.check_spf, warmup_config.check_dkim, warmup_config.check_dmarc, warmup_config.check_sandbox, warmup_config.check_list_cleaned, warmup_config.check_subdomain]|select|list|length %}
+    <div style="font-size:12px;color:var(--text3);margin-top:4px;">Checklist: {{ done_count }}/6 items complete</div>
+  </div>
+  <a href="/warmup" class="btn btn-outline btn-sm" style="flex-shrink:0;">
+    <i class="fas fa-fire"></i> View Full Dashboard
+  </a>
+</div>
+
+<!-- Cost Savings Banner -->
+<div style="background:linear-gradient(135deg,rgba(124,58,237,0.15),rgba(6,182,212,0.1));border:1px solid rgba(124,58,237,0.25);border-radius:16px;padding:28px 32px;display:flex;align-items:center;gap:32px;position:relative;overflow:hidden;">
+  <div style="position:absolute;top:-40px;right:-40px;width:160px;height:160px;background:radial-gradient(circle,rgba(124,58,237,0.2),transparent 70%);border-radius:50%;"></div>
+  <div style="font-size:44px;">💰</div>
+  <div>
+    <h3 style="color:var(--text);font-size:17px;font-weight:700;margin-bottom:6px;">Your Estimated Savings vs. Klaviyo</h3>
+    <p style="color:var(--text2);font-size:13.5px;">
+      Klaviyo charges ~<strong style="color:var(--red);">$700+/month</strong> for 100k contacts.
+      With Amazon SES + this platform, sending 100k emails costs just
+      <strong style="color:var(--green);">$10</strong>.
+    </p>
+  </div>
+  <div style="margin-left:auto;text-align:right;position:relative;">
+    <div class="grad-text" style="font-size:36px;font-weight:800;">{{ "{:,}".format(total_contacts * 7) }}</div>
+    <div style="color:var(--text3);font-size:13px;margin-top:2px;">Est. annual $ saved</div>
+  </div>
+</div>
+
+{% endblock %}

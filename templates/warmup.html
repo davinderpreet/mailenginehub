@@ -1,0 +1,472 @@
+{% extends "base.html" %}
+{% block title %}Deliverability & Warmup — MailEngine{% endblock %}
+{% block page_title %}Deliverability & Warmup{% endblock %}
+
+{% block topbar_actions %}
+  <form method="POST" action="/warmup/toggle" style="display:inline;">
+    {% if config.is_active %}
+      <button type="submit" class="btn btn-outline">
+        <i class="fas fa-pause"></i> Pause Warmup
+      </button>
+    {% else %}
+      <button type="submit" class="btn btn-success">
+        <i class="fas fa-fire"></i> Enable Warmup Mode
+      </button>
+    {% endif %}
+  </form>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Health Score Ring ── */
+  .health-ring-wrap {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px;
+  }
+  .health-ring {
+    position: relative; width: 96px; height: 96px;
+  }
+  .health-ring svg { transform: rotate(-90deg); }
+  .health-ring .ring-bg   { fill: none; stroke: rgba(255,255,255,0.08); stroke-width: 10; }
+  .health-ring .ring-fill { fill: none; stroke-width: 10; stroke-linecap: round;
+                             transition: stroke-dashoffset .6s ease; }
+  .health-number {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 26px; font-weight: 900; line-height: 1;
+  }
+
+  /* ── Phase Stepper ── */
+  .phase-stepper {
+    display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px;
+    margin-bottom: 8px;
+  }
+  .phase-step {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+  }
+  .phase-step-dot {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; border: 2px solid transparent;
+  }
+  .phase-step-dot.done    { background: rgba(16,185,129,0.15); color: var(--green); border-color: var(--green); }
+  .phase-step-dot.current { background: var(--purple); color: #fff; border-color: var(--purple2); }
+  .phase-step-dot.future  { background: var(--surface2); color: var(--text3); border-color: var(--border2); }
+  .phase-step-label { font-size: 10px; color: var(--text3); text-align: center; line-height: 1.3; }
+  .phase-step-label.active-label { color: var(--purple2); font-weight: 700; }
+  .phase-step-limit { font-size: 10px; color: var(--text2); font-weight: 600; text-align: center; }
+  .phase-connector {
+    height: 2px; background: #e2e8f0; margin-top: -20px; grid-column: span 1;
+    display: none;
+  }
+
+  /* ── Checklist ── */
+  .checklist-item {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 14px 0; border-bottom: 1px solid var(--border);
+  }
+  .checklist-item:last-child { border-bottom: none; }
+  .checklist-item input[type=checkbox] {
+    width: 18px; height: 18px; margin-top: 2px; cursor: pointer;
+    accent-color: var(--purple2); flex-shrink: 0;
+  }
+  .checklist-item-text strong { display: block; font-size: 14px; color: var(--text); }
+  .checklist-item-text span   { display: block; font-size: 12px; color: var(--text2); margin-top: 2px; line-height: 1.5; }
+  .checklist-status { margin-left: auto; flex-shrink: 0; }
+  .tick-done    { color: #22c55e; font-size: 16px; }
+  .tick-pending { color: #d1d5db; font-size: 16px; }
+
+  /* ── Health metric bars ── */
+  .metric-bar-wrap { margin: 6px 0 16px; }
+  .metric-bar-track { background: var(--surface2); border-radius: 99px; height: 8px; overflow: hidden; }
+  .metric-bar-fill  { height: 100%; border-radius: 99px; transition: width .5s ease; }
+
+  /* ── Benchmark pills ── */
+  .benchmark { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .benchmark-pill {
+    padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: 600;
+  }
+  .bp-good   { background: rgba(16,185,129,0.12); color: var(--green); border: 1px solid rgba(16,185,129,0.25); }
+  .bp-ok     { background: rgba(245,158,11,0.12); color: var(--amber); border: 1px solid rgba(245,158,11,0.25); }
+  .bp-bad    { background: rgba(239,68,68,0.12);  color: var(--red);   border: 1px solid rgba(239,68,68,0.25); }
+
+  /* ── Warmup status banner ── */
+  .warmup-banner {
+    border-radius: 10px; padding: 14px 20px; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 12px; font-size: 14px;
+  }
+  .warmup-banner.active   { background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.25); color: var(--green); }
+  .warmup-banner.inactive { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); color: var(--amber); }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Status banner -->
+{% if config.is_active %}
+<div class="warmup-banner active">
+  <i class="fas fa-fire" style="color:#22c55e;font-size:18px;"></i>
+  <div>
+    <strong>Warmup Mode is Active</strong> — Daily limit is enforced.
+    Currently in <strong>Phase {{ config.current_phase }} — {{ warmup_phases[config.current_phase]['label'] }}</strong>
+    ({{ warmup_phases[config.current_phase]['daily_limit']|int|string }} emails/day max).
+    Campaign sends will pause automatically when today's limit is reached.
+  </div>
+</div>
+{% else %}
+<div class="warmup-banner inactive">
+  <i class="fas fa-triangle-exclamation" style="font-size:18px;"></i>
+  <div>
+    <strong>Warmup Mode is Disabled</strong> — Campaigns will send to your full list with no daily limit.
+    Enable warmup mode before your first send to protect your domain reputation.
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Row 1: Hero Stats ── -->
+<div class="stats-grid">
+
+  <!-- Health Score -->
+  <div class="stat-card purple" style="display:flex;align-items:center;gap:20px;padding:20px 24px;">
+    <div class="health-ring-wrap">
+      <div class="health-ring">
+        {% set circumference = 251.2 %}
+        {% set offset = circumference - (health / 100 * circumference) %}
+        <svg width="96" height="96" viewBox="0 0 96 96">
+          <circle class="ring-bg"   cx="48" cy="48" r="40"/>
+          <circle class="ring-fill" cx="48" cy="48" r="40"
+                  stroke="{{ health_color }}"
+                  stroke-dasharray="{{ circumference }}"
+                  stroke-dashoffset="{{ offset }}"/>
+        </svg>
+        <div class="health-number" id="healthNumber" style="color:{{ health_color }};">{{ health }}</div>
+      </div>
+    </div>
+    <div>
+      <div class="stat-value" style="font-size:18px;color:var(--text);">Health Score</div>
+      <div class="stat-label">
+        {% if health >= 90 %}Excellent — inbox ready{% elif health >= 75 %}Good — keep improving
+        {% elif health >= 50 %}Fair — action needed{% else %}Poor — fix issues first{% endif %}
+      </div>
+      <div style="margin-top:6px;">
+        <span style="font-size:11px;color:#94a3b8;">out of 100</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Current Phase -->
+  <div class="stat-card cyan">
+    <div class="stat-icon"><i class="fas fa-layer-group"></i></div>
+    <div class="stat-value" style="font-size:22px;" id="phaseLabel">Phase {{ config.current_phase }}</div>
+    <div class="stat-label" id="phaseDesc">{{ warmup_phases[config.current_phase]['label'] }}</div>
+    <div style="margin-top:10px;font-size:12px;color:#94a3b8;">
+      {% if config.current_phase < 8 %}
+        Next: {{ warmup_phases[config.current_phase + 1]['daily_limit']|int|string }}/day limit
+      {% else %}
+        Full volume — warmup complete!
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Today's Sends -->
+  <div class="stat-card pink">
+    <div class="stat-icon"><i class="fas fa-bolt"></i></div>
+    <div class="stat-value" id="sentToday">
+      {% if config.is_active %}{{ config.emails_sent_today }}{% else %}—{% endif %}
+    </div>
+    <div class="stat-label">Sent Today</div>
+    <div style="margin-top:8px;">
+      {% if config.is_active %}
+        <div style="background:var(--surface2);border-radius:99px;height:6px;overflow:hidden;">
+          {% set pct = [((config.emails_sent_today / warmup_phases[config.current_phase]['daily_limit']) * 100)|int, 100]|min %}
+          <div style="background:#f97316;height:100%;width:{{ pct }}%;border-radius:99px;transition:width .5s;"></div>
+        </div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px;" id="limitLabel">
+          of {{ warmup_phases[config.current_phase]['daily_limit']|int|string }} daily limit
+        </div>
+      {% else %}
+        <div style="font-size:11px;color:#94a3b8;">Enable warmup to track</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Days Warming -->
+  <div class="stat-card green">
+    <div class="stat-icon"><i class="fas fa-calendar-check"></i></div>
+    <div class="stat-value">{{ days_warming }}</div>
+    <div class="stat-label">Days Warming</div>
+    <div style="margin-top:8px;font-size:12px;color:#94a3b8;">
+      {% if not config.is_active and not config.warmup_started_at %}
+        Not started yet
+      {% elif days_warming == 0 %}
+        Started today
+      {% else %}
+        Since warmup began
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Row 2: Checklist + Sending Health ── -->
+<div class="two-col">
+
+  <!-- Checklist -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title"><i class="fas fa-list-check" style="color:#6366f1;margin-right:8px;"></i>Pre-Send Checklist</div>
+      {% set done_count = [config.check_spf, config.check_dkim, config.check_dmarc, config.check_sandbox, config.check_list_cleaned, config.check_subdomain]|select|list|length %}
+      <span class="badge {% if done_count == 6 %}badge-sent{% elif done_count >= 3 %}badge-sending{% else %}badge-draft{% endif %}">
+        {{ done_count }}/6 Done
+      </span>
+    </div>
+    <form method="POST" action="/warmup/checklist">
+      {% set items = [
+        ("check_spf",          config.check_spf,          "SPF Record Configured",        "Tells Gmail/Outlook that Amazon SES is authorised to send from your domain. Add a TXT record in your DNS."),
+        ("check_dkim",         config.check_dkim,         "DKIM Signing Enabled",         "Cryptographic signature that proves emails weren't tampered with. AWS SES generates CNAME records for you."),
+        ("check_dmarc",        config.check_dmarc,        "DMARC Policy Added",           "Instructs receiving servers what to do if SPF/DKIM fail. Start with p=none, upgrade to quarantine later."),
+        ("check_sandbox",      config.check_sandbox,      "SES Production Access Granted","By default SES is in sandbox mode (only verified emails). Request production access in the AWS console."),
+        ("check_list_cleaned", config.check_list_cleaned, "List Cleaned Before First Send","Run your list through ZeroBounce or NeverBounce to remove invalid addresses. Reduces bounces dramatically."),
+        ("check_subdomain",    config.check_subdomain,    "Sending From a Subdomain",     "Send from mail.yourdomain.com instead of yourdomain.com. Protects your root domain reputation."),
+      ] %}
+      {% for field, val, title, desc in items %}
+      <div class="checklist-item">
+        <input type="checkbox" name="{{ field }}" id="{{ field }}" {% if val %}checked{% endif %}>
+        <div class="checklist-item-text">
+          <strong><label for="{{ field }}" style="cursor:pointer;font-weight:600;">{{ title }}</label></strong>
+          <span>{{ desc }}</span>
+        </div>
+        <div class="checklist-status">
+          {% if val %}
+            <i class="fas fa-circle-check tick-done"></i>
+          {% else %}
+            <i class="fas fa-circle tick-pending"></i>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      <div style="margin-top:16px;">
+        <button type="submit" class="btn btn-primary btn-sm">Save Checklist</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Sending Health -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title"><i class="fas fa-heart-pulse" style="color:#ef4444;margin-right:8px;"></i>Sending Health</div>
+      <span style="font-size:12px;color:#94a3b8;">Last 14 days</span>
+    </div>
+
+    <!-- Open Rate -->
+    <div style="margin-bottom:24px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+        <span style="font-size:13px;font-weight:600;color:var(--text);">Open Rate</span>
+        <span style="font-size:28px;font-weight:900;
+          color:{% if open_rate >= 20 %}#22c55e{% elif open_rate >= 10 %}#f97316{% else %}#ef4444{% endif %};"
+          id="openRate">{{ open_rate }}%</span>
+      </div>
+      <div class="metric-bar-wrap">
+        <div class="metric-bar-track">
+          <div class="metric-bar-fill" style="
+            width:{{ [open_rate * 2, 100]|min }}%;
+            background:{% if open_rate >= 20 %}#22c55e{% elif open_rate >= 10 %}#f97316{% else %}#ef4444{% endif %};">
+          </div>
+        </div>
+      </div>
+      <div class="benchmark">
+        <span class="benchmark-pill bp-good">20%+ Excellent</span>
+        <span class="benchmark-pill bp-ok">15–20% Good</span>
+        <span class="benchmark-pill bp-bad">&lt;10% Poor</span>
+      </div>
+      {% if total_sent == 0 %}
+        <p style="font-size:12px;color:#94a3b8;margin-top:8px;">No emails sent yet — data will appear after your first campaign.</p>
+      {% endif %}
+    </div>
+
+    <!-- Bounce Rate -->
+    <div style="margin-bottom:24px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+        <span style="font-size:13px;font-weight:600;color:var(--text);">Bounce Rate</span>
+        <span style="font-size:28px;font-weight:900;
+          color:{% if bounce_rate < 1 %}#22c55e{% elif bounce_rate < 3 %}#f97316{% else %}#ef4444{% endif %};"
+          id="bounceRate">{{ bounce_rate }}%</span>
+      </div>
+      <div class="metric-bar-wrap">
+        <div class="metric-bar-track">
+          <div class="metric-bar-fill" style="
+            width:{{ [bounce_rate * 20, 100]|min }}%;
+            background:{% if bounce_rate < 1 %}#22c55e{% elif bounce_rate < 3 %}#f97316{% else %}#ef4444{% endif %};">
+          </div>
+        </div>
+      </div>
+      <div class="benchmark">
+        <span class="benchmark-pill bp-good">&lt;1% Excellent</span>
+        <span class="benchmark-pill bp-ok">1–3% Acceptable</span>
+        <span class="benchmark-pill bp-bad">&gt;5% Danger zone</span>
+      </div>
+    </div>
+
+    <div style="background:var(--surface2);border-radius:8px;padding:12px 16px;font-size:12px;color:var(--text2);line-height:1.6;">
+      <strong style="color:var(--text);">What Klaviyo & others monitor:</strong><br>
+      Open rate &gt;20% + Bounce rate &lt;2% = green light to scale up.
+      If bounce rate exceeds 5%, ISPs will start routing to spam.
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Row 3: Phase Progress Stepper ── -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-title"><i class="fas fa-road" style="color:#3b82f6;margin-right:8px;"></i>Warmup Progress — 8 Phases</div>
+    {% if config.is_active and config.current_phase < 8 %}
+      <form method="POST" action="/warmup/advance-phase" style="display:inline;">
+        <button type="submit" class="btn btn-outline btn-sm"
+                onclick="return confirm('Only advance if your open rate is above 15% and bounce rate is below 3%. Continue?')">
+          <i class="fas fa-forward-step"></i> Advance Phase Manually
+        </button>
+      </form>
+    {% endif %}
+  </div>
+
+  <div class="phase-stepper">
+    {% for phase_num in range(1, 9) %}
+    {% set p = warmup_phases[phase_num] %}
+    <div class="phase-step">
+      <div class="phase-step-dot
+        {% if phase_num < config.current_phase %}done
+        {% elif phase_num == config.current_phase %}current
+        {% else %}future{% endif %}">
+        {% if phase_num < config.current_phase %}
+          <i class="fas fa-check" style="font-size:11px;"></i>
+        {% else %}
+          {{ phase_num }}
+        {% endif %}
+      </div>
+      <div class="phase-step-label {% if phase_num == config.current_phase %}active-label{% endif %}">
+        {{ p['label'] }}
+      </div>
+      <div class="phase-step-limit">
+        {% if p['daily_limit'] >= 999999 %}Unlimited
+        {% else %}{{ p['daily_limit']|int|string }}/day{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div style="margin-top:16px;padding:12px 16px;background:var(--surface2);border-radius:8px;font-size:13px;color:var(--text2);">
+    <strong style="color:var(--text);">How phase advancement works:</strong>
+    Phases advance automatically after the required days <em>and</em> when open rate &ge;15% and bounce rate &lt;3%.
+    You can also advance manually if you know your metrics are healthy.
+    Always start with your <strong>most engaged customers</strong> (recent buyers, repeat shoppers) during Phase 1–3.
+  </div>
+</div>
+
+<!-- ── Row 4: 14-day Trend Chart ── -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-title"><i class="fas fa-chart-mixed" style="color:#6366f1;margin-right:8px;"></i>14-Day Sending Trend</div>
+    <span style="font-size:12px;color:#94a3b8;">Auto-refreshes every 15s</span>
+  </div>
+  {% if total_sent == 0 %}
+    <div class="empty-state" style="padding:40px;">
+      <i class="fas fa-chart-bar" style="color:#e2e8f0;"></i>
+      <h3>No data yet</h3>
+      <p>Send your first campaign to see trend data here.</p>
+    </div>
+  {% else %}
+    <canvas id="trendChart" height="100"></canvas>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// ── Chart ────────────────────────────────────────────────────────────
+const labels      = {{ chart_labels|safe }};
+const sentData    = {{ chart_sent|safe }};
+const openData    = {{ chart_open_rate|safe }};
+const bounceData  = {{ chart_bounce_rate|safe }};
+
+{% if total_sent > 0 %}
+const ctx = document.getElementById('trendChart').getContext('2d');
+new Chart(ctx, {
+  data: {
+    labels: labels,
+    datasets: [
+      {
+        type: 'bar',
+        label: 'Emails Sent',
+        data: sentData,
+        backgroundColor: 'rgba(99,102,241,0.2)',
+        borderColor: '#6366f1',
+        borderWidth: 1,
+        yAxisID: 'y',
+        order: 2,
+      },
+      {
+        type: 'line',
+        label: 'Open Rate %',
+        data: openData,
+        borderColor: '#22c55e',
+        backgroundColor: 'transparent',
+        pointBackgroundColor: '#22c55e',
+        tension: 0.3,
+        yAxisID: 'y1',
+        order: 1,
+      },
+      {
+        type: 'line',
+        label: 'Bounce Rate %',
+        data: bounceData,
+        borderColor: '#ef4444',
+        backgroundColor: 'transparent',
+        pointBackgroundColor: '#ef4444',
+        tension: 0.3,
+        yAxisID: 'y1',
+        order: 1,
+      },
+    ]
+  },
+  options: {
+    responsive: true,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { position: 'top', labels: { font: { size: 12 }, color: '#94a3b8' } },
+    },
+    scales: {
+      y:  { position: 'left',  title: { display: true, text: 'Emails Sent', color: '#94a3b8' },
+             grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#64748b' } },
+      y1: { position: 'right', title: { display: true, text: 'Rate (%)', color: '#94a3b8' },
+             min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { color: '#64748b' } },
+      x:  { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#64748b' } },
+    }
+  }
+});
+{% endif %}
+
+// ── Real-time polling (every 15s) ─────────────────────────────────
+function refreshHealth() {
+  fetch('/api/warmup/health')
+    .then(r => r.json())
+    .then(d => {
+      // Update health score number
+      const n = document.getElementById('healthNumber');
+      if (n) { n.textContent = d.health_score; }
+      // Update today's sent
+      const s = document.getElementById('sentToday');
+      if (s && d.warmup_active) { s.textContent = d.sent_today; }
+      // Update rates
+      const or_ = document.getElementById('openRate');
+      const br_ = document.getElementById('bounceRate');
+      if (or_) or_.textContent = d.open_rate + '%';
+      if (br_) br_.textContent = d.bounce_rate + '%';
+    })
+    .catch(() => {}); // Silently ignore network errors
+}
+setInterval(refreshHealth, 15000);
+</script>
+{% endblock %}

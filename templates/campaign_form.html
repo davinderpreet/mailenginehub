@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}New Campaign — MailEngine{% endblock %}
+{% block page_title %}New Campaign{% endblock %}
+
+{% block content %}
+<div style="max-width:720px;">
+  <div class="card">
+    <form method="post" id="campaign-form">
+      <h2 style="font-size:18px;font-weight:700;margin-bottom:24px;color:#0f172a;">Campaign Details</h2>
+
+      <div class="form-group">
+        <label>Campaign Name <span style="color:#ef4444;">*</span></label>
+        <input type="text" name="name" required placeholder="e.g. March Sale, Win-Back April">
+        <small style="color:#94a3b8;font-size:12px;">Internal name — your subscribers won't see this</small>
+      </div>
+
+      <div class="two-col">
+        <div class="form-group">
+          <label>From Name <span style="color:#ef4444;">*</span></label>
+          <input type="text" name="from_name" required value="{{ default_from_name }}">
+        </div>
+        <div class="form-group">
+          <label>From Email <span style="color:#ef4444;">*</span></label>
+          <input type="email" name="from_email" required value="{{ default_from_email }}">
+          <small style="color:#94a3b8;font-size:12px;">Must be verified in Amazon SES</small>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Reply-To Email</label>
+        <input type="email" name="reply_to" placeholder="Optional — defaults to From Email">
+      </div>
+
+      <div class="form-group">
+        <label>Email Template <span style="color:#ef4444;">*</span></label>
+        <select name="template_id" required>
+          <option value="">— Select a template —</option>
+          {% for t in templates %}
+          <option value="{{ t.id }}">{{ t.name }} — {{ t.subject }}</option>
+          {% endfor %}
+        </select>
+        {% if not templates %}
+        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;margin-top:8px;font-size:13px;color:#92400e;">
+          ⚠️ No templates yet. <a href="/templates/new" style="color:#d97706;font-weight:600;">Create a template first →</a>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="form-group">
+        <label>Segment (Who to Send To)</label>
+        <select name="segment_filter" id="segment_select">
+          <option value="all">All Subscribers</option>
+          <option value="shopify">Shopify Customers (tag: shopify)</option>
+          <option value="newsletter">Newsletter (tag: newsletter)</option>
+          <option value="vip">VIP (tag: vip)</option>
+          <option value="test">Test Only — davinderpreet3@gmail.com (tag: test)</option>
+          <option value="custom">Custom Tag...</option>
+        </select>
+        <input type="text" id="custom_tag_input" name="custom_tag" placeholder="Type a tag name e.g. shopify, newsletter, test" style="margin-top:8px;display:none;">
+        <div id="recipient-preview" style="margin-top:8px;padding:8px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;color:#166534;display:none;">
+          <strong id="recipient-count">—</strong> recipients will receive this campaign
+        </div>
+      </div>
+
+      <script>
+        function updateCount() {
+          var seg = document.getElementById('segment_select').value;
+          var tag = document.getElementById('custom_tag_input').value.trim();
+          var preview = document.getElementById('recipient-preview');
+          var countEl = document.getElementById('recipient-count');
+          var url = '/api/campaign/recipient-count?segment=' + encodeURIComponent(seg);
+          if (seg === 'custom') url += '&tag=' + encodeURIComponent(tag);
+          fetch(url).then(r => r.json()).then(data => {
+            countEl.textContent = data.count.toLocaleString();
+            preview.style.display = 'block';
+          });
+        }
+        document.getElementById('segment_select').addEventListener('change', function() {
+          var customInput = document.getElementById('custom_tag_input');
+          customInput.style.display = this.value === 'custom' ? 'block' : 'none';
+          if (this.value === 'custom') customInput.focus();
+          updateCount();
+        });
+        document.getElementById('custom_tag_input').addEventListener('input', updateCount);
+        // Load count on page load
+        updateCount();
+      </script>
+
+      <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:24px;">
+        <a href="/campaigns" class="btn btn-outline">Cancel</a>
+        <button type="submit" class="btn btn-primary btn-lg">
+          <i class="fas fa-arrow-right"></i> Create Campaign
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,535 @@
+{% extends "base.html" %}
+{% block title %}AI Engine — MailEngineHub{% endblock %}
+{% block page_title %}AI Engine{% endblock %}
+
+{% block content %}
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:24px;">
+  <div style="flex:1">
+    <p style="color:var(--text2);margin:0;font-size:14px;">Autonomous email marketing — scores every contact nightly and decides what to send with zero human input.</p>
+  </div>
+  <button id="run-now-btn" onclick="runNow()" class="btn btn-primary">
+    ▶ Run Now
+  </button>
+</div>
+
+<!-- ── SES Sandbox Banner ──────────────────────────────────── -->
+<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:14px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;">
+  <i class="fas fa-flask" style="font-size:20px;color:var(--amber);"></i>
+  <div>
+    <div style="font-size:14px;font-weight:700;color:var(--amber);">SES Sandbox Mode — Intelligence Building Phase</div>
+    <div style="font-size:12px;color:var(--text3);margin-top:3px;">All AI predictions, triggers, and email drafts are being computed and stored. No emails are being sent. When SES production access is approved, flip the switch and everything fires automatically.</div>
+  </div>
+  <div style="margin-left:auto;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:8px 16px;white-space:nowrap;">
+    <span style="font-size:11px;color:var(--amber);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Sandbox</span>
+  </div>
+</div>
+
+<!-- ── Intelligence Overview (4 stat cards) ──────────────── -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;margin-bottom:20px;">
+  <!-- Revenue at Risk -->
+  <div style="background:linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(239,68,68,0.04) 100%);border:1px solid rgba(239,68,68,0.2);border-radius:14px;padding:18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <i class="fas fa-triangle-exclamation" style="color:var(--red);font-size:14px;"></i>
+      <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);">Revenue at Risk</span>
+    </div>
+    <div style="font-size:28px;font-weight:800;color:var(--red);">${{ "{:,.0f}".format(revenue_at_risk) }}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;">3-year predicted LTV of at-risk + churned</div>
+  </div>
+
+  <!-- Revenue On Track -->
+  <div style="background:linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(16,185,129,0.04) 100%);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <i class="fas fa-shield-halved" style="color:var(--green);font-size:14px;"></i>
+      <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);">Revenue Secured</span>
+    </div>
+    <div style="font-size:28px;font-weight:800;color:var(--green);">${{ "{:,.0f}".format(revenue_on_track) }}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;">3-year predicted LTV of on-track customers</div>
+  </div>
+
+  <!-- Pending Triggers -->
+  <div style="background:linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(245,158,11,0.04) 100%);border:1px solid rgba(245,158,11,0.2);border-radius:14px;padding:18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <i class="fas fa-bolt" style="color:var(--amber);font-size:14px;"></i>
+      <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);">Pending Triggers</span>
+    </div>
+    <div style="font-size:28px;font-weight:800;color:var(--amber);">{{ "{:,}".format(total_triggers) }}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;">automations ready to fire when SES is live</div>
+  </div>
+
+  <!-- AI Emails Generated -->
+  <div style="background:linear-gradient(135deg, rgba(6,182,212,0.12) 0%, rgba(6,182,212,0.04) 100%);border:1px solid rgba(6,182,212,0.2);border-radius:14px;padding:18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <i class="fas fa-wand-magic-sparkles" style="color:var(--cyan);font-size:14px;"></i>
+      <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);">AI Emails Generated</span>
+    </div>
+    <div style="font-size:28px;font-weight:800;color:var(--cyan);">{{ total_ai_emails }}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;">unique Claude-written previews</div>
+  </div>
+</div>
+
+<!-- ── Churn Distribution + Trigger Breakdown (side by side) ── -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+
+  <!-- Churn Distribution -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title"><i class="fas fa-chart-pie" style="margin-right:7px;color:var(--purple2);"></i>Churn Distribution</span>
+    </div>
+    <div class="card-body">
+      {% set churn_total = churn_dist.on_track + churn_dist.overdue + churn_dist.at_risk + churn_dist.churned %}
+      {% if churn_total > 0 %}
+      <!-- Visual bar chart -->
+      <div style="display:flex;height:28px;border-radius:8px;overflow:hidden;margin-bottom:16px;">
+        {% if churn_dist.on_track > 0 %}
+        <div style="width:{{ (churn_dist.on_track / churn_total * 100)|round(1) }}%;background:var(--green);"></div>
+        {% endif %}
+        {% if churn_dist.overdue > 0 %}
+        <div style="width:{{ (churn_dist.overdue / churn_total * 100)|round(1) }}%;background:var(--amber);"></div>
+        {% endif %}
+        {% if churn_dist.at_risk > 0 %}
+        <div style="width:{{ (churn_dist.at_risk / churn_total * 100)|round(1) }}%;background:#f97316;"></div>
+        {% endif %}
+        {% if churn_dist.churned > 0 %}
+        <div style="width:{{ (churn_dist.churned / churn_total * 100)|round(1) }}%;background:var(--red);"></div>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <!-- Labels -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:10px;height:10px;border-radius:3px;background:var(--green);"></div>
+          <span style="font-size:12px;color:var(--text2);">On Track</span>
+          <span style="margin-left:auto;font-size:14px;font-weight:700;color:var(--green);">{{ "{:,}".format(churn_dist.on_track) }}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:10px;height:10px;border-radius:3px;background:var(--amber);"></div>
+          <span style="font-size:12px;color:var(--text2);">Overdue</span>
+          <span style="margin-left:auto;font-size:14px;font-weight:700;color:var(--amber);">{{ "{:,}".format(churn_dist.overdue) }}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:10px;height:10px;border-radius:3px;background:#f97316;"></div>
+          <span style="font-size:12px;color:var(--text2);">At Risk</span>
+          <span style="margin-left:auto;font-size:14px;font-weight:700;color:#f97316;">{{ "{:,}".format(churn_dist.at_risk) }}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:10px;height:10px;border-radius:3px;background:var(--red);"></div>
+          <span style="font-size:12px;color:var(--text2);">Likely Churned</span>
+          <span style="margin-left:auto;font-size:14px;font-weight:700;color:var(--red);">{{ "{:,}".format(churn_dist.churned) }}</span>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:8px;">
+        <div style="width:10px;height:10px;border-radius:3px;background:var(--text3);opacity:0.4;"></div>
+        <span style="font-size:12px;color:var(--text3);">Never Purchased</span>
+        <span style="margin-left:auto;font-size:14px;font-weight:700;color:var(--text3);">{{ "{:,}".format(churn_dist.never_purchased) }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Trigger Breakdown -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title"><i class="fas fa-bolt" style="margin-right:7px;color:var(--amber);"></i>Pending Automations</span>
+      <span style="color:var(--text3);font-size:12px;">queued, not sent</span>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <!-- Browse Abandonment -->
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.12);border-radius:10px;">
+          <i class="fas fa-eye" style="color:var(--cyan);font-size:16px;width:20px;text-align:center;"></i>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:600;color:var(--text);">Browse Abandonment</div>
+            <div style="font-size:11px;color:var(--text3);">viewed 2+ times, didn't buy</div>
+          </div>
+          <span style="font-size:20px;font-weight:800;color:var(--cyan);">{{ trigger_counts.browse_abandonment }}</span>
+        </div>
+
+        <!-- Cart Abandonment -->
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.12);border-radius:10px;">
+          <i class="fas fa-cart-shopping" style="color:var(--red);font-size:16px;width:20px;text-align:center;"></i>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:600;color:var(--text);">Cart Abandonment</div>
+            <div style="font-size:11px;color:var(--text3);">abandoned checkout, no order</div>
+          </div>
+          <span style="font-size:20px;font-weight:800;color:var(--red);">{{ trigger_counts.cart_abandonment }}</span>
+        </div>
+
+        <!-- Churn Risk -->
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.12);border-radius:10px;">
+          <i class="fas fa-user-clock" style="color:var(--amber);font-size:16px;width:20px;text-align:center;"></i>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:600;color:var(--text);">Churn Risk High</div>
+            <div style="font-size:11px;color:var(--text3);">overdue for next order</div>
+          </div>
+          <span style="font-size:20px;font-weight:800;color:var(--amber);">{{ trigger_counts.churn_risk_high }}</span>
+        </div>
+
+        <!-- High Intent -->
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:rgba(124,58,237,0.06);border:1px solid rgba(124,58,237,0.12);border-radius:10px;">
+          <i class="fas fa-fire" style="color:var(--purple2);font-size:16px;width:20px;text-align:center;"></i>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:600;color:var(--text);">High Intent, No Purchase</div>
+            <div style="font-size:11px;color:var(--text3);">engaged but never bought</div>
+          </div>
+          <span style="font-size:20px;font-weight:800;color:var(--purple2);">{{ trigger_counts.high_engagement_no_purchase }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── AI Email Preview Generator ────────────────────────── -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <span class="card-title"><i class="fas fa-robot" style="margin-right:7px;color:var(--cyan);"></i>AI Email Preview Generator</span>
+    <span class="badge" style="background:rgba(6,182,212,0.12);color:var(--cyan);">Claude Powered</span>
+  </div>
+  <div class="card-body">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+      <div style="flex:1;min-width:200px;">
+        <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px;">Segment</label>
+        <select id="sampleSegment" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px;">
+          <option value="at_risk">At Risk</option>
+          <option value="lapsed">Lapsed</option>
+          <option value="champion">Champion</option>
+          <option value="loyal">Loyal</option>
+          <option value="potential">Potential</option>
+          <option value="new">New</option>
+        </select>
+      </div>
+      <div style="flex:1;min-width:200px;">
+        <label style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:5px;">Email Purpose</label>
+        <select id="samplePurpose" style="width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text);border-radius:8px;padding:9px 12px;font-size:13px;">
+          <option value="winback">Win-Back</option>
+          <option value="browse_abandonment">Browse Abandonment</option>
+          <option value="cart_abandonment">Cart Abandonment</option>
+          <option value="upsell">Upsell</option>
+          <option value="welcome">Welcome</option>
+          <option value="loyalty_reward">Loyalty Reward</option>
+          <option value="high_intent">High Intent</option>
+          <option value="re_engagement">Re-Engagement</option>
+        </select>
+      </div>
+      <button onclick="generateSampleEmail()" id="sampleGenBtn" style="background:rgba(6,182,212,0.18);border:1px solid rgba(6,182,212,0.35);color:var(--cyan);border-radius:10px;padding:10px 20px;cursor:pointer;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;">
+        <i class="fas fa-wand-magic-sparkles"></i>Generate Sample
+      </button>
+    </div>
+
+    <!-- Sample Result -->
+    <div id="sampleResult" style="display:none;margin-top:16px;background:rgba(6,182,212,0.05);border:1px solid rgba(6,182,212,0.15);border-radius:12px;padding:18px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--cyan);font-weight:700;">AI Generated Email Sample</div>
+        <div id="sampleContact" style="font-size:11px;color:var(--text3);"></div>
+      </div>
+      <div id="sampleReasoning" style="font-size:11px;color:var(--text3);font-style:italic;margin-bottom:12px;"></div>
+      <div style="margin-bottom:8px;">
+        <span style="font-size:10px;color:var(--text3);">SUBJECT:</span>
+        <span id="sampleSubject" style="font-size:14px;font-weight:600;color:var(--text);margin-left:6px;"></span>
+      </div>
+      <!-- View Toggle -->
+      <div style="display:flex;gap:6px;margin-bottom:12px;">
+        <button onclick="showSampleView('visual')" id="sampleVisualBtn" style="background:var(--cyan);color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:11px;font-weight:600;cursor:pointer;">Visual Preview</button>
+        <button onclick="showSampleView('text')" id="sampleTextBtn" style="background:rgba(255,255,255,0.08);color:var(--text3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 14px;font-size:11px;font-weight:600;cursor:pointer;">Plain Text</button>
+      </div>
+      <div id="sampleVisualView">
+        <iframe id="sampleHtmlFrame" style="width:100%;height:750px;border:1px solid rgba(255,255,255,0.1);border-radius:10px;background:#ffffff;" sandbox="allow-same-origin"></iframe>
+      </div>
+      <div id="sampleTextView" style="display:none;">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.05);border-radius:8px;padding:14px;font-size:13px;color:var(--text2);line-height:1.7;white-space:pre-wrap;" id="sampleBody"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Top Recommended Products ──────────────────────────── -->
+{% if top_recs %}
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <span class="card-title"><i class="fas fa-star" style="margin-right:7px;color:var(--purple2);"></i>Top Recommended Products</span>
+    <span style="color:var(--text3);font-size:12px;">across all customers</span>
+  </div>
+  <div class="card-body">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+      {% for product, count in top_recs %}
+      <div style="background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.18);border-radius:10px;padding:8px 14px;display:flex;align-items:center;gap:8px;">
+        <span style="font-size:13px;color:var(--purple2);">{{ product[:50] }}</span>
+        <span style="background:rgba(124,58,237,0.2);color:var(--purple2);font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;">{{ count }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Recent AI-Generated Emails ────────────────────────── -->
+{% if recent_ai_emails %}
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <span class="card-title"><i class="fas fa-envelope-open-text" style="margin-right:7px;color:var(--cyan);"></i>Recent AI-Generated Emails</span>
+    <span style="color:var(--text3);font-size:12px;">{{ total_ai_emails }} total</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Contact</th>
+          <th>Purpose</th>
+          <th>Subject</th>
+          <th>Generated</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in recent_ai_emails %}
+        <tr>
+          <td style="color:var(--text);">{{ e.email }}</td>
+          <td>
+            {% if e.purpose == 'winback' %}<span class="badge badge-amber">Win-Back</span>
+            {% elif e.purpose == 'browse_abandonment' %}<span class="badge" style="background:rgba(6,182,212,0.12);color:var(--cyan);">Browse</span>
+            {% elif e.purpose == 'cart_abandonment' %}<span class="badge" style="background:rgba(239,68,68,0.12);color:var(--red);">Cart</span>
+            {% elif e.purpose == 'loyalty_reward' %}<span class="badge" style="background:rgba(16,185,129,0.12);color:var(--green);">Loyalty</span>
+            {% elif e.purpose == 'upsell' %}<span class="badge badge-purple">Upsell</span>
+            {% elif e.purpose == 'welcome' %}<span class="badge" style="background:rgba(6,182,212,0.12);color:var(--cyan);">Welcome</span>
+            {% else %}<span class="badge badge-purple">{{ e.purpose|replace('_',' ')|title }}</span>
+            {% endif %}
+          </td>
+          <td style="color:var(--text2);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ e.subject }}</td>
+          <td style="color:var(--text3);font-size:12px;">{{ e.generated_at.strftime("%b %d, %H:%M") if e.generated_at else "—" }}</td>
+          <td>
+            {% if e.sent %}<span style="color:var(--green);font-weight:600;">✓ sent</span>
+            {% else %}<span style="color:var(--text3);">preview</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Contact Segments ──────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <span class="card-title">Contact Segments</span>
+    <span style="color:var(--text3);font-size:13px;">{{ total_scored }} contacts scored</span>
+  </div>
+  <div class="card-body">
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+    {% set seg_colors = {"champion":"#f59e0b","loyal":"#10b981","potential":"#a855f7","at_risk":"#f97316","lapsed":"#ef4444","new":"#06b6d4"} %}
+    {% set seg_bg     = {"champion":"rgba(245,158,11,0.1)","loyal":"rgba(16,185,129,0.1)","potential":"rgba(124,58,237,0.1)","at_risk":"rgba(249,115,22,0.1)","lapsed":"rgba(239,68,68,0.1)","new":"rgba(6,182,212,0.1)"} %}
+    {% set seg_icons  = {"champion":"🏆","loyal":"💚","potential":"⭐","at_risk":"⚠️","lapsed":"😴","new":"🆕"} %}
+    {% for seg, count in segments.items() %}
+    <div style="background:{{ seg_bg[seg] }};border-radius:12px;padding:16px;border-left:3px solid {{ seg_colors[seg] }};">
+      <div style="font-size:20px;margin-bottom:6px;">{{ seg_icons[seg] }}</div>
+      <div style="font-size:24px;font-weight:800;color:var(--text);">{{ "{:,}".format(count) }}</div>
+      <div style="font-size:13px;color:var(--text2);text-transform:capitalize;margin-top:2px;">{{ seg.replace("_"," ") }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  </div>
+</div>
+
+<!-- Today's AI Plan -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <span class="card-title">Today's Plan</span>
+    {% if plan %}<span style="color:var(--text3);font-size:13px;">{{ plan.plan_date }}</span>{% endif %}
+  </div>
+  <div class="card-body">
+  {% if plan %}
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px;">
+      {% if plan.status == "done" %}
+        <span class="badge badge-green">✓ Done — {{ plan.total_sends }} sent</span>
+      {% elif plan.status == "executing" %}
+        <span class="badge badge-amber">⏳ Executing…</span>
+      {% elif plan.status == "error" %}
+        <span class="badge badge-red">✗ Error</span>
+      {% else %}
+        <span class="badge badge-purple">Pending</span>
+      {% endif %}
+    </div>
+    <div style="background:var(--surface2);border-radius:10px;padding:14px;font-size:13px;color:var(--text2);line-height:1.6;">
+      {{ plan.ai_summary }}
+    </div>
+    {% if plan.plan_json and plan.plan_json != "[]" %}
+    <div style="margin-top:12px;">
+      {% for action in plan.plan_json | fromjson %}
+      <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:8px;display:flex;gap:12px;align-items:flex-start;">
+        <span class="badge badge-purple" style="white-space:nowrap;">{{ action.segment }}</span>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);">{{ action.subject_override }}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px;">{{ action.reason }} {% if action.max_sends %} · max {{ action.max_sends }}{% endif %}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% else %}
+    <div style="color:var(--text3);font-size:14px;padding:20px;text-align:center;">
+      No plan generated today yet. Click <strong style="color:var(--text);">Run Now</strong> to trigger the AI engine.
+    </div>
+  {% endif %}
+  </div>
+</div>
+
+<!-- Recent Activity -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <span class="card-title">Recent AI Decisions</span>
+    <span style="color:var(--text3);font-size:12px;">last 50</span>
+  </div>
+  {% if recent_decisions %}
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Contact</th>
+        <th>Segment</th>
+        <th>Subject</th>
+        <th>Status</th>
+        <th>Sent</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in recent_decisions %}
+      <tr>
+        <td style="color:var(--text);">{{ d.contact.email }}</td>
+        <td><span class="badge badge-purple">{{ d.segment }}</span></td>
+        <td style="color:var(--text2);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ d.subject_used or "—" }}</td>
+        <td>
+          {% if d.status == "sent" %}<span style="color:var(--green);font-weight:600;">✓ sent</span>
+          {% elif d.status == "failed" %}<span style="color:var(--red);font-weight:600;">✗ failed</span>
+          {% else %}<span style="color:var(--text3);">skipped</span>{% endif %}
+        </td>
+        <td style="color:var(--text3);">{{ d.sent_at.strftime("%m/%d %H:%M") if d.sent_at else "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:30px;">
+    <i class="fas fa-brain"></i>
+    <h3>No AI decisions yet</h3>
+    <p>Run the engine to see activity here.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Plan History -->
+{% if recent_plans %}
+<div class="card">
+  <div class="card-header"><span class="card-title">Plan History</span></div>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Status</th>
+        <th>Sent</th>
+        <th>Summary</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in recent_plans %}
+      <tr>
+        <td style="font-weight:600;color:var(--text);">{{ p.plan_date }}</td>
+        <td>
+          {% if p.status == "done" %}<span style="color:var(--green);">done</span>
+          {% elif p.status == "executing" %}<span style="color:var(--amber);">running</span>
+          {% elif p.status == "error" %}<span style="color:var(--red);">error</span>
+          {% else %}<span style="color:var(--text3);">{{ p.status }}</span>{% endif %}
+        </td>
+        <td style="color:var(--text);">{{ p.total_sends }}</td>
+        <td style="color:var(--text2);font-size:12px;">{{ p.ai_summary[:120] }}{% if p.ai_summary|length > 120 %}…{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+<script>
+function runNow() {
+  var btn = document.getElementById("run-now-btn");
+  btn.disabled = true;
+  btn.textContent = "⏳ Running…";
+  fetch("/api/ai-engine/run-now", {method:"POST", headers:{"Content-Type":"application/json"}})
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        btn.textContent = "✓ Started — refresh in 60s";
+        btn.style.background = "var(--green)";
+        setTimeout(() => location.reload(), 60000);
+      } else {
+        btn.textContent = "✗ Error: " + (data.error || "unknown");
+        btn.style.background = "var(--red)";
+        btn.disabled = false;
+      }
+    })
+    .catch(() => {
+      btn.textContent = "✗ Failed";
+      btn.style.background = "var(--red)";
+      btn.disabled = false;
+    });
+}
+
+function generateSampleEmail() {
+  var btn = document.getElementById('sampleGenBtn');
+  var segment = document.getElementById('sampleSegment').value;
+  var purpose = document.getElementById('samplePurpose').value;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Generating...';
+
+  fetch('/api/ai-engine/sample-email', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({segment: segment, purpose: purpose})
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i>Generate Sample';
+      if (data.success) {
+        document.getElementById('sampleResult').style.display = 'block';
+        document.getElementById('sampleContact').textContent = 'For: ' + data.email;
+        document.getElementById('sampleSubject').textContent = data.subject;
+        document.getElementById('sampleBody').textContent = data.body_text;
+        document.getElementById('sampleReasoning').textContent = data.reasoning;
+        if (data.body_html) {
+          var iframe = document.getElementById('sampleHtmlFrame');
+          iframe.contentDocument.open();
+          iframe.contentDocument.write(data.body_html);
+          iframe.contentDocument.close();
+        }
+      } else {
+        alert('Generation failed: ' + (data.error || 'Unknown error'));
+      }
+    })
+    .catch(function() {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i>Generate Sample';
+      alert('Network error');
+    });
+}
+function showSampleView(view) {
+  if (view === 'visual') {
+    document.getElementById('sampleVisualView').style.display = 'block';
+    document.getElementById('sampleTextView').style.display = 'none';
+    document.getElementById('sampleVisualBtn').style.background = 'var(--cyan)';
+    document.getElementById('sampleVisualBtn').style.color = '#fff';
+    document.getElementById('sampleTextBtn').style.background = 'rgba(255,255,255,0.08)';
+    document.getElementById('sampleTextBtn').style.color = 'var(--text3)';
+  } else {
+    document.getElementById('sampleVisualView').style.display = 'none';
+    document.getElementById('sampleTextView').style.display = 'block';
+    document.getElementById('sampleTextBtn').style.background = 'var(--cyan)';
+    document.getElementById('sampleTextBtn').style.color = '#fff';
+    document.getElementById('sampleVisualBtn').style.background = 'rgba(255,255,255,0.08)';
+    document.getElementById('sampleVisualBtn').style.color = 'var(--text3)';
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block title %}Automation Flows{% endblock %}
+{% block page_title %}Automation Flows{% endblock %}
+
+{% block topbar_actions %}
+  <button class="btn btn-primary" onclick="document.getElementById('createModal').style.display='flex'">
+    <i class="fas fa-plus"></i> New Flow
+  </button>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .trigger-badge {
+    display: inline-block; padding: 2px 10px; border-radius: 6px;
+    font-size: 12px; font-weight: 600;
+    background: rgba(124,58,237,0.12); color: var(--purple2);
+    border: 1px solid rgba(124,58,237,0.25);
+  }
+  .flow-row td { vertical-align: middle; }
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65);
+    backdrop-filter: blur(8px);
+    z-index: 200; align-items: center; justify-content: center;
+  }
+  .modal {
+    background: var(--bg2); border: 1px solid var(--border2);
+    border-radius: 20px; padding: 32px; width: 520px;
+    max-width: 90vw; box-shadow: 0 24px 64px rgba(0,0,0,.5);
+  }
+  .modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 24px; color: var(--text); }
+  .trigger-help { font-size: 12px; color: var(--text2); margin-top: 4px; }
+  #triggerValueGroup { display: none; }
+  .explain-box {
+    background: rgba(6,182,212,0.06); border: 1px solid rgba(6,182,212,0.2); border-radius: 10px;
+    padding: 16px; margin-bottom: 24px; color: var(--text2); font-size: 13px; line-height: 1.7;
+  }
+  .explain-box strong { display: block; font-size: 14px; margin-bottom: 4px; color: var(--cyan); }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Hero stats -->
+<div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 28px;">
+  <div class="stat-card purple">
+    <div class="stat-icon"><i class="fas fa-bolt"></i></div>
+    <div class="stat-value">{{ flows | list | length }}</div>
+    <div class="stat-label">Total Flows</div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-icon"><i class="fas fa-circle-check"></i></div>
+    <div class="stat-value">{{ flows | selectattr('is_active') | list | length }}</div>
+    <div class="stat-label">Active Flows</div>
+  </div>
+  <div class="stat-card cyan">
+    <div class="stat-icon"><i class="fas fa-user-plus"></i></div>
+    <div class="stat-value">{{ total_enrolled }}</div>
+    <div class="stat-label">Total Enrolled</div>
+  </div>
+  <div class="stat-card pink">
+    <div class="stat-icon"><i class="fas fa-envelope"></i></div>
+    <div class="stat-value">{{ total_sent }}</div>
+    <div class="stat-label">Flow Emails Sent</div>
+  </div>
+</div>
+
+{% if not flows | list %}
+<!-- Empty state -->
+<div class="card">
+  <div class="explain-box">
+    <strong>What are Automation Flows?</strong>
+    Flows send emails automatically based on what contacts do — no manual work needed.
+    A <em>Welcome Series</em> fires the moment someone joins your list.
+    A <em>Win-Back</em> flow re-engages customers who haven't bought in 90 days.
+    Each flow has steps (emails) with a delay between them — set it and forget it.
+  </div>
+  <div class="empty-state">
+    <i class="fas fa-bolt" style="color:#6366f1;"></i>
+    <h3>No flows yet</h3>
+    <p style="margin-bottom:24px;">Create your first automation flow to start sending on autopilot.</p>
+    <button class="btn btn-primary btn-lg" onclick="document.getElementById('createModal').style.display='flex'">
+      <i class="fas fa-plus"></i> Create First Flow
+    </button>
+  </div>
+</div>
+
+{% else %}
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Flow Name</th>
+          <th>Trigger</th>
+          <th>Status</th>
+          <th>Enrolled</th>
+          <th>Completed</th>
+          <th>Open Rate</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for flow in flows %}
+        {% set stats = flow_stats.get(flow.id, {}) %}
+        <tr class="flow-row">
+          <td>
+            <a href="/flows/{{ flow.id }}" style="font-weight:700;color:var(--text);text-decoration:none;">
+              {{ flow.name }}
+            </a>
+            {% if flow.description %}
+            <div style="font-size:12px;color:var(--text2);margin-top:2px;">{{ flow.description }}</div>
+            {% endif %}
+          </td>
+          <td>
+            <span class="trigger-badge">
+              {% if flow.trigger_type == 'contact_created' %}New Contact
+              {% elif flow.trigger_type == 'tag_added' %}Tag: {{ flow.trigger_value }}
+              {% elif flow.trigger_type == 'no_purchase_days' %}No Purchase {{ flow.trigger_value }}d
+              {% else %}Manual{% endif %}
+            </span>
+          </td>
+          <td>
+            <span class="badge badge-{{ 'enabled' if flow.is_active else 'disabled' }}">
+              {{ 'Enabled' if flow.is_active else 'Disabled' }}
+            </span>
+          </td>
+          <td>{{ stats.get('enrolled', 0) }}</td>
+          <td>{{ stats.get('completed', 0) }}</td>
+          <td>
+            {% if stats.get('sent', 0) > 0 %}
+              {{ stats.get('open_rate', 0) }}%
+            {% else %}
+              <span style="color:#94a3b8;">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="/flows/{{ flow.id }}" class="btn btn-outline btn-sm">
+              <i class="fas fa-pen"></i> Edit
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endif %}
+
+<!-- ── Create Flow Modal ── -->
+<div class="modal-overlay" id="createModal" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal">
+    <h3><i class="fas fa-bolt" style="color:#6366f1;margin-right:8px;"></i>Create Automation Flow</h3>
+    <form method="POST" action="/flows/new">
+      <div class="form-group">
+        <label>Flow Name</label>
+        <input type="text" name="name" placeholder="e.g. Welcome Series" required>
+      </div>
+      <div class="form-group">
+        <label>Description <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
+        <input type="text" name="description" placeholder="What does this flow do?">
+      </div>
+      <div class="form-group">
+        <label>Trigger — when should contacts enter this flow?</label>
+        <select name="trigger_type" id="triggerTypeSelect" onchange="onTriggerChange(this)">
+          <option value="contact_created">New contact added (CSV import or Shopify sync)</option>
+          <option value="tag_added">Contact gets a specific tag</option>
+          <option value="no_purchase_days">Shopify customer with no purchase after N days</option>
+          <option value="manual">Manual only (use enroll-test button)</option>
+        </select>
+        <div class="trigger-help">Contacts are enrolled automatically when the trigger fires.</div>
+      </div>
+      <div class="form-group" id="triggerValueGroup">
+        <label id="triggerValueLabel">Tag name</label>
+        <input type="text" name="trigger_value" id="triggerValueInput" placeholder="">
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('createModal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fas fa-bolt"></i> Create Flow</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function onTriggerChange(sel) {
+  const group = document.getElementById('triggerValueGroup');
+  const label = document.getElementById('triggerValueLabel');
+  const input = document.getElementById('triggerValueInput');
+  if (sel.value === 'tag_added') {
+    group.style.display = 'block';
+    label.textContent = 'Tag name (exact match)';
+    input.placeholder = 'e.g. vip';
+  } else if (sel.value === 'no_purchase_days') {
+    group.style.display = 'block';
+    label.textContent = 'Number of days since last purchase';
+    input.placeholder = 'e.g. 90';
+  } else {
+    group.style.display = 'none';
+  }
+}
+
+{% if show_create %}
+document.getElementById('createModal').style.display = 'flex';
+{% endif %}
+</script>
+{% endblock %}

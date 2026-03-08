@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+{% block title %}Customer Profiles — MailEngineHub{% endblock %}
+{% block page_title %}Customer Profiles{% endblock %}
+
+{% block extra_head %}
+<style>
+  .profiles-hero {
+    background: linear-gradient(135deg, rgba(124,58,237,0.12), rgba(6,182,212,0.08));
+    border: 1px solid rgba(124,58,237,0.2);
+    border-radius: 20px;
+    padding: 28px 32px;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .profiles-hero::before {
+    content: '';
+    position: absolute; top: -60px; right: -60px;
+    width: 200px; height: 200px;
+    background: radial-gradient(circle, rgba(124,58,237,0.2), transparent 70%);
+    border-radius: 50%;
+  }
+  .filter-bar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  }
+  .filter-input {
+    flex: 1; min-width: 200px;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg2); border: 1px solid var(--border2);
+    border-radius: 10px; padding: 8px 14px;
+  }
+  .filter-input i { color: var(--text3); font-size: 13px; }
+  .filter-input input {
+    background: none; border: none; outline: none;
+    color: var(--text); font-size: 13px; width: 100%;
+  }
+  .filter-select {
+    background: var(--bg2); border: 1px solid var(--border2);
+    border-radius: 10px; padding: 8px 14px;
+    color: var(--text); font-size: 13px; cursor: pointer;
+  }
+  .profile-row {
+    display: grid;
+    grid-template-columns: 2.5fr 0.8fr 1fr 0.9fr 1.2fr 0.9fr 0.7fr 1fr 80px;
+    align-items: center;
+    padding: 14px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background .15s;
+    cursor: pointer;
+    gap: 12px;
+  }
+  .profile-row:hover { background: rgba(255,255,255,0.03); }
+  .profile-row:last-child { border-bottom: none; }
+  .profile-header {
+    display: grid;
+    grid-template-columns: 2.5fr 0.8fr 1fr 0.9fr 1.2fr 0.9fr 0.7fr 1fr 80px;
+    padding: 10px 20px;
+    gap: 12px;
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 64px; z-index: 10;
+    backdrop-filter: blur(10px);
+  }
+  .profile-header span {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--text3);
+  }
+  .avatar {
+    width: 34px; height: 34px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--purple), var(--cyan));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; color: #fff;
+    flex-shrink: 0;
+  }
+  .customer-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .customer-info .name { font-size: 13.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .customer-info .email { font-size: 11.5px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .tier-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+  .tier-premium .tier-dot { background: var(--amber); }
+  .tier-mid .tier-dot     { background: var(--cyan); }
+  .tier-budget .tier-dot  { background: var(--text3); }
+
+  .days-badge {
+    font-size: 12px; font-weight: 600;
+    padding: 3px 9px; border-radius: 20px;
+    display: inline-block;
+  }
+  .days-fresh  { background: rgba(16,185,129,0.12); color: var(--green); }
+  .days-warm   { background: rgba(245,158,11,0.12); color: var(--amber); }
+  .days-cold   { background: rgba(239,68,68,0.1);   color: var(--red);   }
+  .days-never  { background: var(--surface2); color: var(--text3); }
+
+  .cat-tag {
+    background: rgba(124,58,237,0.1); color: var(--purple2);
+    border: 1px solid rgba(124,58,237,0.2);
+    border-radius: 6px; padding: 2px 8px;
+    font-size: 11px; font-weight: 500;
+    display: inline-block; max-width: 140px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .view-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 8px;
+    background: rgba(124,58,237,0.12); color: var(--purple2);
+    border: 1px solid rgba(124,58,237,0.25);
+    text-decoration: none; transition: all .2s;
+    font-size: 13px;
+  }
+  .view-btn:hover {
+    background: var(--purple); color: #fff;
+    box-shadow: 0 4px 12px var(--purple-glow);
+  }
+
+  .pagination-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+  }
+  .page-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 8px;
+    background: var(--surface2); color: var(--text2);
+    border: 1px solid var(--border2);
+    text-decoration: none; font-size: 13px; font-weight: 600;
+    transition: all .15s;
+  }
+  .page-btn:hover { background: var(--purple); color: #fff; border-color: var(--purple); }
+  .page-btn.active { background: var(--purple); color: #fff; border-color: var(--purple); }
+  .page-btn.disabled { opacity: 0.3; pointer-events: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Hero / Stats Row -->
+<div class="profiles-hero mb-0" style="margin-bottom:24px">
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:20px;">
+    <div>
+      <h2 style="font-size:22px; font-weight:800; margin-bottom:4px;">
+        <span class="grad-text">{{ total }}</span> Customer Profiles
+      </h2>
+      <p style="color:var(--text2); font-size:13.5px;">
+        {{ buyers }} buyers · {{ no_purchase }} subscribers · data from Shopify + Omnisend
+      </p>
+    </div>
+    <div style="display:flex; gap:32px;">
+      <div style="text-align:center;">
+        <div style="font-size:22px; font-weight:800; color:var(--green);">{{ buyers }}</div>
+        <div style="font-size:11px; color:var(--text3); margin-top:2px;">Buyers</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:22px; font-weight:800; color:var(--amber);">{{ repeat_buyers }}</div>
+        <div style="font-size:11px; color:var(--text3); margin-top:2px;">Repeat Buyers</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:22px; font-weight:800; color:var(--cyan);">${{ "%.0f"|format(avg_order_value) }}</div>
+        <div style="font-size:11px; color:var(--text3); margin-top:2px;">Avg Order</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:22px; font-weight:800; color:var(--pink);">{{ discount_users }}</div>
+        <div style="font-size:11px; color:var(--text3); margin-top:2px;">Discount Users</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Filter Bar -->
+<form method="GET" action="/profiles">
+  <div class="filter-bar">
+    <div class="filter-input" style="flex:2;">
+      <i class="fas fa-search"></i>
+      <input type="text" name="q" value="{{ q }}" placeholder="Search name or email...">
+    </div>
+    <select name="tier" class="filter-select">
+      <option value="">All Price Tiers</option>
+      <option value="premium" {% if tier=='premium' %}selected{% endif %}>💎 Premium ($85+)</option>
+      <option value="mid"     {% if tier=='mid'     %}selected{% endif %}>⚡ Mid-tier ($35–$85)</option>
+      <option value="budget"  {% if tier=='budget'  %}selected{% endif %}>💵 Budget (&lt;$35)</option>
+      <option value="unknown" {% if tier=='unknown' %}selected{% endif %}>🆕 No purchases</option>
+    </select>
+    <select name="category" class="filter-select">
+      <option value="">All Categories</option>
+      <option value="Bluetooth Headsets"  {% if category=='Bluetooth Headsets'  %}selected{% endif %}>🎧 Bluetooth Headsets</option>
+      <option value="Dash Cams"           {% if category=='Dash Cams'           %}selected{% endif %}>📷 Dash Cams</option>
+      <option value="Phone Accessories"   {% if category=='Phone Accessories'   %}selected{% endif %}>📱 Phone Accessories</option>
+      <option value="Other Electronics"   {% if category=='Other Electronics'   %}selected{% endif %}>🔌 Other Electronics</option>
+    </select>
+    <select name="sort" class="filter-select">
+      <option value="spent_desc" {% if sort=='spent_desc' %}selected{% endif %}>↓ Highest Spend</option>
+      <option value="orders_desc" {% if sort=='orders_desc' %}selected{% endif %}>↓ Most Orders</option>
+      <option value="recent"      {% if sort=='recent'     %}selected{% endif %}>🕐 Recently Active</option>
+      <option value="lapsed"      {% if sort=='lapsed'     %}selected{% endif %}>💤 Most Lapsed</option>
+      <option value="name"        {% if sort=='name'       %}selected{% endif %}>A–Z Name</option>
+    </select>
+    <button type="submit" class="btn btn-primary btn-sm">
+      <i class="fas fa-filter"></i> Apply
+    </button>
+    <a href="/profiles" class="btn btn-outline btn-sm">Clear</a>
+  </div>
+</form>
+
+<!-- Table Card -->
+<div class="card" style="border-radius:16px; overflow:hidden;">
+
+  <!-- Sticky header -->
+  <div class="profile-header">
+    <span>Customer</span>
+    <span>Orders</span>
+    <span>Total Spent</span>
+    <span>Last Purchase</span>
+    <span>Category</span>
+    <span>Price Tier</span>
+    <span>Discount</span>
+    <span>Location</span>
+    <span></span>
+  </div>
+
+  <!-- Rows -->
+  {% for row in profiles %}
+  <div class="profile-row" onclick="location.href='/profiles/{{ row.contact_id }}'">
+
+    <!-- Customer -->
+    <div class="customer-info">
+      <div class="avatar">{{ (row.name[0] if row.name else row.email[0])|upper }}</div>
+      <div style="min-width:0;">
+        <div class="name">{{ row.name or '—' }}</div>
+        <div class="email">{{ row.email }}</div>
+      </div>
+    </div>
+
+    <!-- Orders -->
+    <div>
+      {% if row.total_orders > 0 %}
+        <span style="font-size:15px; font-weight:700; color:var(--text);">{{ row.total_orders }}</span>
+        <span style="font-size:11px; color:var(--text3);"> order{{ 's' if row.total_orders != 1 }}</span>
+      {% else %}
+        <span style="color:var(--text3); font-size:12px;">—</span>
+      {% endif %}
+    </div>
+
+    <!-- Total Spent -->
+    <div>
+      {% if row.total_spent > 0 %}
+        <span style="font-size:14px; font-weight:700; color:var(--green);">${{ "%.2f"|format(row.total_spent) }}</span>
+        <span style="font-size:10px; color:var(--text3);"> CAD</span>
+      {% else %}
+        <span style="color:var(--text3); font-size:12px;">—</span>
+      {% endif %}
+    </div>
+
+    <!-- Last Purchase -->
+    <div>
+      {% if row.days_since < 999 %}
+        {% if row.days_since <= 30 %}
+          <span class="days-badge days-fresh">{{ row.days_since }}d ago</span>
+        {% elif row.days_since <= 90 %}
+          <span class="days-badge days-warm">{{ row.days_since }}d ago</span>
+        {% else %}
+          <span class="days-badge days-cold">{{ row.days_since }}d ago</span>
+        {% endif %}
+      {% else %}
+        <span class="days-badge days-never">Never</span>
+      {% endif %}
+    </div>
+
+    <!-- Category -->
+    <div>
+      {% if row.top_category %}
+        <span class="cat-tag">{{ row.top_category }}</span>
+      {% else %}
+        <span style="color:var(--text3); font-size:12px;">—</span>
+      {% endif %}
+    </div>
+
+    <!-- Price Tier -->
+    <div>
+      {% if row.price_tier == 'premium' %}
+        <span style="font-size:12px; font-weight:600; color:var(--amber);">
+          <span class="tier-dot" style="background:var(--amber);"></span>Premium
+        </span>
+      {% elif row.price_tier == 'mid' %}
+        <span style="font-size:12px; font-weight:600; color:var(--cyan);">
+          <span class="tier-dot" style="background:var(--cyan);"></span>Mid-tier
+        </span>
+      {% elif row.price_tier == 'budget' %}
+        <span style="font-size:12px; font-weight:600; color:var(--text3);">
+          <span class="tier-dot" style="background:var(--text3);"></span>Budget
+        </span>
+      {% else %}
+        <span style="color:var(--text3); font-size:12px;">—</span>
+      {% endif %}
+    </div>
+
+    <!-- Discount -->
+    <div>
+      {% if row.has_used_discount %}
+        <span style="color:var(--green); font-size:13px;"><i class="fas fa-tag"></i></span>
+      {% else %}
+        <span style="color:var(--text3); font-size:12px;">—</span>
+      {% endif %}
+    </div>
+
+    <!-- Location -->
+    <div style="font-size:12px; color:var(--text3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+      {{ row.location or '—' }}
+    </div>
+
+    <!-- Action -->
+    <div style="text-align:right;" onclick="event.stopPropagation()">
+      <a href="/profiles/{{ row.contact_id }}" class="view-btn">
+        <i class="fas fa-arrow-right"></i>
+      </a>
+    </div>
+
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <i class="fas fa-users-slash"></i>
+    <h3>No profiles found</h3>
+    <p>Try adjusting your filters</p>
+  </div>
+  {% endfor %}
+
+  <!-- Pagination -->
+  {% if total_pages > 1 %}
+  <div class="pagination-bar">
+    <span style="font-size:12.5px; color:var(--text3);">
+      Showing {{ ((page-1)*50)+1 }}–{{ [page*50, total]|min }} of {{ total }} profiles
+    </span>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <a href="?{{ query_string }}&page={{ page-1 }}" class="page-btn {% if page <= 1 %}disabled{% endif %}">
+        <i class="fas fa-chevron-left"></i>
+      </a>
+      {% for p in range([1, page-2]|max, [total_pages+1, page+3]|min) %}
+        <a href="?{{ query_string }}&page={{ p }}" class="page-btn {% if p == page %}active{% endif %}">{{ p }}</a>
+      {% endfor %}
+      <a href="?{{ query_string }}&page={{ page+1 }}" class="page-btn {% if page >= total_pages %}disabled{% endif %}">
+        <i class="fas fa-chevron-right"></i>
+      </a>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,389 @@
+{% extends "base.html" %}
+{% block title %}{{ flow.name }} — Flow{% endblock %}
+{% block page_title %}{{ flow.name }}{% endblock %}
+
+{% block topbar_actions %}
+  <form method="POST" action="/flows/{{ flow.id }}/toggle" style="display:inline;">
+    {% if flow.is_active %}
+      <button type="submit" class="btn btn-outline btn-sm" style="color:#f97316;border-color:#f97316;">
+        <i class="fas fa-pause"></i> Disable Flow
+      </button>
+    {% else %}
+      <button type="submit" class="btn btn-success btn-sm">
+        <i class="fas fa-play"></i> Enable Flow
+      </button>
+    {% endif %}
+  </form>
+  <a href="/flows" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> All Flows</a>
+  <form method="POST" action="/flows/{{ flow.id }}/delete"
+        onsubmit="return confirm('Delete this flow? Active enrollments will be cancelled.');"
+        style="display:inline;">
+    <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-trash"></i></button>
+  </form>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .flow-layout { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
+  .step-timeline { position: relative; }
+  .step-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    padding: 20px; margin-bottom: 0; position: relative;
+  }
+  .step-connector {
+    width: 2px; height: 28px; background: #6366f1;
+    margin: 0 auto; opacity: .4;
+  }
+  .step-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .step-number {
+    width: 28px; height: 28px; border-radius: 50%; background: #6366f1;
+    color: #fff; font-weight: 700; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-right: 10px;
+  }
+  .step-title { font-weight: 700; font-size: 15px; color: #0f172a; }
+  .step-meta { font-size: 12px; color: #64748b; margin-top: 2px; }
+  .step-delay {
+    background: #f0f9ff; border: 1px dashed #7dd3fc; border-radius: 8px;
+    padding: 8px 14px; font-size: 13px; color: #0369a1; text-align: center;
+    margin: 0 0 0 34px;
+  }
+  .add-step-card {
+    background: #fafafa; border: 2px dashed #e2e8f0; border-radius: 10px;
+    padding: 24px; margin-top: 16px;
+  }
+  .add-step-card h4 { font-size: 14px; font-weight: 700; margin-bottom: 16px; color: #374151; }
+  .inline-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .delay-row { display: flex; gap: 8px; align-items: flex-end; }
+  .delay-row input { width: 80px; }
+  .delay-row select { flex: 1; }
+
+  /* Stats panel */
+  .stats-panel { position: sticky; top: 80px; }
+  .stat-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px;
+  }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-row .label { color: #64748b; }
+  .stat-row .value { font-weight: 700; color: #0f172a; font-size: 17px; }
+  .status-pill {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 700;
+  }
+  .status-active    { background:#dbeafe; color:#1e40af; }
+  .status-completed { background:#dcfce7; color:#166534; }
+  .status-cancelled { background:#f1f5f9; color:#64748b; }
+
+  /* Enrollment table */
+  .enroll-section { margin-top: 28px; }
+  .trigger-info {
+    background: #f5f3ff; border: 1px solid #c4b5fd; border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 20px; font-size: 13px; color: #5b21b6;
+    display: flex; align-items: center; gap: 10px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Flow trigger info banner -->
+<div class="trigger-info">
+  <i class="fas fa-bolt" style="font-size:16px;"></i>
+  <div>
+    <strong>Trigger: </strong>
+    {% if flow.trigger_type == 'contact_created' %}New contact added (via CSV import or Shopify sync)
+    {% elif flow.trigger_type == 'tag_added' %}Contact receives tag <strong>"{{ flow.trigger_value }}"</strong>
+    {% elif flow.trigger_type == 'no_purchase_days' %}Shopify customer with no purchase after <strong>{{ flow.trigger_value }} days</strong>
+    {% else %}Manual enrollment only{% endif %}
+    &nbsp;&mdash;&nbsp;
+    <span class="status-pill {{ 'status-completed' if flow.is_active else 'status-cancelled' }}">
+      {{ 'ENABLED' if flow.is_active else 'DISABLED' }}
+    </span>
+  </div>
+</div>
+
+<div class="flow-layout">
+
+  <!-- ── LEFT: Step Builder ── -->
+  <div>
+    <div class="card" style="padding: 0; overflow: hidden;">
+      <div style="padding: 20px 24px; border-bottom: 1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center;">
+        <div class="card-title">Flow Steps</div>
+        <span style="font-size:12px;color:#94a3b8;">Steps run in order with specified delays</span>
+      </div>
+
+      <div style="padding: 24px;">
+        {% if not steps | list %}
+        <div style="text-align:center;padding:32px;color:#94a3b8;">
+          <i class="fas fa-list" style="font-size:32px;margin-bottom:12px;display:block;color:#cbd5e1;"></i>
+          <p style="margin-bottom: 4px;">No steps yet.</p>
+          <p style="font-size: 12px;">Add your first step below to start building this flow.</p>
+        </div>
+        {% else %}
+        <div class="step-timeline">
+          {% for step in steps %}
+
+          <!-- Delay connector (shown before step 2+) -->
+          {% if step.step_order > 1 %}
+          <div class="step-connector"></div>
+          <div class="step-delay">
+            <i class="fas fa-clock" style="margin-right:6px;"></i>
+            Wait
+            {% if step.delay_hours == 0 %}immediately
+            {% elif step.delay_hours % 24 == 0 %}{{ step.delay_hours // 24 }} day{% if step.delay_hours // 24 != 1 %}s{% endif %}
+            {% else %}{{ step.delay_hours }} hour{% if step.delay_hours != 1 %}s{% endif %}
+            {% endif %}
+          </div>
+          <div class="step-connector"></div>
+          {% endif %}
+
+          <div class="step-card">
+            <div class="step-header">
+              <div style="display:flex;align-items:center;">
+                <div class="step-number">{{ step.step_order }}</div>
+                <div>
+                  <div class="step-title">{{ step.template.name }}</div>
+                  <div class="step-meta">
+                    Subject: {{ step.subject_override or step.template.subject }}
+                  </div>
+                </div>
+              </div>
+              <form method="POST" action="/flows/{{ flow.id }}/steps/{{ step.id }}/delete"
+                    onsubmit="return confirm('Remove this step?');">
+                <button type="submit" class="btn btn-outline btn-sm" style="color:#ef4444;">
+                  <i class="fas fa-times"></i>
+                </button>
+              </form>
+            </div>
+
+            <div style="display:flex;gap:20px;font-size:12px;color:#64748b;">
+              {% if step.step_order == 1 %}
+              <span><i class="fas fa-clock" style="margin-right:4px;"></i>
+                {% if step.delay_hours == 0 %}Sends immediately on enroll
+                {% elif step.delay_hours % 24 == 0 %}Sends {{ step.delay_hours // 24 }}d after enroll
+                {% else %}Sends {{ step.delay_hours }}h after enroll
+                {% endif %}
+              </span>
+              {% endif %}
+              {% if step.from_email %}
+              <span><i class="fas fa-user" style="margin-right:4px;"></i>
+                {{ step.from_name or 'Default' }} &lt;{{ step.from_email }}&gt;</span>
+              {% else %}
+              <span><i class="fas fa-user" style="margin-right:4px;"></i>Using default sender</span>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+
+          <!-- Arrow to end -->
+          <div class="step-connector"></div>
+          <div style="text-align:center;padding:10px;">
+            <span style="background:#f1f5f9;color:#64748b;padding:6px 16px;border-radius:999px;font-size:12px;font-weight:600;">
+              <i class="fas fa-flag-checkered" style="margin-right:6px;"></i>Flow Complete
+            </span>
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Add Step Form -->
+        <div class="add-step-card" {% if steps | list %}style="margin-top:20px;"{% endif %}>
+          <h4><i class="fas fa-plus" style="color:#6366f1;margin-right:6px;"></i>Add Next Step</h4>
+          <form method="POST" action="/flows/{{ flow.id }}/steps/add">
+            <div class="form-group">
+              <label>Email Template</label>
+              <select name="template_id" required>
+                <option value="">-- Select a template --</option>
+                {% for tmpl in templates %}
+                <option value="{{ tmpl.id }}">{{ tmpl.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>
+                {% if not steps | list %}Send delay (from enrollment){% else %}Delay after previous step{% endif %}
+              </label>
+              <div class="delay-row">
+                <input type="number" name="delay_hours" min="0" value="0" placeholder="0">
+                <select name="delay_unit">
+                  <option value="hours">Hours</option>
+                  <option value="days">Days</option>
+                </select>
+              </div>
+              <div style="font-size:12px;color:#64748b;margin-top:4px;">Set to 0 to send immediately.</div>
+            </div>
+
+            <details style="margin-bottom:16px;">
+              <summary style="font-size:13px;font-weight:600;color:#374151;cursor:pointer;padding:4px 0;">
+                Override sender &amp; subject (optional)
+              </summary>
+              <div style="margin-top:12px;" class="inline-grid">
+                <div class="form-group" style="margin-bottom:0;">
+                  <label>From Name</label>
+                  <input type="text" name="from_name" placeholder="e.g. Sarah from BrandName">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                  <label>From Email</label>
+                  <input type="email" name="from_email" placeholder="leave blank for default">
+                </div>
+              </div>
+              <div class="form-group" style="margin-top:12px;margin-bottom:0;">
+                <label>Subject Override</label>
+                <input type="text" name="subject_override" placeholder="leave blank to use template subject">
+              </div>
+            </details>
+
+            <button type="submit" class="btn btn-primary">
+              <i class="fas fa-plus"></i> Add Step
+            </button>
+          </form>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Enroll test contact -->
+    <div class="card">
+      <div class="card-title" style="margin-bottom:16px;">
+        <i class="fas fa-flask" style="color:#6366f1;margin-right:8px;"></i>Enroll Test Contact
+      </div>
+      <p style="font-size:13px;color:#64748b;margin-bottom:16px;">
+        Manually enroll an email into this flow to test it. The next processor cycle (within 60 seconds) will send the first step.
+      </p>
+      <form method="POST" action="/flows/{{ flow.id }}/enroll-test" style="display:flex;gap:10px;">
+        <input type="email" name="test_email" placeholder="test@example.com" required style="flex:1;">
+        <button type="submit" class="btn btn-outline">
+          <i class="fas fa-user-plus"></i> Enroll
+        </button>
+      </form>
+    </div>
+
+  </div>
+
+  <!-- ── RIGHT: Stats Panel ── -->
+  <div class="stats-panel">
+    <div class="card">
+      <div class="card-title" style="margin-bottom:16px;">Flow Performance</div>
+      <div class="stat-row">
+        <span class="label">Total Enrolled</span>
+        <span class="value">{{ total }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="label">Currently Active</span>
+        <span class="value" style="color:#1e40af;">{{ active }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="label">Completed</span>
+        <span class="value" style="color:#166534;">{{ completed }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="label">Cancelled (unsub)</span>
+        <span class="value" style="color:#64748b;">{{ cancelled }}</span>
+      </div>
+      <div class="stat-row" style="margin-top:8px;padding-top:16px;border-top:2px solid #f1f5f9;">
+        <span class="label">Emails Sent</span>
+        <span class="value">{{ sent }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="label">Open Rate</span>
+        <span class="value" style="color:{% if open_rate >= 20 %}#166534{% elif open_rate >= 15 %}#854d0e{% else %}#991b1b{% endif %};">
+          {% if sent > 0 %}{{ open_rate }}%{% else %}—{% endif %}
+        </span>
+      </div>
+    </div>
+
+    <!-- Live stats auto-refresh -->
+    <div id="liveStats" style="font-size:12px;color:#94a3b8;text-align:center;margin-top:-12px;margin-bottom:24px;">
+      <i class="fas fa-circle" style="color:#22c55e;font-size:8px;margin-right:4px;"></i>
+      Live — updates every 30s
+    </div>
+  </div>
+
+</div>
+
+<!-- Enrollments Table -->
+<div class="enroll-section">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Recent Enrollments</div>
+      <span style="font-size:12px;color:#64748b;">Showing latest 50</span>
+    </div>
+    {% if not enrollments | list %}
+    <div class="empty-state" style="padding:40px;">
+      <i class="fas fa-inbox" style="color:#cbd5e1;"></i>
+      <h3>No enrollments yet</h3>
+      <p>Enable this flow so contacts start enrolling automatically, or use the test enroll above.</p>
+    </div>
+    {% else %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Contact</th>
+            <th>Enrolled</th>
+            <th>Current Step</th>
+            <th>Next Send</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for enroll in enrollments %}
+          <tr>
+            <td>
+              <div style="font-weight:600;">{{ enroll.contact.email }}</div>
+              {% if enroll.contact.first_name %}
+              <div style="font-size:12px;color:#64748b;">{{ enroll.contact.full_name }}</div>
+              {% endif %}
+            </td>
+            <td style="color:#64748b;">{{ enroll.enrolled_at.strftime('%b %d, %Y') if enroll.enrolled_at else '—' }}</td>
+            <td>
+              {% if enroll.status == 'completed' %}
+                <span style="color:#166534;font-weight:600;">Done</span>
+              {% elif enroll.status == 'cancelled' %}
+                <span style="color:#64748b;">—</span>
+              {% else %}
+                Step {{ enroll.current_step }}
+              {% endif %}
+            </td>
+            <td style="color:#64748b;font-size:13px;">
+              {% if enroll.status == 'active' and enroll.next_send_at %}
+                {{ enroll.next_send_at.strftime('%b %d %H:%M') }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>
+              <span class="status-pill status-{{ enroll.status }}">{{ enroll.status | capitalize }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Refresh stats every 30s without full page reload
+setInterval(() => {
+  fetch('/api/flows/{{ flow.id }}/stats')
+    .then(r => r.json())
+    .then(d => {
+      const rows = document.querySelectorAll('.stat-row .value');
+      if (rows.length >= 6) {
+        rows[0].textContent = d.enrolled;
+        rows[1].textContent = d.active;
+        rows[2].textContent = d.completed;
+        rows[4].textContent = d.sent;
+        rows[5].textContent = d.sent > 0 ? d.open_rate + '%' : '—';
+      }
+    })
+    .catch(() => {});
+}, 30000);
+</script>
+{% endblock %}

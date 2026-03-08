@@ -1,0 +1,872 @@
+{% extends "base.html" %}
+{% block title %}{{ contact.first_name or contact.email }} — Profile{% endblock %}
+{% block page_title %}Customer Profile{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  .back-link {
+    display: inline-flex; align-items: center; gap: 7px;
+    color: var(--text3); text-decoration: none; font-size: 13px;
+    margin-bottom: 22px; transition: color .15s;
+  }
+  .back-link:hover { color: var(--purple2); }
+
+  .profile-grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+
+  /* Identity */
+  .identity-card {
+    background: linear-gradient(160deg, rgba(124,58,237,0.15), rgba(6,182,212,0.08));
+    border: 1px solid rgba(124,58,237,0.25);
+    border-radius: 18px; padding: 28px 24px;
+    text-align: center; position: relative; overflow: hidden;
+  }
+  .identity-card::before {
+    content: ''; position: absolute; top: -80px; right: -80px;
+    width: 200px; height: 200px;
+    background: radial-gradient(circle, rgba(124,58,237,0.2), transparent 70%);
+    border-radius: 50%;
+  }
+  .identity-card::after {
+    content: ''; position: absolute; bottom: -60px; left: -60px;
+    width: 150px; height: 150px;
+    background: radial-gradient(circle, rgba(6,182,212,0.15), transparent 70%);
+    border-radius: 50%;
+  }
+  .profile-avatar {
+    width: 80px; height: 80px; border-radius: 22px; margin: 0 auto 16px;
+    background: linear-gradient(135deg, var(--purple), var(--cyan));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 30px; font-weight: 800; color: #fff;
+    box-shadow: 0 8px 30px var(--purple-glow);
+    position: relative; z-index: 1;
+  }
+  .profile-name { font-size: 20px; font-weight: 800; color: var(--text); margin-bottom: 4px; position: relative; z-index: 1; }
+  .profile-email { font-size: 12.5px; color: var(--text3); margin-bottom: 16px; position: relative; z-index: 1; }
+
+  .tag-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 20px; position: relative; z-index:1; }
+
+  /* Stat mini cards */
+  .mini-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; position: relative; z-index:1; }
+  .mini-stat {
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 16px; text-align: center;
+  }
+  .mini-stat .val { font-size: 20px; font-weight: 800; color: var(--text); line-height: 1; margin-bottom: 4px; }
+  .mini-stat .lbl { font-size: 11px; color: var(--text3); }
+
+  /* AI Summary */
+  .ai-box {
+    background: rgba(124,58,237,0.08);
+    border: 1px solid rgba(124,58,237,0.2);
+    border-radius: 14px; padding: 16px 18px;
+    position: relative; z-index: 1;
+  }
+  .ai-box .ai-label {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--purple2); margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .ai-box p { font-size: 12.5px; color: var(--text2); line-height: 1.6; margin: 0; }
+
+  /* Order timeline */
+  .order-card { padding: 0; }
+  .order-row {
+    display: grid;
+    grid-template-columns: 90px 1fr 100px 80px 90px;
+    gap: 12px; align-items: start;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background .15s;
+  }
+  .order-row:last-child { border-bottom: none; }
+  .order-row:hover { background: rgba(255,255,255,0.03); }
+  .order-num { font-size: 13px; font-weight: 700; color: var(--purple2); }
+  .order-date { font-size: 11.5px; color: var(--text3); margin-top: 2px; }
+  .order-product { font-size: 12.5px; color: var(--text); line-height: 1.5; }
+  .order-product .variant { font-size: 11px; color: var(--text3); }
+  .order-total { font-size: 14px; font-weight: 700; color: var(--green); }
+  .order-discount { font-size: 11.5px; color: var(--green); margin-top: 3px; }
+
+  /* Category chart area */
+  .chart-container { position: relative; height: 200px; }
+
+  /* Timeline dots */
+  .spend-bar {
+    height: 4px; border-radius: 4px;
+    background: linear-gradient(90deg, var(--purple), var(--cyan));
+    margin-top: 6px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<a href="/profiles" class="back-link">
+  <i class="fas fa-arrow-left"></i> All Profiles
+</a>
+
+<div class="profile-grid">
+
+  <!-- ── LEFT COLUMN ────────────────────────── -->
+  <div>
+
+    <!-- Identity Card -->
+    <div class="identity-card" style="margin-bottom:16px;">
+      <div class="profile-avatar">
+        {{ (contact.first_name[0] if contact.first_name else contact.email[0])|upper }}
+      </div>
+      <div class="profile-name">
+        {{ contact.first_name or '' }} {{ contact.last_name or '' }}
+      </div>
+      <div class="profile-email">{{ contact.email }}</div>
+
+      <div class="tag-row">
+        {% if contact.subscribed %}
+          <span class="badge badge-green">✓ Subscribed</span>
+        {% else %}
+          <span class="badge badge-ghost">Unsubscribed</span>
+        {% endif %}
+        {% if profile.price_tier == 'premium' %}
+          <span class="badge badge-amber">💎 Premium</span>
+        {% elif profile.price_tier == 'mid' %}
+          <span class="badge badge-cyan">⚡ Mid-tier</span>
+        {% elif profile.price_tier == 'budget' %}
+          <span class="badge badge-ghost">Budget</span>
+        {% endif %}
+        {% if profile.has_used_discount %}
+          <span class="badge badge-green"><i class="fas fa-tag me-1"></i>Discount user</span>
+        {% endif %}
+      </div>
+
+      <div class="mini-stats">
+        <div class="mini-stat">
+          <div class="val">{{ profile.total_orders }}</div>
+          <div class="lbl">Orders</div>
+        </div>
+        <div class="mini-stat">
+          <div class="val" style="color:var(--green); font-size:17px;">
+            ${{ "%.0f"|format(profile.total_spent) }}
+          </div>
+          <div class="lbl">Total Spent CAD</div>
+        </div>
+        <div class="mini-stat">
+          <div class="val" style="font-size:17px;">${{ "%.0f"|format(profile.avg_order_value) }}</div>
+          <div class="lbl">Avg Order</div>
+        </div>
+        <div class="mini-stat">
+          <div class="val" style="font-size:17px;
+            color:{% if profile.days_since_last_order < 30 %}var(--green)
+                  {% elif profile.days_since_last_order < 90 %}var(--amber)
+                  {% elif profile.days_since_last_order < 999 %}var(--red)
+                  {% else %}var(--text3){% endif %};">
+            {% if profile.days_since_last_order < 999 %}{{ profile.days_since_last_order }}d{% else %}—{% endif %}
+          </div>
+          <div class="lbl">Since Last Order</div>
+        </div>
+      </div>
+
+      {% if profile.city or profile.province %}
+      <div style="font-size:12px; color:var(--text3); margin-bottom:16px; position:relative; z-index:1;">
+        <i class="fas fa-map-marker-alt me-1" style="color:var(--purple2);"></i>
+        {{ profile.city }}{% if profile.city and profile.province %}, {% endif %}{{ profile.province }}
+      </div>
+      {% endif %}
+
+      <!-- AI Summary -->
+      <div class="ai-box">
+        <div class="ai-label">
+          <i class="fas fa-brain"></i> AI Profile Summary
+        </div>
+        <p>{{ profile.profile_summary }}</p>
+      </div>
+    </div>
+
+    <!-- Category Breakdown -->
+    {% if top_categories %}
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-header">
+        <span class="card-title">Category Preferences</span>
+      </div>
+      <div class="card-body">
+        {% set max_cat_count = top_categories[0][1] if top_categories else 1 %}
+        {% for cat, count in top_categories %}
+        <div style="margin-bottom:14px;">
+          <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+            <span style="font-size:12.5px; color:var(--text);">{{ cat }}</span>
+            <span style="font-size:12px; font-weight:600; color:var(--purple2);">{{ count }} item{{ 's' if count != 1 }}</span>
+          </div>
+          <div style="background:rgba(255,255,255,0.06); border-radius:4px; height:4px;">
+            <div style="width:{{ (count / max_cat_count * 100)|int }}%; height:4px; border-radius:4px;
+              background:linear-gradient(90deg, var(--purple), var(--cyan));"></div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Quick Stats -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Purchase Behaviour</span>
+      </div>
+      <div class="card-body" style="padding:0;">
+        {% set stats = [
+          ("Avg Days Between Orders", (profile.avg_days_between_orders|int|string + "d") if profile.avg_days_between_orders > 0 else "Once"),
+          ("Items Bought", profile.total_items_bought),
+          ("Discount Rate", "%.0f%%"|format(profile.discount_sensitivity * 100)),
+          ("First Order", profile.first_order_at.strftime("%b %d, %Y") if profile.first_order_at else "—"),
+          ("Last Order", profile.last_order_at.strftime("%b %d, %Y") if profile.last_order_at else "—"),
+        ] %}
+        {% for label, value in stats %}
+        <div style="display:flex; justify-content:space-between; align-items:center;
+                    padding:12px 20px; border-bottom:1px solid rgba(255,255,255,0.04);">
+          <span style="font-size:12.5px; color:var(--text3);">{{ label }}</span>
+          <span style="font-size:13px; font-weight:600; color:var(--text);">{{ value }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── RIGHT COLUMN ───────────────────────── -->
+  <div>
+
+    <!-- Products Purchased -->
+    {% if top_products %}
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header">
+        <span class="card-title"><i class="fas fa-box me-2" style="color:var(--cyan);"></i>Products Purchased</span>
+        <span style="font-size:12px; color:var(--text3);">{{ profile.total_items_bought }} total items</span>
+      </div>
+      <div class="card-body">
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+          {% for prod in top_products %}
+          <span style="background:rgba(6,182,212,0.08); color:var(--cyan);
+                       border:1px solid rgba(6,182,212,0.2); border-radius:10px;
+                       padding:6px 14px; font-size:12.5px; font-weight:500;">
+            {{ prod }}
+          </span>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Order History -->
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header">
+        <span class="card-title">
+          <i class="fas fa-clock-rotate-left me-2" style="color:var(--purple2);"></i>Order History
+        </span>
+        <span class="badge badge-purple">{{ orders|length }} order{{ 's' if orders|length != 1 }}</span>
+      </div>
+
+      {% if orders %}
+      <div style="padding:0 20px 10px;">
+        <!-- Column headers -->
+        <div style="display:grid; grid-template-columns:90px 1fr 100px 80px 90px;
+                    gap:12px; padding:10px 0 6px;
+                    border-bottom:1px solid var(--border);">
+          {% for h in ['Order', 'Products', 'Total', 'Status', 'Discount'] %}
+          <span style="font-size:10.5px; font-weight:700; text-transform:uppercase;
+                       letter-spacing:0.8px; color:var(--text3);">{{ h }}</span>
+          {% endfor %}
+        </div>
+      </div>
+
+      {% for o in orders %}
+      <div class="order-row">
+        <div>
+          <div class="order-num">#{{ o.order_number }}</div>
+          <div class="order-date">
+            {{ o.ordered_at.strftime('%b %d, %Y') if o.ordered_at else '—' }}
+          </div>
+        </div>
+        <div class="order-product">
+          {% for item in o.items %}
+          <div style="margin-bottom:3px;">
+            {% if item.quantity > 1 %}
+              <span style="background:rgba(124,58,237,0.15); color:var(--purple2);
+                           font-size:10px; padding:1px 5px; border-radius:4px; margin-right:4px;">
+                ×{{ item.quantity }}
+              </span>
+            {% endif %}
+            {{ item.product_title }}
+            {% if item.variant_title %}
+              <span class="variant"> · {{ item.variant_title }}</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        <div class="order-total">${{ "%.2f"|format(o.order_total) }}</div>
+        <div>
+          {% if o.financial_status == 'paid' %}
+            <span class="badge badge-green">Paid</span>
+          {% elif o.financial_status == 'refunded' %}
+            <span class="badge badge-red">Refunded</span>
+          {% elif o.financial_status == 'partially_refunded' %}
+            <span class="badge badge-amber">Part. Refund</span>
+          {% elif o.financial_status %}
+            <span class="badge badge-ghost">{{ o.financial_status|title }}</span>
+          {% endif %}
+          {% if o.fulfillment_status == 'fulfilled' %}
+            <span class="badge badge-cyan" style="margin-top:4px; display:inline-block;">
+              Fulfilled
+            </span>
+          {% endif %}
+        </div>
+        <div>
+          {% if o.total_discounts > 0 %}
+            <span style="color:var(--green); font-size:13px; font-weight:600;">
+              -${{ "%.2f"|format(o.total_discounts) }}
+            </span>
+            {% if o.discount_codes %}
+              <div style="font-size:10.5px; color:var(--text3); margin-top:2px;">{{ o.discount_codes }}</div>
+            {% endif %}
+          {% else %}
+            <span style="color:var(--text3); font-size:12px;">—</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+
+      {% else %}
+      <div class="empty-state">
+        <i class="fas fa-shopping-cart"></i>
+        <h3>No purchases yet</h3>
+        <p style="font-size:13px;">This contact hasn't placed an order.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Email Activity -->
+    {% if email_activity %}
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">
+          <i class="fas fa-envelope me-2" style="color:var(--pink);"></i>Email Activity
+        </span>
+        <span class="badge badge-pink">{{ email_activity|length }} emails</span>
+      </div>
+      <div style="padding:0;">
+        {% for e in email_activity %}
+        <div style="display:flex; align-items:center; justify-content:space-between;
+                    padding:12px 20px; border-bottom:1px solid rgba(255,255,255,0.04);">
+          <div>
+            <div style="font-size:13px; color:var(--text);">{{ e.subject or '(no subject)' }}</div>
+            <div style="font-size:11.5px; color:var(--text3); margin-top:2px;">
+              {{ e.created_at.strftime('%b %d, %Y') if e.created_at else '—' }}
+            </div>
+          </div>
+          {% if e.status == 'sent' %}
+            <span class="badge badge-green">Sent</span>
+          {% elif e.status == 'failed' %}
+            <span class="badge badge-red">Failed</span>
+          {% else %}
+            <span class="badge badge-ghost">{{ e.status }}</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+
+    <!-- ── Marketing Intelligence ──────────────────────────────── -->
+    {% if top_intent_product or viewed_not_bought or search_terms or blog_reads %}
+    <div class="card" style="margin-top:20px; border-color:rgba(124,58,237,0.25);">
+      <div class="card-header" style="background:rgba(124,58,237,0.06);">
+        <span class="card-title">
+          <i class="fas fa-brain" style="margin-right:7px; color:var(--purple2);"></i>Marketing Intelligence
+        </span>
+        <span class="badge badge-purple">Intent Signals</span>
+      </div>
+      <div class="card-body">
+
+        {% if top_intent_product %}
+        <div style="background:rgba(245,158,11,0.07); border:1px solid rgba(245,158,11,0.2);
+                    border-radius:12px; padding:14px 16px; margin-bottom:14px;">
+          <div style="font-size:10.5px; font-weight:700; text-transform:uppercase;
+                      letter-spacing:0.8px; color:var(--amber); margin-bottom:6px;">
+            <i class="fas fa-fire" style="margin-right:5px;"></i>Top Purchase Intent
+          </div>
+          <div style="font-size:14px; font-weight:700; color:var(--text);">{{ top_intent_product }}</div>
+          <div style="font-size:11.5px; color:var(--text3); margin-top:3px;">
+            Viewed {{ viewed_not_bought[0][1] if viewed_not_bought else '' }}× — never purchased
+          </div>
+          <div style="font-size:11px; color:var(--amber); margin-top:8px; font-weight:600;">
+            → Recommended: Send targeted discount for this product
+          </div>
+        </div>
+        {% endif %}
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          {% if viewed_not_bought %}
+          <div>
+            <div style="font-size:10.5px; font-weight:700; text-transform:uppercase;
+                        letter-spacing:0.8px; color:var(--text3); margin-bottom:8px;">
+              Viewed Not Bought
+            </div>
+            {% for prod, count in viewed_not_bought %}
+            <div style="display:flex; justify-content:space-between; align-items:center;
+                        padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
+              <span style="font-size:12px; color:var(--text);">{{ prod|truncate(30) }}</span>
+              <span style="font-size:11px; color:var(--amber); font-weight:700;">{{ count }}×</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          <div>
+            {% if search_terms %}
+            <div style="margin-bottom:14px;">
+              <div style="font-size:10.5px; font-weight:700; text-transform:uppercase;
+                          letter-spacing:0.8px; color:var(--text3); margin-bottom:8px;">
+                Search Terms
+              </div>
+              <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                {% for term in search_terms %}
+                <span style="background:rgba(245,158,11,0.1); color:var(--amber);
+                             border:1px solid rgba(245,158,11,0.2); border-radius:8px;
+                             padding:4px 10px; font-size:11.5px;">
+                  <i class="fas fa-search" style="margin-right:4px; font-size:10px;"></i>{{ term }}
+                </span>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+
+            {% if blog_reads %}
+            <div>
+              <div style="font-size:10.5px; font-weight:700; text-transform:uppercase;
+                          letter-spacing:0.8px; color:var(--text3); margin-bottom:8px;">
+                Blog Posts Read
+              </div>
+              {% for article in blog_reads %}
+              <div style="display:flex; align-items:center; gap:7px; padding:5px 0;
+                          border-bottom:1px solid rgba(255,255,255,0.04); font-size:12px; color:var(--cyan);">
+                <i class="fas fa-book-open" style="font-size:11px;"></i>{{ article|truncate(35) }}
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Send Targeted Email action row -->
+        <div style="margin-top:18px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.05); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+          <div style="font-size:11.5px; color:var(--text3);">
+            <i class="fas fa-circle-info" style="margin-right:5px; color:var(--purple2);"></i>
+            Based on their browsing behaviour &amp; intent signals
+          </div>
+          <button onclick="openTargetedEmailModal()" style="background:rgba(124,58,237,0.18); border:1px solid rgba(124,58,237,0.35); color:var(--purple2); border-radius:10px; padding:9px 18px; cursor:pointer; font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:7px;">
+            <i class="fas fa-paper-plane"></i>Send Targeted Email
+          </button>
+        </div>
+
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- ── Targeted Email Modal ──────────────────────────────────── -->
+    <div id="targetedEmailModal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.75); backdrop-filter:blur(5px); align-items:center; justify-content:center;">
+      <div style="background:#0d1033; border:1px solid rgba(124,58,237,0.3); border-radius:20px; padding:30px; width:560px; max-width:90vw; max-height:85vh; overflow-y:auto; box-shadow:0 25px 80px rgba(0,0,0,0.6);">
+
+        <!-- Modal header -->
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:22px;">
+          <div style="font-size:16px; font-weight:700; color:var(--text);">
+            <i class="fas fa-paper-plane" style="color:var(--purple2); margin-right:9px;"></i>Send Targeted Email
+          </div>
+          <button onclick="document.getElementById('targetedEmailModal').style.display='none'" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.08); color:var(--text3); border-radius:8px; width:32px; height:32px; cursor:pointer; font-size:15px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">&#x2715;</button>
+        </div>
+
+        <!-- To field -->
+        <div style="margin-bottom:14px;">
+          <div style="font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.7px; color:var(--text3); margin-bottom:6px;">To</div>
+          <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:10px 14px; font-size:13px; color:var(--text2);">
+            {{ ((contact.first_name or '') + ' ' + (contact.last_name or '')).strip() }} &lt;{{ contact.email }}&gt;
+          </div>
+        </div>
+
+        <!-- Subject field -->
+        <div style="margin-bottom:14px;">
+          <label style="font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.7px; color:var(--text3); display:block; margin-bottom:6px;">Subject</label>
+          <input id="quickSubject" type="text"
+                 value="{% if top_intent_product %}We noticed you've been looking at {{ top_intent_product }}{% else %}A personalised offer just for you{% endif %}"
+                 style="width:100%; box-sizing:border-box; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:10px 14px; color:var(--text); font-size:13px; outline:none;">
+        </div>
+
+        <!-- Message body -->
+        <div style="margin-bottom:20px;">
+          <label style="font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.7px; color:var(--text3); display:block; margin-bottom:6px;">Message <span style="font-weight:400; text-transform:none; letter-spacing:0;">(plain text — auto-formatted for email)</span></label>
+          <textarea id="quickBody" rows="9" style="width:100%; box-sizing:border-box; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:10px; padding:12px 14px; color:var(--text); font-size:12.5px; resize:vertical; font-family:inherit; line-height:1.65; outline:none;">{{ quick_email_body }}</textarea>
+        </div>
+
+        <!-- Status bar -->
+        <div id="quickSendStatus" style="display:none; margin-bottom:14px; padding:10px 14px; border-radius:10px; font-size:13px;"></div>
+
+        <!-- Actions -->
+        <div style="display:flex; gap:10px; justify-content:flex-end;">
+          <button onclick="document.getElementById('targetedEmailModal').style.display='none'" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.08); color:var(--text3); border-radius:10px; padding:10px 20px; cursor:pointer; font-size:13px;">Cancel</button>
+          <button onclick="sendTargetedEmail({{ contact.id }})" id="quickSendBtn" style="background:rgba(124,58,237,0.2); border:1px solid rgba(124,58,237,0.4); color:var(--purple2); border-radius:10px; padding:10px 22px; cursor:pointer; font-size:13px; font-weight:600; display:flex; align-items:center; gap:7px;">
+            <i class="fas fa-paper-plane"></i>Send Email
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <script>
+    function openTargetedEmailModal() {
+      document.getElementById('targetedEmailModal').style.display = 'flex';
+      document.getElementById('quickSendStatus').style.display = 'none';
+      var btn = document.getElementById('quickSendBtn');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-paper-plane"></i>Send Email';
+      btn.style.background = 'rgba(124,58,237,0.2)';
+      btn.style.color = 'var(--purple2)';
+      btn.style.border = '1px solid rgba(124,58,237,0.4)';
+    }
+    function sendTargetedEmail(contactId) {
+      var subject  = document.getElementById('quickSubject').value.trim();
+      var bodyText = document.getElementById('quickBody').value.trim();
+      if (!subject || !bodyText) {
+        showQuickStatus('Subject and message are required.', 'error');
+        return;
+      }
+      // Wrap plain text in a clean email-safe HTML template
+      var htmlBody = [
+        '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:30px 20px;color:#222;line-height:1.7;font-size:15px;">',
+        bodyText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/
+/g,'<br>'),
+        '</div>'
+      ].join('');
+      var btn = document.getElementById('quickSendBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Sending…';
+      var formData = new FormData();
+      formData.append('subject', subject);
+      formData.append('html_body', htmlBody);
+      fetch('/profiles/' + contactId + '/send-quick-email', { method: 'POST', body: formData })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.success) {
+            showQuickStatus('✅ Email sent successfully!', 'success');
+            btn.innerHTML = '<i class="fas fa-check"></i>Sent!';
+            btn.style.background = 'rgba(16,185,129,0.2)';
+            btn.style.color = 'var(--green)';
+            btn.style.border = '1px solid rgba(16,185,129,0.35)';
+          } else {
+            showQuickStatus('❌ ' + (data.error || 'Send failed'), 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane"></i>Send Email';
+          }
+        })
+        .catch(function() {
+          showQuickStatus('❌ Network error — please try again.', 'error');
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-paper-plane"></i>Send Email';
+        });
+    }
+    function showQuickStatus(msg, type) {
+      var el = document.getElementById('quickSendStatus');
+      el.style.display = 'block';
+      el.style.background = type === 'success' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)';
+      el.style.border = '1px solid ' + (type === 'success' ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)');
+      el.style.color = type === 'success' ? 'var(--green)' : 'var(--red)';
+      el.innerHTML = msg;
+    }
+    function showAiView(view) {
+      if (view === 'visual') {
+        document.getElementById('aiVisualView').style.display = 'block';
+        document.getElementById('aiTextView').style.display = 'none';
+        document.getElementById('aiVisualBtn').style.background = 'var(--cyan)';
+        document.getElementById('aiVisualBtn').style.color = '#fff';
+        document.getElementById('aiTextBtn').style.background = 'rgba(255,255,255,0.08)';
+        document.getElementById('aiTextBtn').style.color = 'var(--text3)';
+      } else {
+        document.getElementById('aiVisualView').style.display = 'none';
+        document.getElementById('aiTextView').style.display = 'block';
+        document.getElementById('aiTextBtn').style.background = 'var(--cyan)';
+        document.getElementById('aiTextBtn').style.color = '#fff';
+        document.getElementById('aiVisualBtn').style.background = 'rgba(255,255,255,0.08)';
+        document.getElementById('aiVisualBtn').style.color = 'var(--text3)';
+      }
+    }
+    </script>
+
+    <!-- ── Predictive Intelligence (Phase G) ──────────────────── -->
+    {% if profile %}
+    <div class="card" style="margin-top:20px;">
+      <div class="card-header">
+        <span class="card-title">
+          <i class="fas fa-chart-line" style="margin-right:7px; color:var(--amber);"></i>Predictive Intelligence
+        </span>
+        <span class="badge" style="background:rgba(245,158,11,0.12); color:var(--amber);">AI Powered</span>
+      </div>
+      <div class="card-body">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:14px;">
+          <!-- Churn Risk -->
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; text-align:center;">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--text3); margin-bottom:6px;">Churn Risk</div>
+            <div style="font-size:22px; font-weight:700; color:{{ churn_color }};">{{ profile.churn_risk|round(1) }}</div>
+            <div style="font-size:11px; color:{{ churn_color }}; font-weight:600; margin-top:3px;">{{ churn_label }}</div>
+          </div>
+          <!-- Predicted LTV -->
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; text-align:center;">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--text3); margin-bottom:6px;">Predicted LTV</div>
+            <div style="font-size:22px; font-weight:700; color:var(--green);">${{ profile.predicted_ltv|round(0)|int }}</div>
+            <div style="font-size:11px; color:var(--text3); margin-top:3px;">3-year forecast</div>
+          </div>
+          <!-- Next Order -->
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; text-align:center;">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--text3); margin-bottom:6px;">Next Order</div>
+            {% if profile.predicted_next_order_date %}
+            <div style="font-size:15px; font-weight:700; color:var(--cyan);">{{ profile.predicted_next_order_date.strftime('%b %d') }}</div>
+            <div style="font-size:11px; color:var(--text3); margin-top:3px;">predicted</div>
+            {% else %}
+            <div style="font-size:15px; font-weight:700; color:var(--text3);">—</div>
+            <div style="font-size:11px; color:var(--text3); margin-top:3px;">insufficient data</div>
+            {% endif %}
+          </div>
+          <!-- Engagement -->
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; text-align:center;">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--text3); margin-bottom:6px;">Engagement</div>
+            <div style="font-size:22px; font-weight:700; color:var(--purple2);">{{ profile.website_engagement_score }}</div>
+            <div style="font-size:11px; color:var(--text3); margin-top:3px;">/ 100</div>
+          </div>
+        </div>
+
+        {% if product_recs %}
+        <!-- Product Recommendations -->
+        <div style="margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.05);">
+          <div style="font-size:10.5px; text-transform:uppercase; letter-spacing:0.7px; color:var(--text3); margin-bottom:10px;">
+            <i class="fas fa-wand-magic-sparkles" style="margin-right:5px; color:var(--purple2);"></i>Product Recommendations
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            {% for rec in product_recs %}
+            <span style="background:rgba(124,58,237,0.1); border:1px solid rgba(124,58,237,0.2); color:var(--purple2); padding:5px 12px; border-radius:8px; font-size:12px;">{{ rec[:45] }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if pending_triggers %}
+        <!-- Pending Triggers -->
+        <div style="margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.05);">
+          <div style="font-size:10.5px; text-transform:uppercase; letter-spacing:0.7px; color:var(--text3); margin-bottom:10px;">
+            <i class="fas fa-bolt" style="margin-right:5px; color:var(--amber);"></i>Pending Automations
+          </div>
+          {% for trigger in pending_triggers %}
+          <div style="display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.03);">
+            {% if trigger.trigger_type == 'browse_abandonment' %}
+              <span style="background:rgba(6,182,212,0.12); color:var(--cyan); padding:3px 10px; border-radius:6px; font-size:11px; font-weight:600;">Browse</span>
+            {% elif trigger.trigger_type == 'cart_abandonment' %}
+              <span style="background:rgba(239,68,68,0.12); color:var(--red); padding:3px 10px; border-radius:6px; font-size:11px; font-weight:600;">Cart</span>
+            {% elif trigger.trigger_type == 'churn_risk_high' %}
+              <span style="background:rgba(245,158,11,0.12); color:var(--amber); padding:3px 10px; border-radius:6px; font-size:11px; font-weight:600;">Churn</span>
+            {% else %}
+              <span style="background:rgba(124,58,237,0.12); color:var(--purple2); padding:3px 10px; border-radius:6px; font-size:11px; font-weight:600;">Intent</span>
+            {% endif %}
+            <span style="font-size:12px; color:var(--text2);">{{ trigger.trigger_type|replace('_', ' ')|title }}</span>
+            <span style="font-size:11px; color:var(--text3); margin-left:auto;">{{ trigger.detected_at.strftime('%b %d, %H:%M') if trigger.detected_at else '' }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- AI Email Preview Button -->
+        <div style="margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.05); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+          <div style="font-size:11.5px; color:var(--text3);">
+            <i class="fas fa-robot" style="margin-right:5px; color:var(--cyan);"></i>
+            Generate a unique AI-written email for this customer
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <select id="aiPurpose" style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:var(--text); border-radius:8px; padding:7px 12px; font-size:12px;">
+              <option value="winback">Win-Back</option>
+              <option value="browse_abandonment">Browse Abandonment</option>
+              <option value="cart_abandonment">Cart Abandonment</option>
+              <option value="upsell">Upsell</option>
+              <option value="welcome">Welcome</option>
+              <option value="loyalty_reward">Loyalty Reward</option>
+              <option value="high_intent">High Intent</option>
+              <option value="re_engagement">Re-Engagement</option>
+            </select>
+            <button onclick="generateAIEmail({{ contact.id }})" id="aiGenBtn" style="background:rgba(6,182,212,0.18); border:1px solid rgba(6,182,212,0.35); color:var(--cyan); border-radius:10px; padding:8px 16px; cursor:pointer; font-size:12px; font-weight:600; display:flex; align-items:center; gap:6px;">
+              <i class="fas fa-wand-magic-sparkles"></i>Generate Preview
+            </button>
+          </div>
+        </div>
+
+        <!-- AI Email Result -->
+        <div id="aiEmailResult" style="display:none; margin-top:14px; background:rgba(6,182,212,0.05); border:1px solid rgba(6,182,212,0.15); border-radius:12px; padding:18px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <div style="font-size:10.5px; text-transform:uppercase; letter-spacing:0.7px; color:var(--cyan); font-weight:700;">AI Generated Email Preview</div>
+            <div id="aiReasoning" style="font-size:11px; color:var(--text3); font-style:italic; max-width:60%;"></div>
+          </div>
+          <div style="margin-bottom:8px;">
+            <span style="font-size:10px; color:var(--text3);">SUBJECT:</span>
+            <span id="aiSubject" style="font-size:13px; font-weight:600; color:var(--text); margin-left:6px;"></span>
+          </div>
+          <!-- View Toggle -->
+          <div style="display:flex; gap:6px; margin-bottom:12px;">
+            <button onclick="showAiView('visual')" id="aiVisualBtn" style="background:var(--cyan); color:#fff; border:none; border-radius:6px; padding:6px 14px; font-size:11px; font-weight:600; cursor:pointer;">Visual Preview</button>
+            <button onclick="showAiView('text')" id="aiTextBtn" style="background:rgba(255,255,255,0.08); color:var(--text3); border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:6px 14px; font-size:11px; font-weight:600; cursor:pointer;">Plain Text</button>
+          </div>
+          <!-- Visual Preview (iframe) -->
+          <div id="aiVisualView">
+            <iframe id="aiHtmlFrame" style="width:100%; height:750px; border:1px solid rgba(255,255,255,0.1); border-radius:10px; background:#ffffff;" sandbox="allow-same-origin"></iframe>
+          </div>
+          <!-- Text Preview -->
+          <div id="aiTextView" style="display:none;">
+            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:14px; font-size:13px; color:var(--text2); line-height:1.7; white-space:pre-wrap;" id="aiBody"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <script>
+    function generateAIEmail(contactId) {
+      var btn = document.getElementById('aiGenBtn');
+      var purpose = document.getElementById('aiPurpose').value;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Generating...';
+
+      var formData = new FormData();
+      formData.append('purpose', purpose);
+
+      fetch('/profiles/' + contactId + '/ai-email-preview', { method: 'POST', body: formData })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i>Generate Preview';
+          if (data.success) {
+            document.getElementById('aiEmailResult').style.display = 'block';
+            document.getElementById('aiSubject').textContent = data.subject;
+            document.getElementById('aiBody').textContent = data.body_text;
+            document.getElementById('aiReasoning').textContent = data.reasoning;
+            // Write HTML preview into iframe
+            if (data.body_html) {
+              var iframe = document.getElementById('aiHtmlFrame');
+              iframe.contentDocument.open();
+              iframe.contentDocument.write(data.body_html);
+              iframe.contentDocument.close();
+            }
+          } else {
+            alert('Generation failed: ' + (data.error || 'Unknown error'));
+          }
+        })
+        .catch(function() {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i>Generate Preview';
+          alert('Network error');
+        });
+    }
+    </script>
+
+        <!-- ── Website Journey ─────────────────────────────────────── -->
+    <div class="card" style="margin-top:20px;">
+      <div class="card-header">
+        <span class="card-title">
+          <i class="fas fa-satellite-dish" style="margin-right:7px; color:var(--cyan);"></i>Website Journey
+        </span>
+        {% if website_activity %}
+        <span class="badge badge-cyan">{{ website_activity|length }} events</span>
+        {% endif %}
+      </div>
+
+      {% if website_activity %}
+      <div style="padding:0;">
+        {% for a in website_activity %}
+        <div style="display:flex; align-items:center; gap:12px; padding:11px 18px;
+                    border-bottom:1px solid rgba(255,255,255,0.035);">
+
+          <!-- Icon -->
+          <div style="width:30px; height:30px; border-radius:8px; flex-shrink:0;
+                      display:flex; align-items:center; justify-content:center; font-size:13px;
+                      {% if a.event_type == 'placed_order' %}background:rgba(16,185,129,0.12);color:var(--green);
+                      {% elif a.event_type == 'abandoned_checkout' %}background:rgba(239,68,68,0.12);color:var(--red);
+                      {% elif a.event_type == 'completed_checkout' %}background:rgba(16,185,129,0.12);color:var(--green);
+                      {% elif a.event_type == 'viewed_product' %}background:rgba(6,182,212,0.12);color:var(--cyan);
+                      {% elif a.event_type == 'viewed_blog' %}background:rgba(6,182,212,0.12);color:var(--cyan);
+                      {% elif a.event_type == 'viewed_collection' %}background:rgba(124,58,237,0.12);color:var(--purple2);
+                      {% elif a.event_type == 'searched' %}background:rgba(245,158,11,0.12);color:var(--amber);
+                      {% elif a.event_type == 'viewed_cart' %}background:rgba(245,158,11,0.12);color:var(--amber);
+                      {% elif a.event_type == 'email_activity' %}background:rgba(236,72,153,0.12);color:var(--pink);
+                      {% else %}background:rgba(124,58,237,0.12);color:var(--purple2);{% endif %}">
+            {% if a.event_type == 'placed_order' %}<i class="fas fa-bag-shopping"></i>
+            {% elif a.event_type == 'abandoned_checkout' %}<i class="fas fa-cart-arrow-down"></i>
+            {% elif a.event_type == 'viewed_product' %}<i class="fas fa-eye"></i>
+            {% elif a.event_type == 'viewed_blog' %}<i class="fas fa-book-open"></i>
+            {% elif a.event_type == 'viewed_collection' %}<i class="fas fa-layer-group"></i>
+            {% elif a.event_type == 'searched' %}<i class="fas fa-search"></i>
+            {% elif a.event_type == 'viewed_cart' %}<i class="fas fa-cart-shopping"></i>
+            {% elif a.event_type == 'viewed_page' %}<i class="fas fa-globe"></i>
+            {% elif a.event_type == 'email_activity' %}<i class="fas fa-envelope"></i>
+            {% else %}<i class="fas fa-bolt"></i>{% endif %}
+          </div>
+
+          <!-- Description -->
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:12.5px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+              {% if a.event_type == 'placed_order' %}
+                Placed order <span style="color:var(--green); font-weight:700;">#{{ a.event_data.get('order_number','') }}</span>
+                <span style="color:var(--green);">${{ "%.2f"|format(a.event_data.get('order_total',0)) }}</span>
+              {% elif a.event_type == 'abandoned_checkout' %}
+                Abandoned checkout
+                {% if a.event_data.get('total') %}<span style="color:var(--amber);"> (${{ "%.2f"|format(a.event_data.get('total',0)) }})</span>{% endif %}
+                {% if a.event_data.get('products') %}
+                  <span style="color:var(--text3); font-size:11.5px;"> — {{ a.event_data.get('products',[])|join(', ')|truncate(40) }}</span>
+                {% endif %}
+              {% elif a.event_type == 'viewed_product' %}
+                Viewed <span style="color:var(--cyan);">{{ a.event_data.get('product_title','product') }}</span>
+              {% elif a.event_type == 'viewed_blog' %}
+                Read <span style="color:var(--cyan);">{{ a.event_data.get('article_title','blog post') }}</span>
+              {% elif a.event_type == 'viewed_collection' %}
+                Browsed <span style="color:var(--purple2);">{{ a.event_data.get('collection_title','collection') }}</span>
+              {% elif a.event_type == 'searched' %}
+                Searched for <span style="color:var(--amber);">"{{ a.event_data.get('query','') }}"</span>
+              {% elif a.event_type == 'viewed_cart' %}
+                <span style="color:var(--amber);">Viewed cart</span>
+              {% elif a.event_type == 'viewed_page' %}
+                <span style="color:var(--text2);">{{ a.event_data.get('page_title', a.event_data.get('url','Page view')) | truncate(50) }}</span>
+              {% elif a.event_type == 'email_activity' %}
+                Email activity <span style="color:var(--text3);">({{ a.event_data.get('status','') }})</span>
+              {% else %}
+                {{ a.event_type|replace('_',' ')|title }}
+              {% endif %}
+            </div>
+            <div style="font-size:11px; color:var(--text3); margin-top:2px;">
+              <span style="background:rgba(255,255,255,0.05); padding:1px 6px; border-radius:4px; font-size:10px;">{{ a.source|replace('_',' ') }}</span>
+            </div>
+          </div>
+
+          <!-- Time -->
+          <div style="font-size:11.5px; color:var(--text3); text-align:right; flex-shrink:0;">
+            {{ a.occurred_at.strftime('%b %d') if a.occurred_at else '—' }}<br>
+            <span style="font-size:10.5px;">{{ a.occurred_at.strftime('%H:%M') if a.occurred_at else '' }}</span>
+          </div>
+
+        </div>
+        {% endfor %}
+      </div>
+
+      {% else %}
+      <div style="text-align:center; padding:32px; color:var(--text3);">
+        <i class="fas fa-satellite-dish" style="font-size:28px; opacity:0.25; margin-bottom:12px; display:block;"></i>
+        <div style="font-size:13px; color:var(--text2); margin-bottom:6px;">No website activity tracked yet</div>
+        <div style="font-size:12px;">Install the tracking pixel on your Shopify store to begin capturing real-time browsing data.</div>
+        <a href="/activity" style="display:inline-block; margin-top:12px; font-size:12px; color:var(--cyan);">
+          <i class="fas fa-arrow-right" style="margin-right:4px;"></i>Get pixel code →
+        </a>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+{% endblock %}
