@@ -315,6 +315,39 @@ class CustomerProfile(BaseModel):
     predicted_ltv              = FloatField(default=0.0)   # predicted 3-year lifetime value
     product_recommendations    = TextField(default="[]")   # JSON list of recommended product titles
 
+    # ── Customer Intelligence (Phase 2A) ──────────────────────
+    # Core classification
+    lifecycle_stage          = CharField(default="unknown")     # prospect|new_customer|active_buyer|loyal|vip|at_risk|churned|reactivated
+    customer_type            = CharField(default="unknown")     # browser|one_time|repeat|loyal|vip|discount_seeker|dormant
+
+    # Scores (all 0-100)
+    intent_score             = IntegerField(default=0)          # purchase intent 0-100
+    reorder_likelihood       = IntegerField(default=0)          # 0-100
+    category_affinity_json   = TextField(default="{}")          # JSON: {"Bluetooth Headsets": 82, ...}
+    next_purchase_category   = CharField(default="")            # predicted next category
+
+    # Engagement & timing
+    preferred_send_hour      = IntegerField(default=-1)         # 0-23 or -1 (unknown)
+    preferred_send_dow       = IntegerField(default=-1)         # 0=Mon..6=Sun or -1
+    channel_preference       = CharField(default="email")       # email|sms|both
+
+    # Confidence scores (0-100)
+    confidence_lifecycle     = IntegerField(default=0)
+    confidence_intent        = IntegerField(default=0)
+    confidence_reorder       = IntegerField(default=0)
+    confidence_category      = IntegerField(default=0)
+    confidence_send_window   = IntegerField(default=0)
+    confidence_channel       = IntegerField(default=0)
+    confidence_discount      = IntegerField(default=0)
+
+    # Churn risk normalized
+    churn_risk_score         = IntegerField(default=0)          # 0-100 normalized
+    confidence_churn         = IntegerField(default=0)
+
+    # Metadata
+    intelligence_summary     = TextField(default="")            # plain-English for Claude
+    last_intelligence_at     = DateTimeField(null=True)
+
     class Meta:
         table_name = "customer_profiles"
 
@@ -523,6 +556,7 @@ def init_db():
     _migrate_activity_fields()
     _migrate_deliverability_fields()
     _migrate_bounce_log_fields()
+    _migrate_intelligence_fields()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")
@@ -605,6 +639,39 @@ def get_bounce_stats_by_template(days=30):
         return [dict(zip(cols, row)) for row in cursor.fetchall()]
     except Exception:
         return []
+
+
+
+def _migrate_intelligence_fields():
+    """Add Phase 2A intelligence columns to customer_profiles table."""
+    new_cols = [
+        ("lifecycle_stage",       "VARCHAR(40) DEFAULT 'unknown'"),
+        ("customer_type",         "VARCHAR(40) DEFAULT 'unknown'"),
+        ("intent_score",          "INTEGER DEFAULT 0"),
+        ("reorder_likelihood",    "INTEGER DEFAULT 0"),
+        ("category_affinity_json","TEXT DEFAULT '{}'"),
+        ("next_purchase_category","VARCHAR(100) DEFAULT ''"),
+        ("preferred_send_hour",   "INTEGER DEFAULT -1"),
+        ("preferred_send_dow",    "INTEGER DEFAULT -1"),
+        ("channel_preference",    "VARCHAR(20) DEFAULT 'email'"),
+        ("confidence_lifecycle",  "INTEGER DEFAULT 0"),
+        ("confidence_intent",     "INTEGER DEFAULT 0"),
+        ("confidence_reorder",    "INTEGER DEFAULT 0"),
+        ("confidence_category",   "INTEGER DEFAULT 0"),
+        ("confidence_send_window","INTEGER DEFAULT 0"),
+        ("confidence_channel",    "INTEGER DEFAULT 0"),
+        ("confidence_discount",   "INTEGER DEFAULT 0"),
+        ("churn_risk_score",      "INTEGER DEFAULT 0"),
+        ("confidence_churn",      "INTEGER DEFAULT 0"),
+        ("intelligence_summary",  "TEXT DEFAULT ''"),
+        ("last_intelligence_at",  "DATETIME"),
+    ]
+    cursor = db.execute_sql("PRAGMA table_info(customer_profiles)")
+    existing = {row[1] for row in cursor.fetchall()}
+    for col_name, col_def in new_cols:
+        if col_name not in existing:
+            db.execute_sql(f"ALTER TABLE customer_profiles ADD COLUMN {col_name} {col_def}")
+            print(f"  [migrate] Added {col_name} to customer_profiles")
 
 
 def _seed_example_templates():

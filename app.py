@@ -2412,10 +2412,12 @@ def profiles_list():
     import json as _json
     from peewee import fn
 
-    q        = request.args.get("q", "").strip()
-    tier     = request.args.get("tier", "")
-    category = request.args.get("category", "")
-    sort     = request.args.get("sort", "spent_desc")
+    q         = request.args.get("q", "").strip()
+    tier      = request.args.get("tier", "")
+    category  = request.args.get("category", "")
+    lifecycle = request.args.get("lifecycle", "")
+    intent    = request.args.get("intent", "")
+    sort      = request.args.get("sort", "spent_desc")
     page     = int(request.args.get("page", 1))
     per_page = 50
 
@@ -2435,6 +2437,14 @@ def profiles_list():
         query = query.where(CustomerProfile.price_tier == tier)
     if category:
         query = query.where(CustomerProfile.top_categories.contains(category))
+    if lifecycle:
+        query = query.where(CustomerProfile.lifecycle_stage == lifecycle)
+    if intent == "high":
+        query = query.where(CustomerProfile.intent_score >= 70)
+    elif intent == "medium":
+        query = query.where(CustomerProfile.intent_score >= 30, CustomerProfile.intent_score < 70)
+    elif intent == "low":
+        query = query.where(CustomerProfile.intent_score < 30)
 
     # Sorting
     if sort == "orders_desc":
@@ -2445,6 +2455,10 @@ def profiles_list():
         query = query.order_by(CustomerProfile.days_since_last_order.desc())
     elif sort == "name":
         query = query.order_by(Contact.first_name.asc())
+    elif sort == "intent_desc":
+        query = query.order_by(CustomerProfile.intent_score.desc())
+    elif sort == "churn_desc":
+        query = query.order_by(CustomerProfile.churn_risk_score.desc())
     else:  # spent_desc
         query = query.order_by(CustomerProfile.total_spent.desc())
 
@@ -2469,6 +2483,8 @@ def profiles_list():
             "price_tier":     p.price_tier,
             "has_used_discount": p.has_used_discount,
             "location":       f"{p.city}, {p.province}".strip(", ") if (p.city or p.province) else "",
+            "lifecycle_stage": getattr(p, "lifecycle_stage", "unknown"),
+            "intent_score":    getattr(p, "intent_score", 0),
         })
 
     # Aggregate stats
@@ -2483,7 +2499,7 @@ def profiles_list():
 
     # Build query string for pagination (exclude page)
     qs_parts = []
-    for k, v in [("q", q), ("tier", tier), ("category", category), ("sort", sort)]:
+    for k, v in [("q", q), ("tier", tier), ("category", category), ("lifecycle", lifecycle), ("intent", intent), ("sort", sort)]:
         if v:
             qs_parts.append(f"{k}={v}")
     query_string = "&".join(qs_parts)
@@ -2500,6 +2516,7 @@ def profiles_list():
         total_pages=total_pages,
         per_page=per_page,
         q=q, tier=tier, category=category, sort=sort,
+        lifecycle=lifecycle, intent=intent,
         query_string=query_string,
     )
 
@@ -2648,6 +2665,36 @@ def profile_detail(contact_id):
             _churn_label = "Likely Churned"
             _churn_color = "var(--red)"
 
+    # Phase 2A: Intelligence data
+    _intelligence = {}
+    if profile and profile.last_intelligence_at:
+        import json as _ji
+        _intelligence = {
+            "lifecycle_stage": profile.lifecycle_stage,
+            "customer_type": profile.customer_type,
+            "intent_score": profile.intent_score,
+            "reorder_likelihood": profile.reorder_likelihood,
+            "churn_risk_score": profile.churn_risk_score,
+            "category_affinity": _ji.loads(profile.category_affinity_json or "{}"),
+            "next_purchase_category": profile.next_purchase_category,
+            "preferred_send_hour": profile.preferred_send_hour,
+            "preferred_send_dow": profile.preferred_send_dow,
+            "channel_preference": profile.channel_preference,
+            "intelligence_summary": profile.intelligence_summary,
+            "discount_sensitivity": profile.discount_sensitivity,
+            "confidence": {
+                "lifecycle": profile.confidence_lifecycle,
+                "intent": profile.confidence_intent,
+                "reorder": profile.confidence_reorder,
+                "category": profile.confidence_category,
+                "send_window": profile.confidence_send_window,
+                "channel": profile.confidence_channel,
+                "discount": profile.confidence_discount,
+                "churn": profile.confidence_churn,
+            },
+            "last_computed": profile.last_intelligence_at.strftime("%Y-%m-%d %H:%M") if profile.last_intelligence_at else "",
+        }
+
     return render_template("profile_detail.html",
         contact=contact,
         profile=profile,
@@ -2665,6 +2712,7 @@ def profile_detail(contact_id):
         product_recs=_product_recs,
         churn_label=_churn_label,
         churn_color=_churn_color,
+        intelligence=_intelligence,
     )
 
 
@@ -2693,6 +2741,17 @@ def send_quick_email(contact_id):
     if success:
         return jsonify({"success": True})
     return jsonify({"success": False, "error": error or "Send failed"}), 500
+
+
+@app.route("/api/profiles/<int:contact_id>/intelligence", methods=["POST"])
+def recompute_intelligence(contact_id):
+    """Recompute intelligence for a single contact on-demand."""
+    try:
+        from customer_intelligence import compute_intelligence
+        result = compute_intelligence(contact_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/profiles/<int:contact_id>/ai-email-preview", methods=["POST"])
@@ -3205,6 +3264,18 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
         except Exception as _e:
             app.logger.error(f"Nightly activity sync failed: {_e}")
 
+    def _run_nightly_intelligence():
+        try:
+            import sys as _si; _si.path.insert(0, "/var/www/mailengine")
+            from customer_intelligence import compute_all_intelligence
+            app.logger.info("Nightly intelligence computation starting...")
+            count = compute_all_intelligence()
+            app.logger.info(f"Nightly intelligence complete: {count} contacts scored")
+        except Exception as _e:
+            app.logger.error(f"Nightly intelligence failed: {_e}")
+
+    _scheduler.add_job(_run_nightly_intelligence, "cron", hour=3, minute=30,
+                       id="nightly_intelligence", replace_existing=True)
     _scheduler.add_job(_recalculate_deliverability_scores, "cron", hour=4, minute=0,
                        id="deliverability_scores", replace_existing=True)
     _scheduler.add_job(_run_nightly_activity_sync, "cron", hour=3, minute=0,

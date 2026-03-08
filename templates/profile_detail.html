@@ -97,6 +97,61 @@
     background: linear-gradient(90deg, var(--purple), var(--cyan));
     margin-top: 6px;
   }
+
+  /* ── Customer Intelligence Card (Phase 2A) ── */
+  .intel-card { border-color: rgba(124,58,237,0.2); }
+  .intel-identity-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+  }
+  .intel-stage-badge {
+    padding: 5px 14px; border-radius: 99px; font-size: 12px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .intel-type-badge {
+    padding: 4px 10px; border-radius: 8px; font-size: 11px;
+    font-weight: 600; background: var(--surface2); color: var(--text2);
+    border: 1px solid var(--border);
+  }
+  .intel-scores-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    padding: 16px 18px;
+  }
+  @media (max-width: 768px) {
+    .intel-scores-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  .intel-score-cell {
+    padding: 12px; border-radius: 10px; background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .intel-score-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px;
+  }
+  .intel-score-name { font-size: 11px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.3px; }
+  .intel-score-value { font-size: 22px; font-weight: 900; line-height: 1; }
+  .intel-score-bar { height: 4px; border-radius: 99px; background: var(--surface2); overflow: hidden; margin-top: 6px; }
+  .intel-score-fill { height: 100%; border-radius: 99px; transition: width 0.5s ease; }
+  .intel-conf-dot {
+    width: 6px; height: 6px; border-radius: 50%; display: inline-block;
+    margin-left: 4px; vertical-align: middle;
+  }
+  .intel-details {
+    padding: 0 18px 16px;
+  }
+  .intel-detail-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .intel-detail-row:last-child { border-bottom: none; }
+  .intel-affinity-bar {
+    height: 6px; border-radius: 99px; background: var(--surface2);
+    overflow: hidden; flex: 1; margin: 0 12px;
+  }
+  .intel-affinity-fill {
+    height: 100%; border-radius: 99px;
+    background: linear-gradient(90deg, var(--purple), var(--cyan));
+  }
 </style>
 {% endblock %}
 
@@ -233,6 +288,182 @@
 
   <!-- ── RIGHT COLUMN ───────────────────────── -->
   <div>
+
+    <!-- ── Customer Intelligence (Phase 2A) ── -->
+    {% if intelligence %}
+    <div class="card intel-card" style="margin-bottom:20px;">
+      <div class="card-header" style="background:rgba(124,58,237,0.04);">
+        <span class="card-title">
+          <i class="fas fa-brain" style="color:var(--purple2);margin-right:8px;"></i>Customer Intelligence
+        </span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11px;color:var(--text3);">{{ intelligence.last_computed }}</span>
+          <button onclick="refreshIntelligence({{ contact.id }})" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 10px;">
+            <i class="fas fa-sync-alt"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Identity Bar -->
+      <div class="intel-identity-bar">
+        {% set stage_colors = {
+          "prospect": "var(--text3)", "new_customer": "var(--cyan)", "active_buyer": "var(--green)",
+          "loyal": "var(--purple2)", "vip": "var(--pink)", "at_risk": "var(--amber)",
+          "churned": "var(--red)", "reactivated": "#22d3ee"
+        } %}
+        {% set stage_labels = {
+          "prospect": "Prospect", "new_customer": "New Customer", "active_buyer": "Active Buyer",
+          "loyal": "Loyal", "vip": "VIP", "at_risk": "At Risk",
+          "churned": "Churned", "reactivated": "Reactivated"
+        } %}
+        {% set stage_icons = {
+          "prospect": "fa-user-plus", "new_customer": "fa-sparkles", "active_buyer": "fa-cart-shopping",
+          "loyal": "fa-heart", "vip": "fa-crown", "at_risk": "fa-triangle-exclamation",
+          "churned": "fa-user-xmark", "reactivated": "fa-rotate-left"
+        } %}
+
+        <span class="intel-stage-badge" style="background:{{ stage_colors.get(intelligence.lifecycle_stage, 'var(--text3)') }}15;color:{{ stage_colors.get(intelligence.lifecycle_stage, 'var(--text3)') }};border:1px solid {{ stage_colors.get(intelligence.lifecycle_stage, 'var(--text3)') }}40;">
+          <i class="fas {{ stage_icons.get(intelligence.lifecycle_stage, 'fa-user') }}" style="margin-right:4px;"></i>
+          {{ stage_labels.get(intelligence.lifecycle_stage, intelligence.lifecycle_stage) }}
+        </span>
+
+        {% set type_labels = {
+          "browser": "Browser", "one_time": "One-Time Buyer", "repeat": "Repeat Buyer",
+          "loyal": "Loyal Buyer", "vip": "VIP", "discount_seeker": "Discount Seeker", "dormant": "Dormant"
+        } %}
+        <span class="intel-type-badge">
+          {{ type_labels.get(intelligence.customer_type, intelligence.customer_type) }}
+        </span>
+
+        {% if intelligence.confidence.lifecycle < 40 %}
+          <span style="font-size:10px;color:var(--text3);"><i class="fas fa-info-circle"></i> Low confidence</span>
+        {% endif %}
+      </div>
+
+      <!-- Score Grid (3x2) -->
+      <div class="intel-scores-grid">
+        {% set scores = [
+          ("Intent", intelligence.intent_score, intelligence.confidence.intent, "var(--purple2)"),
+          ("Reorder", intelligence.reorder_likelihood, intelligence.confidence.reorder, "var(--cyan)"),
+          ("Churn Risk", intelligence.churn_risk_score, intelligence.confidence.churn, "var(--red)"),
+          ("Discount", (intelligence.discount_sensitivity * 100)|int, intelligence.confidence.discount, "var(--amber)"),
+          ("Engagement", profile.website_engagement_score, 80, "var(--green)"),
+          ("Send Window", intelligence.confidence.send_window, intelligence.confidence.send_window, "var(--pink)")
+        ] %}
+
+        {% for name, value, conf, color in scores %}
+        <div class="intel-score-cell">
+          <div class="intel-score-header">
+            <span class="intel-score-name">{{ name }}</span>
+            <span class="intel-conf-dot" style="background:{% if conf >= 60 %}var(--green){% elif conf >= 30 %}var(--amber){% else %}var(--red){% endif %};" title="Confidence: {{ conf }}%"></span>
+          </div>
+          {% if name == "Send Window" %}
+            {% if intelligence.preferred_send_hour >= 0 %}
+              {% set dow_names = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"] %}
+              <div class="intel-score-value" style="color:{{ color }};font-size:15px;">
+                {{ dow_names[intelligence.preferred_send_dow] if intelligence.preferred_send_dow >= 0 else "?" }} {{ intelligence.preferred_send_hour }}:00
+              </div>
+            {% else %}
+              <div class="intel-score-value" style="color:var(--text3);font-size:14px;">Unknown</div>
+            {% endif %}
+          {% elif name == "Churn Risk" %}
+            <div class="intel-score-value" style="color:{% if value >= 67 %}var(--red){% elif value >= 33 %}var(--amber){% else %}var(--green){% endif %};">
+              {{ value }}<span style="font-size:12px;font-weight:400;color:var(--text3);">/100</span>
+            </div>
+          {% else %}
+            <div class="intel-score-value" style="color:{% if value >= 70 %}var(--green){% elif value >= 30 %}var(--amber){% else %}var(--text3){% endif %};">
+              {% if name == "Discount" %}{{ value }}%{% else %}{{ value }}<span style="font-size:12px;font-weight:400;color:var(--text3);">/100</span>{% endif %}
+            </div>
+          {% endif %}
+          {% if name != "Send Window" %}
+          <div class="intel-score-bar">
+            <div class="intel-score-fill" style="width:{{ value }}%;background:{{ color }};"></div>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Intelligence Details (expandable) -->
+      <div style="padding:0 18px 4px;">
+        <button class="preflight-toggle" onclick="document.getElementById('intelDetails').style.display = document.getElementById('intelDetails').style.display === 'none' ? 'block' : 'none'" style="font-size:12px;color:var(--text2);background:none;border:none;cursor:pointer;padding:4px 0;">
+          <i class="fas fa-chevron-down"></i> Details & Predictions
+        </button>
+      </div>
+      <div id="intelDetails" style="display:none;">
+        <div class="intel-details">
+
+          <!-- Category Affinity -->
+          {% if intelligence.category_affinity %}
+          <div style="margin-bottom:14px;">
+            <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:8px;">
+              Category Affinity
+            </div>
+            {% for cat, score in intelligence.category_affinity|dictsort(by='value', reverse=true) %}
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <span style="font-size:12px;color:var(--text);min-width:130px;">{{ cat }}</span>
+              <div class="intel-affinity-bar">
+                <div class="intel-affinity-fill" style="width:{{ score }}%;"></div>
+              </div>
+              <span style="font-size:12px;font-weight:700;color:var(--text);min-width:32px;text-align:right;">{{ score }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          <!-- Predictions -->
+          <div class="intel-detail-row">
+            <span style="color:var(--text2);">Next Purchase Category</span>
+            <span style="font-weight:600;color:var(--text);">
+              {% if intelligence.next_purchase_category %}
+                {{ intelligence.next_purchase_category }}
+                <span class="intel-conf-dot" style="background:{% if intelligence.confidence.category >= 60 %}var(--green){% elif intelligence.confidence.category >= 30 %}var(--amber){% else %}var(--red){% endif %};"></span>
+              {% else %}
+                <span style="color:var(--text3);">Insufficient data</span>
+              {% endif %}
+            </span>
+          </div>
+
+          <div class="intel-detail-row">
+            <span style="color:var(--text2);">Channel Preference</span>
+            <span style="font-weight:600;color:var(--text);">
+              {% if intelligence.channel_preference == "both" %}
+                <i class="fas fa-envelope" style="color:var(--cyan);margin-right:4px;"></i>
+                <i class="fas fa-comment-sms" style="color:var(--green);"></i> Email + SMS
+              {% elif intelligence.channel_preference == "sms" %}
+                <i class="fas fa-comment-sms" style="color:var(--green);margin-right:4px;"></i> SMS preferred
+              {% else %}
+                <i class="fas fa-envelope" style="color:var(--cyan);margin-right:4px;"></i> Email
+              {% endif %}
+            </span>
+          </div>
+
+          {% if intelligence.preferred_send_hour >= 0 %}
+          <div class="intel-detail-row">
+            <span style="color:var(--text2);">Best Send Time</span>
+            <span style="font-weight:600;color:var(--text);">
+              {% set dow_names_full = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"] %}
+              {{ dow_names_full[intelligence.preferred_send_dow] if intelligence.preferred_send_dow >= 0 else "Any day" }} at {{ intelligence.preferred_send_hour }}:00
+              <span class="intel-conf-dot" style="background:{% if intelligence.confidence.send_window >= 60 %}var(--green){% elif intelligence.confidence.send_window >= 30 %}var(--amber){% else %}var(--red){% endif %};"></span>
+            </span>
+          </div>
+          {% endif %}
+
+          <!-- AI Summary -->
+          {% if intelligence.intelligence_summary %}
+          <div style="margin-top:12px;padding:12px 14px;background:rgba(124,58,237,0.04);border:1px solid rgba(124,58,237,0.15);border-radius:10px;">
+            <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--purple2);margin-bottom:6px;">
+              <i class="fas fa-robot" style="margin-right:4px;"></i> AI Intelligence Summary
+            </div>
+            <div style="font-size:12.5px;color:var(--text2);line-height:1.6;">{{ intelligence.intelligence_summary }}</div>
+          </div>
+          {% endif %}
+
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
 
     <!-- Products Purchased -->
     {% if top_products %}
@@ -869,4 +1100,19 @@
 
   </div>
 </div>
+
+<script>
+function refreshIntelligence(contactId) {
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+  fetch('/api/profiles/' + contactId + '/intelligence', {method: 'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { alert('Error: ' + d.error); }
+      else { location.reload(); }
+    })
+    .catch(e => { alert('Failed: ' + e); btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync-alt"></i>'; });
+}
+</script>
 {% endblock %}

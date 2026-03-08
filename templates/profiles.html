@@ -46,7 +46,7 @@
   }
   .profile-row {
     display: grid;
-    grid-template-columns: 2.5fr 0.8fr 1fr 0.9fr 1.2fr 0.9fr 0.7fr 1fr 80px;
+    grid-template-columns: 2.2fr 0.7fr 0.8fr 0.8fr 0.75fr 1fr 0.75fr 0.6fr 0.7fr 0.6fr 60px;
     align-items: center;
     padding: 14px 20px;
     border-bottom: 1px solid rgba(255,255,255,0.04);
@@ -58,13 +58,26 @@
   .profile-row:last-child { border-bottom: none; }
   .profile-header {
     display: grid;
-    grid-template-columns: 2.5fr 0.8fr 1fr 0.9fr 1.2fr 0.9fr 0.7fr 1fr 80px;
+    grid-template-columns: 2.2fr 0.7fr 0.8fr 0.8fr 0.75fr 1fr 0.75fr 0.6fr 0.7fr 0.6fr 60px;
     padding: 10px 20px;
     gap: 12px;
     background: rgba(255,255,255,0.02);
     border-bottom: 1px solid var(--border);
     position: sticky; top: 64px; z-index: 10;
     backdrop-filter: blur(10px);
+  }
+  .stage-pill {
+    padding: 3px 8px; border-radius: 99px; font-size: 10px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+    white-space: nowrap;
+  }
+  .intent-bar-mini {
+    width: 50px; height: 4px; border-radius: 99px;
+    background: var(--surface2); display: inline-block;
+    vertical-align: middle; margin-left: 6px; overflow: hidden;
+  }
+  .intent-bar-fill {
+    height: 100%; border-radius: 99px;
   }
   .profile-header span {
     font-size: 10.5px; font-weight: 700; text-transform: uppercase;
@@ -192,12 +205,31 @@
       <option value="Phone Accessories"   {% if category=='Phone Accessories'   %}selected{% endif %}>📱 Phone Accessories</option>
       <option value="Other Electronics"   {% if category=='Other Electronics'   %}selected{% endif %}>🔌 Other Electronics</option>
     </select>
+    <select name="lifecycle" class="filter-select">
+      <option value="">All Stages</option>
+      <option value="prospect"     {% if lifecycle=='prospect'     %}selected{% endif %}>Prospect</option>
+      <option value="new_customer" {% if lifecycle=='new_customer' %}selected{% endif %}>New Customer</option>
+      <option value="active_buyer" {% if lifecycle=='active_buyer' %}selected{% endif %}>Active Buyer</option>
+      <option value="loyal"        {% if lifecycle=='loyal'        %}selected{% endif %}>Loyal</option>
+      <option value="vip"          {% if lifecycle=='vip'          %}selected{% endif %}>VIP</option>
+      <option value="at_risk"      {% if lifecycle=='at_risk'      %}selected{% endif %}>At Risk</option>
+      <option value="churned"      {% if lifecycle=='churned'      %}selected{% endif %}>Churned</option>
+      <option value="reactivated"  {% if lifecycle=='reactivated'  %}selected{% endif %}>Reactivated</option>
+    </select>
+    <select name="intent" class="filter-select">
+      <option value="">All Intent</option>
+      <option value="high"   {% if intent=='high'   %}selected{% endif %}>High (70+)</option>
+      <option value="medium" {% if intent=='medium' %}selected{% endif %}>Medium (30-69)</option>
+      <option value="low"    {% if intent=='low'    %}selected{% endif %}>Low (&lt;30)</option>
+    </select>
     <select name="sort" class="filter-select">
       <option value="spent_desc" {% if sort=='spent_desc' %}selected{% endif %}>↓ Highest Spend</option>
       <option value="orders_desc" {% if sort=='orders_desc' %}selected{% endif %}>↓ Most Orders</option>
       <option value="recent"      {% if sort=='recent'     %}selected{% endif %}>🕐 Recently Active</option>
       <option value="lapsed"      {% if sort=='lapsed'     %}selected{% endif %}>💤 Most Lapsed</option>
       <option value="name"        {% if sort=='name'       %}selected{% endif %}>A–Z Name</option>
+      <option value="intent_desc" {% if sort=='intent_desc'%}selected{% endif %}>Highest Intent</option>
+      <option value="churn_desc"  {% if sort=='churn_desc' %}selected{% endif %}>Highest Churn Risk</option>
     </select>
     <button type="submit" class="btn btn-primary btn-sm">
       <i class="fas fa-filter"></i> Apply
@@ -212,6 +244,8 @@
   <!-- Sticky header -->
   <div class="profile-header">
     <span>Customer</span>
+    <span>Stage</span>
+    <span>Intent</span>
     <span>Orders</span>
     <span>Total Spent</span>
     <span>Last Purchase</span>
@@ -233,6 +267,39 @@
         <div class="name">{{ row.name or '—' }}</div>
         <div class="email">{{ row.email }}</div>
       </div>
+    </div>
+
+    <!-- Stage -->
+    <div>
+      {% set stage_colors = {
+        "prospect": "var(--text3)", "new_customer": "var(--cyan)", "active_buyer": "var(--green)",
+        "loyal": "var(--purple2)", "vip": "var(--pink)", "at_risk": "var(--amber)",
+        "churned": "var(--red)", "reactivated": "#22d3ee"
+      } %}
+      {% set stage_short = {
+        "prospect": "Prospect", "new_customer": "New", "active_buyer": "Active",
+        "loyal": "Loyal", "vip": "VIP", "at_risk": "At Risk",
+        "churned": "Churned", "reactivated": "Reactivated"
+      } %}
+      {% if row.lifecycle_stage and row.lifecycle_stage != 'unknown' %}
+        <span class="stage-pill" style="background:{{ stage_colors.get(row.lifecycle_stage, 'var(--text3)') }}15;color:{{ stage_colors.get(row.lifecycle_stage, 'var(--text3)') }};border:1px solid {{ stage_colors.get(row.lifecycle_stage, 'var(--text3)') }}30;">
+          {{ stage_short.get(row.lifecycle_stage, row.lifecycle_stage) }}
+        </span>
+      {% else %}
+        <span style="color:var(--text3);font-size:11px;">—</span>
+      {% endif %}
+    </div>
+
+    <!-- Intent -->
+    <div>
+      {% if row.intent_score > 0 %}
+        <span style="font-size:13px;font-weight:700;color:{% if row.intent_score >= 70 %}var(--green){% elif row.intent_score >= 30 %}var(--amber){% else %}var(--text3){% endif %};">{{ row.intent_score }}</span>
+        <div class="intent-bar-mini">
+          <div class="intent-bar-fill" style="width:{{ row.intent_score }}%;background:{% if row.intent_score >= 70 %}var(--green){% elif row.intent_score >= 30 %}var(--amber){% else %}var(--text3){% endif %};"></div>
+        </div>
+      {% else %}
+        <span style="color:var(--text3);font-size:11px;">—</span>
+      {% endif %}
     </div>
 
     <!-- Orders -->
