@@ -46,7 +46,7 @@
   }
   .profile-row {
     display: grid;
-    grid-template-columns: 2.2fr 0.7fr 0.8fr 0.8fr 0.75fr 1fr 0.75fr 0.6fr 0.7fr 0.6fr 60px;
+    grid-template-columns: 2.2fr 0.7fr 0.7fr 0.7fr 0.7fr 0.9fr 0.7fr 0.55fr 0.6fr 0.55fr 0.75fr 50px;
     align-items: center;
     padding: 14px 20px;
     border-bottom: 1px solid rgba(255,255,255,0.04);
@@ -58,13 +58,18 @@
   .profile-row:last-child { border-bottom: none; }
   .profile-header {
     display: grid;
-    grid-template-columns: 2.2fr 0.7fr 0.8fr 0.8fr 0.75fr 1fr 0.75fr 0.6fr 0.7fr 0.6fr 60px;
+    grid-template-columns: 2.2fr 0.7fr 0.7fr 0.7fr 0.7fr 0.9fr 0.7fr 0.55fr 0.6fr 0.55fr 0.75fr 50px;
     padding: 10px 20px;
     gap: 12px;
     background: rgba(255,255,255,0.02);
     border-bottom: 1px solid var(--border);
     position: sticky; top: 64px; z-index: 10;
     backdrop-filter: blur(10px);
+  }
+  .action-pill {
+    padding: 3px 7px; border-radius: 99px; font-size: 9px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.2px;
+    white-space: nowrap;
   }
   .stage-pill {
     padding: 3px 8px; border-radius: 99px; font-size: 10px;
@@ -222,6 +227,19 @@
       <option value="medium" {% if intent=='medium' %}selected{% endif %}>Medium (30-69)</option>
       <option value="low"    {% if intent=='low'    %}selected{% endif %}>Low (&lt;30)</option>
     </select>
+    <select name="action" class="filter-select">
+      <option value="">All Actions</option>
+      <option value="reorder_reminder" {% if action=='reorder_reminder' %}selected{% endif %}>Reorder</option>
+      <option value="cross_sell"       {% if action=='cross_sell'       %}selected{% endif %}>Cross-Sell</option>
+      <option value="upsell"           {% if action=='upsell'           %}selected{% endif %}>Upsell</option>
+      <option value="new_product"      {% if action=='new_product'      %}selected{% endif %}>New Product</option>
+      <option value="winback"          {% if action=='winback'          %}selected{% endif %}>Winback</option>
+      <option value="education"        {% if action=='education'        %}selected{% endif %}>Education</option>
+      <option value="loyalty_reward"   {% if action=='loyalty_reward'   %}selected{% endif %}>Loyalty</option>
+      <option value="discount_offer"   {% if action=='discount_offer'   %}selected{% endif %}>Discount</option>
+      <option value="wait"             {% if action=='wait'             %}selected{% endif %}>Wait</option>
+      <option value="switch_channel"   {% if action=='switch_channel'   %}selected{% endif %}>Switch Ch.</option>
+    </select>
     <select name="sort" class="filter-select">
       <option value="spent_desc" {% if sort=='spent_desc' %}selected{% endif %}>↓ Highest Spend</option>
       <option value="orders_desc" {% if sort=='orders_desc' %}selected{% endif %}>↓ Most Orders</option>
@@ -253,6 +271,7 @@
     <span>Price Tier</span>
     <span>Discount</span>
     <span>Location</span>
+    <span>Action</span>
     <span></span>
   </div>
 
@@ -379,7 +398,31 @@
       {{ row.location or '—' }}
     </div>
 
-    <!-- Action -->
+    <!-- Next Action -->
+    <div>
+      {% set nba_colors = {
+        "reorder_reminder": "var(--cyan)", "cross_sell": "var(--purple2)", "upsell": "var(--purple)",
+        "new_product": "var(--green)", "winback": "var(--red)", "education": "var(--amber)",
+        "loyalty_reward": "var(--pink)", "discount_offer": "var(--green)", "wait": "var(--text3)",
+        "switch_channel": "var(--cyan)"
+      } %}
+      {% set nba_labels = {
+        "reorder_reminder": "Reorder", "cross_sell": "Cross-Sell", "upsell": "Upsell",
+        "new_product": "New Prod", "winback": "Winback", "education": "Educate",
+        "loyalty_reward": "Loyalty", "discount_offer": "Discount", "wait": "Wait",
+        "switch_channel": "SMS"
+      } %}
+      {% if row.next_action %}
+        {% set na_color = nba_colors.get(row.next_action, 'var(--text3)') %}
+        <span class="action-pill" style="background:{{ na_color }}12;color:{{ na_color }};border:1px solid {{ na_color }}25;">
+          {{ nba_labels.get(row.next_action, row.next_action) }}
+        </span>
+      {% else %}
+        <span style="color:var(--text3);font-size:11px;">—</span>
+      {% endif %}
+    </div>
+
+    <!-- Arrow -->
     <div style="text-align:right;" onclick="event.stopPropagation()">
       <a href="/profiles/{{ row.contact_id }}" class="view-btn">
         <i class="fas fa-arrow-right"></i>

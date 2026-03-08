@@ -464,6 +464,138 @@
     </div>
     {% endif %}
 
+    <!-- ── Next Best Action (Phase 2B) ── -->
+    {% if decision and decision.action_type %}
+    {% set action_colors = {
+      "reorder_reminder": "var(--cyan)", "cross_sell": "var(--purple2)", "upsell": "var(--purple)",
+      "new_product": "var(--green)", "winback": "var(--red)", "education": "var(--amber)",
+      "loyalty_reward": "var(--pink)", "discount_offer": "var(--green)", "wait": "var(--text3)",
+      "switch_channel": "var(--cyan)"
+    } %}
+    {% set action_labels = {
+      "reorder_reminder": "Reorder Reminder", "cross_sell": "Cross-Sell", "upsell": "Upsell",
+      "new_product": "New Product", "winback": "Winback", "education": "Education",
+      "loyalty_reward": "Loyalty Reward", "discount_offer": "Discount Offer", "wait": "Wait",
+      "switch_channel": "Switch Channel"
+    } %}
+    {% set action_icons = {
+      "reorder_reminder": "fa-redo", "cross_sell": "fa-random", "upsell": "fa-arrow-up",
+      "new_product": "fa-star", "winback": "fa-heart-broken", "education": "fa-book-open",
+      "loyalty_reward": "fa-crown", "discount_offer": "fa-tag", "wait": "fa-pause-circle",
+      "switch_channel": "fa-mobile-alt"
+    } %}
+    {% set act_color = action_colors.get(decision.action_type, 'var(--text3)') %}
+
+    <div class="card" style="margin-bottom:20px;border-color:{{ act_color }}30;">
+      <div class="card-header" style="background:{{ act_color }}08;">
+        <span class="card-title">
+          <i class="fas fa-crosshairs" style="color:{{ act_color }};margin-right:8px;"></i>Next Best Action
+        </span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11px;color:var(--text3);">{{ decision.decided_at }}</span>
+          <button onclick="refreshDecision({{ contact.id }})" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 10px;">
+            <i class="fas fa-sync-alt"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Action Badge + Score -->
+      <div style="padding:16px 18px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+          <span style="padding:6px 16px;border-radius:99px;font-size:13px;font-weight:700;
+                       background:{{ act_color }}15;color:{{ act_color }};border:1px solid {{ act_color }}30;">
+            <i class="fas {{ action_icons.get(decision.action_type, 'fa-question') }}" style="margin-right:5px;"></i>
+            {{ action_labels.get(decision.action_type, decision.action_type) }}
+          </span>
+          <span style="font-size:22px;font-weight:900;color:{{ act_color }};">
+            {{ decision.action_score }}<span style="font-size:12px;font-weight:400;color:var(--text3);">/100</span>
+          </span>
+        </div>
+
+        <!-- Score Bar -->
+        <div style="height:4px;border-radius:99px;background:var(--surface2);overflow:hidden;margin-bottom:14px;">
+          <div style="width:{{ decision.action_score }}%;height:100%;border-radius:99px;background:{{ act_color }};"></div>
+        </div>
+
+        <!-- Reason -->
+        <div style="font-size:13px;color:var(--text2);line-height:1.6;padding:10px 14px;
+                    background:var(--surface);border:1px solid var(--border);border-radius:10px;">
+          {{ decision.action_reason }}
+        </div>
+      </div>
+
+      <!-- Expandable: Alternatives -->
+      {% if decision.ranked_actions and decision.ranked_actions|length > 1 %}
+      <div style="padding:0 18px 4px;">
+        <button onclick="document.getElementById('nbaAlternatives').style.display = document.getElementById('nbaAlternatives').style.display === 'none' ? 'block' : 'none'"
+                style="font-size:12px;color:var(--text2);background:none;border:none;cursor:pointer;padding:4px 0;">
+          <i class="fas fa-chevron-down"></i> Alternatives ({{ decision.ranked_actions|length - 1 }})
+        </button>
+      </div>
+      <div id="nbaAlternatives" style="display:none;padding:0 18px 12px;">
+        {% for alt in decision.ranked_actions[1:] %}
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;">
+          {% set alt_color = action_colors.get(alt.action_type, 'var(--text3)') %}
+          <span style="padding:3px 8px;border-radius:99px;font-size:10px;font-weight:700;
+                       background:{{ alt_color }}12;color:{{ alt_color }};border:1px solid {{ alt_color }}25;white-space:nowrap;">
+            {{ action_labels.get(alt.action_type, alt.action_type) }}
+          </span>
+          <span style="font-weight:700;color:var(--text);min-width:30px;">{{ alt.score }}</span>
+          <span style="color:var(--text3);flex:1;">{{ alt.reason[:100] }}{% if alt.reason|length > 100 %}...{% endif %}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Expandable: Rejections -->
+      {% if decision.rejections %}
+      <div style="padding:0 18px 4px;">
+        <button onclick="document.getElementById('nbaRejections').style.display = document.getElementById('nbaRejections').style.display === 'none' ? 'block' : 'none'"
+                style="font-size:12px;color:var(--text2);background:none;border:none;cursor:pointer;padding:4px 0;">
+          <i class="fas fa-ban" style="color:var(--red);margin-right:4px;"></i> Rejected ({{ decision.rejections|length }})
+        </button>
+      </div>
+      <div id="nbaRejections" style="display:none;padding:0 18px 12px;">
+        {% for rej in decision.rejections %}
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;">
+          <span style="color:var(--text3);min-width:110px;font-weight:600;">
+            {{ action_labels.get(rej.action_type, rej.action_type) }}
+          </span>
+          <span style="color:var(--red);opacity:0.8;">{{ rej.rejection_reason }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Expandable: Decision History -->
+      {% if decision.history %}
+      <div style="padding:0 18px 4px;">
+        <button onclick="document.getElementById('nbaHistory').style.display = document.getElementById('nbaHistory').style.display === 'none' ? 'block' : 'none'"
+                style="font-size:12px;color:var(--text2);background:none;border:none;cursor:pointer;padding:4px 0;">
+          <i class="fas fa-clock" style="margin-right:4px;"></i> History ({{ decision.history|length }}d)
+        </button>
+      </div>
+      <div id="nbaHistory" style="display:none;padding:0 18px 14px;">
+        {% for h in decision.history %}
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px;">
+          <span style="color:var(--text3);min-width:70px;">{{ h.date }}</span>
+          {% set h_color = action_colors.get(h.action_type, 'var(--text3)') %}
+          <span style="padding:2px 6px;border-radius:99px;font-size:9px;font-weight:700;
+                       background:{{ h_color }}12;color:{{ h_color }};border:1px solid {{ h_color }}25;">
+            {{ action_labels.get(h.action_type, h.action_type) }}
+          </span>
+          <span style="font-weight:600;color:var(--text);">{{ h.action_score }}</span>
+          {% if h.was_executed %}
+            <span style="color:var(--green);font-size:10px;"><i class="fas fa-check"></i> sent</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+    </div>
+    {% endif %}
+
 
     <!-- Products Purchased -->
     {% if top_products %}
@@ -1113,6 +1245,21 @@ function refreshIntelligence(contactId) {
       else { location.reload(); }
     })
     .catch(e => { alert('Failed: ' + e); btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync-alt"></i>'; });
+}
+</script>
+
+<script>
+function refreshDecision(contactId) {
+  var btn = event.currentTarget;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+  fetch('/api/profiles/' + contactId + '/decide', {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) { alert('Error: ' + d.error); }
+      else { location.reload(); }
+    })
+    .catch(function(e) { alert('Failed: ' + e); btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync-alt"></i>'; });
 }
 </script>
 {% endblock %}

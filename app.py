@@ -2417,6 +2417,7 @@ def profiles_list():
     category  = request.args.get("category", "")
     lifecycle = request.args.get("lifecycle", "")
     intent    = request.args.get("intent", "")
+    action    = request.args.get("action", "")
     sort      = request.args.get("sort", "spent_desc")
     page     = int(request.args.get("page", 1))
     per_page = 50
@@ -2485,7 +2486,27 @@ def profiles_list():
             "location":       f"{p.city}, {p.province}".strip(", ") if (p.city or p.province) else "",
             "lifecycle_stage": getattr(p, "lifecycle_stage", "unknown"),
             "intent_score":    getattr(p, "intent_score", 0),
+            "next_action":     "",
+            "action_score":    0,
         })
+
+    # Phase 2B: Bulk-load decisions for listed profiles
+    try:
+        from database import MessageDecision as _MD
+        _cids = [r["contact_id"] for r in profiles]
+        _dmap = {}
+        for _md in _MD.select().where(_MD.contact.in_(_cids)):
+            _dmap[_md.contact_id] = {"action_type": _md.action_type, "action_score": _md.action_score}
+        for _r in profiles:
+            _d = _dmap.get(_r["contact_id"], {})
+            _r["next_action"] = _d.get("action_type", "")
+            _r["action_score"] = _d.get("action_score", 0)
+    except Exception:
+        pass
+
+    # Phase 2B: Filter by action type
+    if action:
+        profiles = [r for r in profiles if r.get("next_action") == action]
 
     # Aggregate stats
     all_profiles = list(CustomerProfile.select())
@@ -2499,7 +2520,7 @@ def profiles_list():
 
     # Build query string for pagination (exclude page)
     qs_parts = []
-    for k, v in [("q", q), ("tier", tier), ("category", category), ("lifecycle", lifecycle), ("intent", intent), ("sort", sort)]:
+    for k, v in [("q", q), ("tier", tier), ("category", category), ("lifecycle", lifecycle), ("intent", intent), ("action", action), ("sort", sort)]:
         if v:
             qs_parts.append(f"{k}={v}")
     query_string = "&".join(qs_parts)
@@ -2516,7 +2537,7 @@ def profiles_list():
         total_pages=total_pages,
         per_page=per_page,
         q=q, tier=tier, category=category, sort=sort,
-        lifecycle=lifecycle, intent=intent,
+        lifecycle=lifecycle, intent=intent, action=action,
         query_string=query_string,
     )
 
@@ -2695,6 +2716,36 @@ def profile_detail(contact_id):
             "last_computed": profile.last_intelligence_at.strftime("%Y-%m-%d %H:%M") if profile.last_intelligence_at else "",
         }
 
+    # Phase 2B: Next-Best-Action decision
+    _decision = {}
+    try:
+        from database import MessageDecision, MessageDecisionHistory
+        import json as _jd2
+        _md = MessageDecision.get_or_none(MessageDecision.contact == contact_id)
+        if _md:
+            _decision = {
+                "action_type": _md.action_type,
+                "action_score": _md.action_score,
+                "action_reason": _md.action_reason,
+                "ranked_actions": _jd2.loads(_md.ranked_actions_json or "[]"),
+                "rejections": _jd2.loads(_md.rejections_json or "[]"),
+                "decided_at": _md.decided_at.strftime("%Y-%m-%d %H:%M") if _md.decided_at else "",
+            }
+        _decision_history = []
+        for _dh in (MessageDecisionHistory.select()
+                    .where(MessageDecisionHistory.contact == contact_id)
+                    .order_by(MessageDecisionHistory.decided_at.desc())
+                    .limit(14)):
+            _decision_history.append({
+                "date": _dh.decision_date,
+                "action_type": _dh.action_type,
+                "action_score": _dh.action_score,
+                "was_executed": _dh.was_executed,
+            })
+        _decision["history"] = _decision_history
+    except Exception:
+        pass
+
     return render_template("profile_detail.html",
         contact=contact,
         profile=profile,
@@ -2713,6 +2764,7 @@ def profile_detail(contact_id):
         churn_label=_churn_label,
         churn_color=_churn_color,
         intelligence=_intelligence,
+        decision=_decision,
     )
 
 
@@ -2741,6 +2793,17 @@ def send_quick_email(contact_id):
     if success:
         return jsonify({"success": True})
     return jsonify({"success": False, "error": error or "Send failed"}), 500
+
+
+@app.route("/api/profiles/<int:contact_id>/decide", methods=["POST"])
+def recompute_decision(contact_id):
+    """Recompute next-best-action for a single contact on-demand."""
+    try:
+        from next_best_message import decide_next_action
+        result = decide_next_action(contact_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/profiles/<int:contact_id>/intelligence", methods=["POST"])
@@ -3276,7 +3339,19 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
 
     _scheduler.add_job(_run_nightly_intelligence, "cron", hour=3, minute=30,
                        id="nightly_intelligence", replace_existing=True)
-    _scheduler.add_job(_recalculate_deliverability_scores, "cron", hour=4, minute=0,
+    def _run_nightly_decisions():
+        try:
+            import sys as _sn; _sn.path.insert(0, '/var/www/mailengine')
+            from next_best_message import decide_all_contacts
+            app.logger.info("Nightly decision engine starting...")
+            count = decide_all_contacts()
+            app.logger.info(f"Nightly decisions complete: {count} contacts processed")
+        except Exception as _e:
+            app.logger.error(f"Nightly decision engine failed: {_e}")
+
+    _scheduler.add_job(_run_nightly_decisions, "cron", hour=4, minute=0,
+                       id="nightly_decisions", replace_existing=True)
+    _scheduler.add_job(_recalculate_deliverability_scores, "cron", hour=4, minute=30,
                        id="deliverability_scores", replace_existing=True)
     _scheduler.add_job(_run_nightly_activity_sync, "cron", hour=3, minute=0,
                        id="activity_sync_nightly", replace_existing=True)

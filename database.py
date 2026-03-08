@@ -549,7 +549,8 @@ def init_db():
          CustomerActivity, PendingTrigger, AIGeneratedEmail,
          ProductImageCache, GeneratedDiscount,
          SuppressionEntry, BounceLog,
-         PreflightLog],
+         PreflightLog,
+         MessageDecision, MessageDecisionHistory],
         safe=True
     )
     _migrate_contact_columns()
@@ -557,6 +558,7 @@ def init_db():
     _migrate_deliverability_fields()
     _migrate_bounce_log_fields()
     _migrate_intelligence_fields()
+    _migrate_message_decision_tables()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")
@@ -672,6 +674,20 @@ def _migrate_intelligence_fields():
         if col_name not in existing:
             db.execute_sql(f"ALTER TABLE customer_profiles ADD COLUMN {col_name} {col_def}")
             print(f"  [migrate] Added {col_name} to customer_profiles")
+
+
+
+def _migrate_message_decision_tables():
+    """Ensure Phase 2B message_decisions and message_decision_history tables are up to date."""
+    # Tables created by db.create_tables(); this handles future column additions
+    for table_name in ["message_decisions", "message_decision_history"]:
+        try:
+            cursor = db.execute_sql(f"PRAGMA table_info({table_name})")
+            existing = {row[1] for row in cursor.fetchall()}
+            if existing:
+                print(f"  [migrate] {table_name}: {len(existing)} columns OK")
+        except Exception as e:
+            print(f"  [migrate] {table_name}: {e}")
 
 
 def _seed_example_templates():
@@ -921,3 +937,53 @@ class AIDecisionLog(BaseModel):
 
     class Meta:
         table_name = "ai_decision_log"
+
+
+class MessageDecision(BaseModel):
+    """Current next-best-action decision per contact. Upserted nightly by Phase 2B engine."""
+    contact              = ForeignKeyField(Contact, unique=True, backref="message_decision")
+    email                = CharField(index=True, default="")
+    action_type          = CharField(default="wait")
+    action_score         = IntegerField(default=0)
+    action_reason        = TextField(default="")
+    action_email_purpose = CharField(default="")
+    ranked_actions_json  = TextField(default="[]")
+    rejections_json      = TextField(default="[]")
+    lifecycle_stage      = CharField(default="")
+    fatigue_score        = IntegerField(default=0)
+    emails_received_7d   = IntegerField(default=0)
+    churn_risk_score     = IntegerField(default=0)
+    intent_score         = IntegerField(default=0)
+    reorder_likelihood   = IntegerField(default=0)
+    discount_sensitivity = FloatField(default=0.0)
+    days_since_last_order = IntegerField(default=999)
+    suppression_active   = BooleanField(default=False)
+    decided_at           = DateTimeField(default=datetime.now)
+    expires_at           = DateTimeField(null=True)
+
+    class Meta:
+        table_name = "message_decisions"
+
+
+class MessageDecisionHistory(BaseModel):
+    """Append-only audit log of every decision. Never overwritten."""
+    contact              = ForeignKeyField(Contact, backref="decision_history")
+    email                = CharField(index=True, default="")
+    decision_date        = CharField(index=True, default="")
+    action_type          = CharField(default="wait")
+    action_score         = IntegerField(default=0)
+    action_reason        = TextField(default="")
+    action_email_purpose = CharField(default="")
+    ranked_actions_json  = TextField(default="[]")
+    rejections_json      = TextField(default="[]")
+    was_executed         = BooleanField(default=False)
+    executed_at          = DateTimeField(null=True)
+    lifecycle_stage      = CharField(default="")
+    fatigue_score        = IntegerField(default=0)
+    churn_risk_score     = IntegerField(default=0)
+    intent_score         = IntegerField(default=0)
+    reorder_likelihood   = IntegerField(default=0)
+    decided_at           = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "message_decision_history"
