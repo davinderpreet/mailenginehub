@@ -193,6 +193,25 @@ class FlowEmail(BaseModel):
         table_name = "flow_emails"
 
 
+class AbandonedCheckout(BaseModel):
+    """Shopify checkout that was started but not completed."""
+    shopify_checkout_id = CharField(unique=True, index=True)
+    email               = CharField(index=True, default="")
+    contact             = ForeignKeyField(Contact, null=True, backref="abandoned_checkouts")
+    checkout_url        = CharField(default="")
+    total_price         = FloatField(default=0.0)
+    currency            = CharField(default="CAD")
+    line_items_json     = TextField(default="[]")   # JSON: [{title, quantity, price, image_url}]
+    recovered           = BooleanField(default=False)
+    recovered_at        = DateTimeField(null=True)
+    abandoned_at        = DateTimeField(null=True)   # when Shopify created the checkout
+    enrolled_in_flow    = BooleanField(default=False)
+    created_at          = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "abandoned_checkouts"
+
+
 class AgentMessage(BaseModel):
     """Persistent IT Agent conversation history."""
     role       = CharField()              # 'user' | 'assistant'
@@ -543,7 +562,7 @@ def init_db():
     db.connect(reuse_if_open=True)
     db.create_tables(
         [Contact, EmailTemplate, Campaign, CampaignEmail, WarmupConfig, WarmupLog,
-         Flow, FlowStep, FlowEnrollment, FlowEmail, AgentMessage,
+         Flow, FlowStep, FlowEnrollment, FlowEmail, AbandonedCheckout, AgentMessage,
          ContactScore, AIMarketingPlan, AIDecisionLog,
          OmnisendOrder, OmnisendOrderItem, CustomerProfile,
          ShopifyOrder, ShopifyOrderItem, ShopifyCustomer,

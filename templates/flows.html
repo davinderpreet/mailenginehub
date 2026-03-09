@@ -16,6 +16,9 @@
     background: rgba(124,58,237,0.12); color: var(--purple2);
     border: 1px solid rgba(124,58,237,0.25);
   }
+  .trigger-checkout { background:rgba(245,158,11,0.12); color:#f59e0b; border-color:rgba(245,158,11,0.25); }
+  .trigger-order { background:rgba(16,185,129,0.12); color:#10b981; border-color:rgba(16,185,129,0.25); }
+  .trigger-browse { background:rgba(6,182,212,0.12); color:#06b6d4; border-color:rgba(6,182,212,0.25); }
   .flow-row td { vertical-align: middle; }
   .modal-overlay {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65);
@@ -113,10 +116,16 @@
             {% endif %}
           </td>
           <td>
-            <span class="trigger-badge">
+            <span class="trigger-badge
+              {%- if flow.trigger_type == 'checkout_abandoned' %} trigger-checkout
+              {%- elif flow.trigger_type == 'order_placed' %} trigger-order
+              {%- elif flow.trigger_type == 'browse_abandonment' %} trigger-browse{% endif %}">
               {% if flow.trigger_type == 'contact_created' %}New Contact
               {% elif flow.trigger_type == 'tag_added' %}Tag: {{ flow.trigger_value }}
               {% elif flow.trigger_type == 'no_purchase_days' %}No Purchase {{ flow.trigger_value }}d
+              {% elif flow.trigger_type == 'checkout_abandoned' %}Checkout Abandoned
+              {% elif flow.trigger_type == 'order_placed' %}Order Placed
+              {% elif flow.trigger_type == 'browse_abandonment' %}Browse Abandon
               {% else %}Manual{% endif %}
             </span>
           </td>
@@ -167,6 +176,9 @@
           <option value="contact_created">New contact added (CSV import or Shopify sync)</option>
           <option value="tag_added">Contact gets a specific tag</option>
           <option value="no_purchase_days">Shopify customer with no purchase after N days</option>
+          <option value="checkout_abandoned">Checkout abandoned (Shopify webhook)</option>
+          <option value="order_placed">Order placed (Shopify webhook)</option>
+          <option value="browse_abandonment">Browse abandonment (viewed product, no purchase)</option>
           <option value="manual">Manual only (use enroll-test button)</option>
         </select>
         <div class="trigger-help">Contacts are enrolled automatically when the trigger fires.</div>
