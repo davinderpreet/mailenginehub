@@ -2,7 +2,7 @@
 email_shell.py — Universal Email Shell (Header + Footer)
 
 Every email sent by MailEngineHub gets wrapped in this shell.
-- Clean minimal header: LDAS Electronics logo centered on white background
+- Brand header: LDAS logo on dark background (matches ldas.ca)
 - CAN-SPAM compliant footer: physical address, unsubscribe link, reason text
 - Responsive: 600px container, mobile stacking, dark mode support
 - Table-based: Full email client compatibility
@@ -14,10 +14,12 @@ Usage:
 
 import html as html_mod
 
-# ── Brand Constants ──────────────────────────────────────────
+# ── Brand Constants (LDAS Electronics) ───────────────────────
 BRAND_NAME = "LDAS Electronics"
 BRAND_URL = "https://ldas-electronics.com"
-BRAND_COLOR = "#7c3aed"
+BRAND_COLOR = "#063cff"           # LDAS primary blue
+BRAND_COLOR_DARK = "#0532d4"      # Darker blue
+HEADER_BG = "#0a0a0a"            # Dark header (matches ldas.ca)
 TEXT_DARK = "#1a1a2e"
 TEXT_MID = "#4a5568"
 TEXT_LIGHT = "#718096"
@@ -81,11 +83,11 @@ def wrap_email(body_html, preview_text="", unsubscribe_url="{{unsubscribe_url}}"
   <!-- Container -->
   <table role="presentation" class="email-container" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:''' + BG_BODY + ''';border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
-    <!-- Header: Clean Minimal — Logo Centered on White -->
+    <!-- Header: LDAS Brand — Dark background with white logo -->
     <tr>
-      <td style="background:#ffffff;padding:24px 30px;text-align:center;border-bottom:1px solid #eeeef2;">
+      <td style="background:''' + HEADER_BG + ''';padding:22px 30px;text-align:center;">
         <a href="''' + BRAND_URL + '''" style="text-decoration:none;">
-          <img src="''' + LOGO_URL + '''" alt="''' + BRAND_NAME + '''" width="150" style="display:inline-block;max-width:150px;height:auto;" />
+          <img src="''' + LOGO_URL + '''" alt="''' + BRAND_NAME + '''" width="140" style="display:inline-block;max-width:140px;height:auto;" />
         </a>
       </td>
     </tr>
