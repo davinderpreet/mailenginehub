@@ -5,10 +5,10 @@
 {% block content %}
 <div style="display:flex;gap:12px;align-items:center;margin-bottom:24px;">
   <div style="flex:1">
-    <p style="color:var(--text2);margin:0;font-size:14px;">Autonomous email marketing — scores every contact nightly and decides what to send with zero human input.</p>
+    <p style="color:var(--text2);margin:0;font-size:14px;">Contact scoring engine — computes RFM segments and engagement scores nightly. Feeds into the decision and campaign pipeline.</p>
   </div>
   <button id="run-now-btn" onclick="runNow()" class="btn btn-primary">
-    ▶ Run Now
+    ▶ Score Contacts
   </button>
 </div>
 
@@ -330,47 +330,18 @@
   </div>
 </div>
 
-<!-- Today's AI Plan -->
-<div class="card" style="margin-bottom:20px;">
-  <div class="card-header">
-    <span class="card-title">Today's Plan</span>
-    {% if plan %}<span style="color:var(--text3);font-size:13px;">{{ plan.plan_date }}</span>{% endif %}
+<!-- Pipeline Cross-Link -->
+<div style="background:linear-gradient(135deg,rgba(124,58,237,0.12),rgba(6,182,212,0.08));border:1px solid rgba(124,58,237,0.25);border-radius:14px;padding:20px 24px;margin-bottom:20px;display:flex;align-items:center;gap:16px;">
+  <div style="min-width:44px;height:44px;border-radius:12px;background:rgba(124,58,237,0.15);display:flex;align-items:center;justify-content:center;">
+    <i class="fas fa-rocket" style="color:var(--purple);font-size:18px;"></i>
   </div>
-  <div class="card-body">
-  {% if plan %}
-    <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px;">
-      {% if plan.status == "done" %}
-        <span class="badge badge-green">✓ Done — {{ plan.total_sends }} sent</span>
-      {% elif plan.status == "executing" %}
-        <span class="badge badge-amber">⏳ Executing…</span>
-      {% elif plan.status == "error" %}
-        <span class="badge badge-red">✗ Error</span>
-      {% else %}
-        <span class="badge badge-purple">Pending</span>
-      {% endif %}
-    </div>
-    <div style="background:var(--surface2);border-radius:10px;padding:14px;font-size:13px;color:var(--text2);line-height:1.6;">
-      {{ plan.ai_summary }}
-    </div>
-    {% if plan.plan_json and plan.plan_json != "[]" %}
-    <div style="margin-top:12px;">
-      {% for action in plan.plan_json | fromjson %}
-      <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:8px;display:flex;gap:12px;align-items:flex-start;">
-        <span class="badge badge-purple" style="white-space:nowrap;">{{ action.segment }}</span>
-        <div>
-          <div style="font-size:13px;font-weight:600;color:var(--text);">{{ action.subject_override }}</div>
-          <div style="font-size:12px;color:var(--text2);margin-top:2px;">{{ action.reason }} {% if action.max_sends %} · max {{ action.max_sends }}{% endif %}</div>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-  {% else %}
-    <div style="color:var(--text3);font-size:14px;padding:20px;text-align:center;">
-      No plan generated today yet. Click <strong style="color:var(--text);">Run Now</strong> to trigger the AI engine.
-    </div>
-  {% endif %}
+  <div style="flex:1;">
+    <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px;">Campaign suggestions have moved</div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.5;">Scoring data from this page feeds into the <strong>Campaign Planner</strong>, which aggregates individual contact decisions into ranked campaign opportunities with profit forecasts.</div>
   </div>
+  <a href="/campaign-planner" class="btn btn-primary btn-sm" style="white-space:nowrap;">
+    <i class="fas fa-rocket"></i> Campaign Planner
+  </a>
 </div>
 
 <!-- Recent Activity -->
@@ -460,9 +431,9 @@ function runNow() {
     .then(r => r.json())
     .then(data => {
       if (data.ok) {
-        btn.textContent = "✓ Started — refresh in 60s";
+        btn.textContent = "✓ Scoring — refresh in 30s";
         btn.style.background = "var(--green)";
-        setTimeout(() => location.reload(), 60000);
+        setTimeout(() => location.reload(), 30000);
       } else {
         btn.textContent = "✗ Error: " + (data.error || "unknown");
         btn.style.background = "var(--red)";

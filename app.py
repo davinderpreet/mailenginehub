@@ -71,11 +71,8 @@ def require_auth():
 # Import here to keep it near the app definition; scheduler is started
 # at the bottom after all route/function definitions are in place.
 from apscheduler.schedulers.background import BackgroundScheduler
-try:
-    from ai_engine import run_nightly_scoring, run_nightly_plan
-    _ai_engine_available = True
-except ImportError:
-    _ai_engine_available = False
+# ai_engine scoring is called inside scheduler job and Run Now endpoint
+_ai_engine_available = True  # Kept for backward compat with dashboard check
 import atexit
 
 # ─────────────────────────────────
@@ -3139,15 +3136,17 @@ def ai_engine_sample_email():
 
 @app.route("/api/ai-engine/run-now", methods=["POST"])
 def ai_engine_run_now():
-    if not _ai_engine_available:
-        return jsonify({"error": "AI engine not available"}), 503
     import threading
     def _run():
-        run_nightly_scoring()
-        plan_id = __import__("ai_engine").generate_daily_plan()
-        __import__("ai_engine").execute_plan(plan_id)
+        try:
+            from ai_engine import score_all_contacts
+            app.logger.info("Manual contact scoring started...")
+            count = score_all_contacts()
+            app.logger.info(f"Manual scoring complete: {count} contacts scored")
+        except Exception as e:
+            app.logger.error(f"Manual scoring failed: {e}")
     threading.Thread(target=_run, daemon=True).start()
-    return jsonify({"ok": True, "message": "AI engine started — check dashboard in ~60 seconds"})
+    return jsonify({"ok": True, "message": "Contact scoring started — refresh in ~30 seconds"})
 
 
 
@@ -3472,10 +3471,20 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
                        id="flow_processor", replace_existing=True)
     _scheduler.add_job(_check_passive_triggers, "interval", minutes=30,
                        id="passive_triggers", replace_existing=True)
-    if _ai_engine_available:  # AI cron jobs disabled until platform is ready
-        pass
-#        _scheduler.add_job(run_nightly_scoring, "cron", hour=1, minute=0, id="ai_scoring", replace_existing=True)
-#        _scheduler.add_job(run_nightly_plan, "cron", hour=2, minute=0, id="ai_plan", replace_existing=True)
+    # ── Nightly contact scoring at 2:30am (RFM + engagement) ──
+    def _run_nightly_contact_scoring():
+        try:
+            import sys as _sc; _sc.path.insert(0, '/var/www/mailengine')
+            from ai_engine import score_all_contacts
+            app.logger.info("Nightly contact scoring starting...")
+            count = score_all_contacts()
+            app.logger.info(f"Contact scoring complete: {count} contacts scored")
+        except Exception as _e:
+            app.logger.error(f"Nightly contact scoring failed: {_e}")
+
+    _scheduler.add_job(_run_nightly_contact_scoring, "cron", hour=2, minute=30,
+                       id="contact_scoring", replace_existing=True)
+
     # Nightly activity sync + profile enrichment at 3am
     def _run_nightly_activity_sync():
         try:
