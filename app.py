@@ -73,6 +73,19 @@ def require_auth():
 from apscheduler.schedulers.background import BackgroundScheduler
 # ai_engine scoring is called inside scheduler job and Run Now endpoint
 _ai_engine_available = True  # Kept for backward compat with dashboard check
+
+def _cascade_by_email(email, trigger="unknown"):
+    """Background cascade for a contact identified by email."""
+    import threading
+    def _do():
+        try:
+            c = Contact.get_or_none(Contact.email == email)
+            if c:
+                from cascade import cascade_contact
+                cascade_contact(c.id, trigger=trigger)
+        except Exception:
+            pass
+    threading.Thread(target=_do, daemon=True).start()
 import atexit
 
 # ─────────────────────────────────
@@ -193,6 +206,14 @@ def ses_webhook():
                                     suppression_reason="hard_bounce",
                                     suppression_source="ses_notification",
                                 ).where(Contact.email == email).execute()
+                                # Cascade: update decision to wait (suppressed)
+                                try:
+                                    _c = Contact.get_or_none(Contact.email == email)
+                                    if _c:
+                                        from cascade import cascade_contact
+                                        cascade_contact(_c.id, trigger="ses_hard_bounce")
+                                except Exception:
+                                    pass
                             except Exception:
                                 pass
                             print(f"[SES] Hard bounce suppressed: {email}")
@@ -243,6 +264,14 @@ def ses_webhook():
                                 suppression_reason="complaint",
                                 suppression_source="ses_notification",
                             ).where(Contact.email == email).execute()
+                            # Cascade: update decision to wait (suppressed)
+                            try:
+                                _c = Contact.get_or_none(Contact.email == email)
+                                if _c:
+                                    from cascade import cascade_contact
+                                    cascade_contact(_c.id, trigger="ses_complaint")
+                            except Exception:
+                                pass
                         except Exception:
                             pass
                         print(f"[SES] Complaint suppressed: {email}")
@@ -637,6 +666,17 @@ def webhook_shopify_customer_create():
                 enrich_single_profile(_email_copy)
             import threading as _th
             _th.Thread(target=_enrich_bg, daemon=True).start()
+
+            # Cascade: score + intelligence + decision for new Shopify contact
+            import time as _t2
+            def _cascade_shopify_create():
+                _t2.sleep(3)
+                try:
+                    from cascade import cascade_contact
+                    cascade_contact(contact.id, trigger='shopify_create')
+                except Exception:
+                    pass
+            _th.Thread(target=_cascade_shopify_create, daemon=True).start()
 
             # Auto-enroll new contacts in flows
             if created:
@@ -3544,7 +3584,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
 
     _scheduler.add_job(_run_nightly_opportunity_scan, "cron", hour=4, minute=15,
                        id="opportunity_scan", replace_existing=True)
-    _scheduler.add_job(_recalculate_deliverability_scores, "cron", hour=4, minute=30,
+    _scheduler.add_job(_recalculate_deliverability_scores, "cron", hour=3, minute=45,
                        id="deliverability_scores", replace_existing=True)
     _scheduler.add_job(_run_nightly_profit_scoring, "cron", hour=4, minute=45,
                        id="profit_scoring", replace_existing=True)

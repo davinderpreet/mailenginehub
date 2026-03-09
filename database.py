@@ -959,6 +959,8 @@ class MessageDecision(BaseModel):
     discount_sensitivity = FloatField(default=0.0)
     days_since_last_order = IntegerField(default=999)
     suppression_active   = BooleanField(default=False)
+    risk_level           = CharField(default="low")
+    suppression_reason   = CharField(default="")
     decided_at           = DateTimeField(default=datetime.now)
     expires_at           = DateTimeField(null=True)
 
@@ -1023,6 +1025,7 @@ class SuggestedCampaign(BaseModel):
     net_profit               = FloatField(default=0.0)
     top_products_json        = TextField(default="[]")
     margin_warning           = CharField(default="")
+    deliverability_risk_score = IntegerField(default=0)
     created_at               = DateTimeField(default=datetime.now)
 
     class Meta:

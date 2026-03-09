@@ -494,6 +494,19 @@ def scan_opportunities():
                               if (md.fatigue_score or 0) >= 50)
         complaint_risk_pct = round(high_risk_count / segment_size * 100, 1)
 
+        # ── Deliverability risk score (0-100) — Rule 4 compliance ──
+        spam_risk_count = 0
+        try:
+            spam_risk_ids = contact_ids[:200]
+            spam_risk_contacts = list(Contact.select(Contact.spam_risk_score)
+                                      .where(Contact.id.in_(spam_risk_ids)))
+            spam_risk_count = sum(1 for c in spam_risk_contacts
+                                  if (c.spam_risk_score or 0) >= 40)
+        except Exception:
+            pass
+        fatigue_pct = complaint_risk_pct  # already % of high-fatigue contacts
+        spam_pct = round(spam_risk_count / max(1, min(200, segment_size)) * 100, 1)
+
         # ── Preflight simulation ──
         preflight_status, preflight_warnings = _simulate_preflight(
             segment_size, avg_fatigue, complaint_risk_pct
@@ -502,6 +515,11 @@ def scan_opportunities():
         # ── Safe send volume ──
         fatigue_safe = sum(1 for md in md_list if (md.fatigue_score or 0) < 50)
         safe_send = min(segment_size, warmup_headroom, fatigue_safe)
+
+        # ── Deliverability risk score (0-100) — Rule 4 compliance ──
+        headroom_pct = max(0, 100 - round(safe_send / max(1, segment_size) * 100))
+        deliverability_risk = int(fatigue_pct * 0.4 + spam_pct * 0.3 + headroom_pct * 0.3)
+        deliverability_risk = min(100, max(0, deliverability_risk))
 
         # ── Quality score ──
         quality_score = _score_opportunity(
@@ -571,6 +589,7 @@ def scan_opportunities():
             preflight_warnings_json=json.dumps(preflight_warnings),
             brief_text=brief,
             status="suggested",
+            deliverability_risk_score=deliverability_risk,
         )
 
         opportunities.append({

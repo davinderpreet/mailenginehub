@@ -615,6 +615,18 @@ def decide_next_action(contact_id):
     return result
 
 
+
+def _compute_risk_level(fatigue, spam_risk, is_suppressed):
+    """Compute risk level from fatigue, spam risk, and suppression. Rule 3 compliance."""
+    if is_suppressed or fatigue > 80:
+        return "critical"
+    if fatigue > 60 or spam_risk > 50:
+        return "high"
+    if fatigue > 30 or spam_risk > 30:
+        return "medium"
+    return "low"
+
+
 def _persist_decision(contact, profile, score, result, today, now):
     """Upsert MessageDecision and append MessageDecisionHistory."""
     from database import MessageDecision, MessageDecisionHistory, db
@@ -652,6 +664,8 @@ def _persist_decision(contact, profile, score, result, today, now):
             md.discount_sensitivity = disc_sens
             md.days_since_last_order = days_since
             md.suppression_active = is_suppressed
+            md.risk_level = _compute_risk_level(fatigue, getattr(contact, "spam_risk_score", 0) or 0, is_suppressed)
+            md.suppression_reason = getattr(contact, "suppression_reason", "") or "" if is_suppressed else ""
             md.decided_at = now
             md.expires_at = now + timedelta(hours=24)
             md.save()
@@ -674,6 +688,8 @@ def _persist_decision(contact, profile, score, result, today, now):
                 discount_sensitivity=disc_sens,
                 days_since_last_order=days_since,
                 suppression_active=is_suppressed,
+                risk_level=_compute_risk_level(fatigue, getattr(contact, "spam_risk_score", 0) or 0, is_suppressed),
+                suppression_reason=getattr(contact, "suppression_reason", "") or "" if is_suppressed else "",
                 decided_at=now,
                 expires_at=now + timedelta(hours=24),
             )

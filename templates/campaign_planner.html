@@ -144,6 +144,11 @@
         <div class="opp-metric-label">Complaint Risk</div>
       </div>
       <div class="opp-metric">
+        {% set dr = s.deliverability_risk_score|default(0) %}
+        <div class="opp-metric-value" style="{% if dr >= 60 %}color:var(--red);{% elif dr >= 30 %}color:var(--amber);{% else %}color:var(--green);{% endif %}">{{ dr }}</div>
+        <div class="opp-metric-label">Deliv. Risk</div>
+      </div>
+      <div class="opp-metric">
         <div class="opp-metric-value">{{ "{:,}".format(s.safe_send_volume) }}</div>
         <div class="opp-metric-label">Safe Volume</div>
       </div>

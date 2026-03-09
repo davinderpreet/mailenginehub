@@ -283,95 +283,110 @@ Return ONLY valid JSON (no markdown, no code blocks) with this structure:
 
 
 
-def score_all_contacts():
-    """Compute RFM + engagement score for every subscribed contact."""
+def score_single_contact(contact_id):
+    """Compute RFM + engagement score for a single contact. Returns the segment or None on error."""
     from database import (Contact, CampaignEmail, FlowEmail,
                           ContactScore, init_db)
     init_db()
 
-    contacts = list(Contact.select().where(Contact.subscribed == True))
+    try:
+        contact = Contact.get_by_id(contact_id)
+    except Contact.DoesNotExist:
+        return None
+
     now = datetime.now()
-    updated = 0
+    try:
+        # Recency: days since last open (campaign or flow)
+        last_open = None
+        ce = (CampaignEmail.select(CampaignEmail.opened_at)
+              .where(CampaignEmail.contact == contact, CampaignEmail.opened == True)
+              .order_by(CampaignEmail.opened_at.desc()).first())
+        if ce and ce.opened_at:
+            last_open = ce.opened_at
 
-    for contact in contacts:
+        fe = (FlowEmail.select(FlowEmail.opened_at)
+              .where(FlowEmail.contact == contact, FlowEmail.opened == True)
+              .order_by(FlowEmail.opened_at.desc()).first())
+        if fe and fe.opened_at:
+            if last_open is None or fe.opened_at > last_open:
+                last_open = fe.opened_at
+
+        if last_open:
+            recency_days = max(0, (now - last_open).days)
+        else:
+            recency_days = max(0, (now - contact.created_at).days)
+
+        # Frequency: open rate across all emails received
+        emails_received  = CampaignEmail.select().where(CampaignEmail.contact == contact).count()
+        emails_received += FlowEmail.select().where(FlowEmail.contact == contact).count()
+        emails_opened    = CampaignEmail.select().where(CampaignEmail.contact == contact, CampaignEmail.opened == True).count()
+        emails_opened   += FlowEmail.select().where(FlowEmail.contact == contact, FlowEmail.opened == True).count()
+        frequency_rate   = emails_opened / max(emails_received, 1)
+
+        # Monetary
         try:
-            # Recency: days since last open (campaign or flow)
-            last_open = None
-            ce = (CampaignEmail.select(CampaignEmail.opened_at)
-                  .where(CampaignEmail.contact == contact, CampaignEmail.opened == True)
-                  .order_by(CampaignEmail.opened_at.desc()).first())
-            if ce and ce.opened_at:
-                last_open = ce.opened_at
+            monetary_value = float(contact.total_spent or 0)
+        except (ValueError, TypeError):
+            monetary_value = 0.0
 
-            fe = (FlowEmail.select(FlowEmail.opened_at)
-                  .where(FlowEmail.contact == contact, FlowEmail.opened == True)
-                  .order_by(FlowEmail.opened_at.desc()).first())
-            if fe and fe.opened_at:
-                if last_open is None or fe.opened_at > last_open:
-                    last_open = fe.opened_at
+        # Engagement score 0–100
+        recency_score    = max(0, min(100, 100 - recency_days))
+        frequency_score  = frequency_rate * 100
+        monetary_score   = min(100, monetary_value / 5.0)
+        engagement_score = int(recency_score * 0.4 + frequency_score * 0.4 + monetary_score * 0.2)
 
-            if last_open:
-                recency_days = max(0, (now - last_open).days)
-            else:
-                recency_days = max(0, (now - contact.created_at).days)
+        # RFM segment
+        days_since_created = (now - contact.created_at).days
+        if days_since_created <= 30:
+            segment = "new"
+        elif engagement_score >= 75:
+            segment = "champion"
+        elif engagement_score >= 55:
+            segment = "loyal"
+        elif recency_days > 180:
+            segment = "lapsed"
+        elif engagement_score >= 35 and recency_days <= 90:
+            segment = "potential"
+        else:
+            segment = "at_risk"
 
-            # Frequency: open rate across all emails received
-            emails_received  = CampaignEmail.select().where(CampaignEmail.contact == contact).count()
-            emails_received += FlowEmail.select().where(FlowEmail.contact == contact).count()
-            emails_opened    = CampaignEmail.select().where(CampaignEmail.contact == contact, CampaignEmail.opened == True).count()
-            emails_opened   += FlowEmail.select().where(FlowEmail.contact == contact, FlowEmail.opened == True).count()
-            frequency_rate   = emails_opened / max(emails_received, 1)
+        ContactScore.insert(
+            contact_id=contact.id,
+            rfm_segment=segment,
+            recency_days=recency_days,
+            frequency_rate=round(frequency_rate, 4),
+            monetary_value=round(monetary_value, 2),
+            engagement_score=engagement_score,
+            last_scored_at=now,
+        ).on_conflict(
+            conflict_target=[ContactScore.contact],
+            update={
+                ContactScore.rfm_segment:     segment,
+                ContactScore.recency_days:     recency_days,
+                ContactScore.frequency_rate:   round(frequency_rate, 4),
+                ContactScore.monetary_value:   round(monetary_value, 2),
+                ContactScore.engagement_score: engagement_score,
+                ContactScore.last_scored_at:   now,
+            }
+        ).execute()
+        return segment
 
-            # Monetary
-            try:
-                monetary_value = float(contact.total_spent or 0)
-            except (ValueError, TypeError):
-                monetary_value = 0.0
+    except Exception as e:
+        logger.error(f"Error scoring contact {contact_id}: {e}")
+        return None
 
-            # Engagement score 0–100
-            recency_score    = max(0, min(100, 100 - recency_days))
-            frequency_score  = frequency_rate * 100
-            monetary_score   = min(100, monetary_value / 5.0)
-            engagement_score = int(recency_score * 0.4 + frequency_score * 0.4 + monetary_score * 0.2)
 
-            # RFM segment
-            days_since_created = (now - contact.created_at).days
-            if days_since_created <= 30:
-                segment = "new"
-            elif engagement_score >= 75:
-                segment = "champion"
-            elif engagement_score >= 55:
-                segment = "loyal"
-            elif recency_days > 180:
-                segment = "lapsed"
-            elif engagement_score >= 35 and recency_days <= 90:
-                segment = "potential"
-            else:
-                segment = "at_risk"
+def score_all_contacts():
+    """Compute RFM + engagement score for every subscribed contact."""
+    from database import Contact, init_db
+    init_db()
 
-            ContactScore.insert(
-                contact_id=contact.id,
-                rfm_segment=segment,
-                recency_days=recency_days,
-                frequency_rate=round(frequency_rate, 4),
-                monetary_value=round(monetary_value, 2),
-                engagement_score=engagement_score,
-                last_scored_at=now,
-            ).on_conflict(
-                conflict_target=[ContactScore.contact],
-                update={
-                    ContactScore.rfm_segment:     segment,
-                    ContactScore.recency_days:     recency_days,
-                    ContactScore.frequency_rate:   round(frequency_rate, 4),
-                    ContactScore.monetary_value:   round(monetary_value, 2),
-                    ContactScore.engagement_score: engagement_score,
-                    ContactScore.last_scored_at:   now,
-                }
-            ).execute()
+    contacts = list(Contact.select(Contact.id).where(Contact.subscribed == True))
+    updated = 0
+    for contact in contacts:
+        result = score_single_contact(contact.id)
+        if result is not None:
             updated += 1
-
-        except Exception as e:
-            logger.error(f"Error scoring contact {contact.id}: {e}")
 
     logger.info(f"[AI Engine] Scored {updated} contacts")
     return updated

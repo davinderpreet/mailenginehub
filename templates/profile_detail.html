@@ -513,8 +513,25 @@
         </div>
 
         <!-- Score Bar -->
-        <div style="height:4px;border-radius:99px;background:var(--surface2);overflow:hidden;margin-bottom:14px;">
+        <div style="height:4px;border-radius:99px;background:var(--surface2);overflow:hidden;margin-bottom:10px;">
           <div style="width:{{ decision.action_score }}%;height:100%;border-radius:99px;background:{{ act_color }};"></div>
+        </div>
+
+        <!-- Risk Badge (Rule 3) -->
+        {% set risk = decision.risk_level|default('low') %}
+        {% set risk_colors = {"low": "var(--green)", "medium": "var(--amber)", "high": "var(--red)", "critical": "#dc2626"} %}
+        {% set risk_color = risk_colors.get(risk, 'var(--text3)') %}
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;">
+          <span style="padding:3px 10px;border-radius:99px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;
+                       background:{{ risk_color }}15;color:{{ risk_color }};border:1px solid {{ risk_color }}30;">
+            <i class="fas fa-shield-halved" style="margin-right:3px;"></i>Risk: {{ risk }}
+          </span>
+          {% if decision.suppression_reason %}
+          <span style="padding:3px 10px;border-radius:99px;font-size:10px;font-weight:700;text-transform:uppercase;
+                       background:rgba(239,68,68,0.1);color:var(--red);border:1px solid rgba(239,68,68,0.25);">
+            <i class="fas fa-ban" style="margin-right:3px;"></i>{{ decision.suppression_reason }}
+          </span>
+          {% endif %}
         </div>
 
         <!-- Reason -->
