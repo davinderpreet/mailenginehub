@@ -26,7 +26,7 @@ BG_BODY = "#ffffff"
 LOGO_URL = "https://ldas.ca/cdn/shop/files/Untitled_design_Logo.png?v=1758142321&width=300"
 
 # CAN-SPAM physical mailing address (REQUIRED)
-PHYSICAL_ADDRESS = "LDAS Electronics, Canada"
+PHYSICAL_ADDRESS = "23 Westmore Dr #5b Unit #209, Etobicoke, ON M9W 0C3, Canada"
 
 
 def wrap_email(body_html, preview_text="", unsubscribe_url="{{unsubscribe_url}}"):
