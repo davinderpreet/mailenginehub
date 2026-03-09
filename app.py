@@ -1001,6 +1001,11 @@ def _send_campaign_async(campaign_id):
         html += f'<img src="{pixel_url}" width="1" height="1" />'
         html = html.replace("{{unsubscribe_url}}", unsub_url)
 
+        # Wrap in email shell if template uses shell_version >= 1
+        if getattr(template, 'shell_version', 0) >= 1:
+            from email_shell import wrap_email
+            html = wrap_email(html, preview_text=template.preview_text or '', unsubscribe_url=unsub_url)
+
         subject = template.subject.replace("{{first_name}}", contact.first_name or "Friend")
 
         success, error, _msg_id = send_campaign_email(
@@ -1498,6 +1503,12 @@ def _process_flow_enrollments():
         html = html.replace("{{unsubscribe_url}}", _make_unsubscribe_url(contact))
         flow_pixel = _make_flow_tracking_pixel_url(enrollment.id, step.id, contact.id)
         html += f'<img src="{flow_pixel}" width="1" height="1" />'
+
+        # Wrap in email shell if template uses shell_version >= 1
+        if getattr(template, 'shell_version', 0) >= 1:
+            from email_shell import wrap_email
+            _unsub = _make_unsubscribe_url(contact)
+            html = wrap_email(html, preview_text=template.preview_text or '', unsubscribe_url=_unsub)
 
         subject = step.subject_override or template.subject
         subject = subject.replace("{{first_name}}", contact.first_name or "Friend")
@@ -2819,6 +2830,10 @@ def send_quick_email(contact_id):
     from_email = os.getenv("DEFAULT_FROM_EMAIL", "news@news.ldaselectronics.com")
     if not subject or not html_body:
         return jsonify({"success": False, "error": "Subject and message body are required"}), 400
+    # Wrap quick email in shell
+    from email_shell import wrap_email
+    _unsub = f"https://mailenginehub.com/contacts/unsubscribe/{contact.email}"
+    html_body = wrap_email(html_body, unsubscribe_url=_unsub)
     success, error = send_campaign_email(
         to_email=contact.email,
         to_name=(contact.first_name or contact.email),

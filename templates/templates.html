@@ -15,11 +15,16 @@
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:20px;">
     {% for t in templates %}
     <div style="border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface);">
-      <div style="background:rgba(255,255,255,0.03);border-bottom:1px solid var(--border);padding:10px 14px;font-size:12px;color:var(--text2);">
+      <div style="background:rgba(255,255,255,0.03);border-bottom:1px solid var(--border);padding:10px 14px;font-size:12px;color:var(--text2);display:flex;align-items:center;gap:8px;">
         <strong style="color:var(--text3);">Subject:</strong> {{ t.subject }}
+        {% if t.shell_version is defined and t.shell_version >= 1 %}
+        <span style="margin-left:auto;background:rgba(16,185,129,0.1);color:#10b981;font-size:10px;padding:2px 8px;border-radius:999px;font-weight:600;">SHELL</span>
+        {% elif t.shell_version is defined and t.shell_version == 0 %}
+        <span style="margin-left:auto;background:rgba(245,158,11,0.1);color:#f59e0b;font-size:10px;padding:2px 8px;border-radius:999px;font-weight:600;">LEGACY</span>
+        {% endif %}
       </div>
       <div style="height:200px;overflow:hidden;">
-        <iframe srcdoc="{{ t.html_body | replace('"', '&quot;') }}"
+        <iframe class="template-preview" data-body="{{ t.html_body | replace('"', '&quot;') }}" data-shell="{{ t.shell_version if t.shell_version is defined else 0 }}"
                 style="width:100%;height:100%;border:none;pointer-events:none;" title="{{ t.name }}"></iframe>
       </div>
       <div style="padding:14px 16px;border-top:1px solid var(--border);">
@@ -46,21 +51,20 @@
   <div class="empty-state">
     <i class="fas fa-palette"></i>
     <h3>No templates yet</h3>
-    <p>Create email templates to use in your campaigns. 3 starter templates will be auto-created.</p>
+    <p>Create email templates to use in your campaigns and flows.</p>
     <a href="/templates/new" class="btn btn-primary" style="margin-top:16px;">Create First Template</a>
   </div>
   {% endif %}
 </div>
 
 <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px 24px;margin-top:16px;">
-  <h3 style="font-size:14px;font-weight:700;margin-bottom:8px;color:var(--text);">💡 Personalisation Variables</h3>
-  <p style="font-size:13px;color:var(--text2);margin-bottom:12px;">Use these in your templates and they'll be replaced with real data when sending:</p>
+  <h3 style="font-size:14px;font-weight:700;margin-bottom:8px;color:var(--text);">How Templates Work</h3>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:12px;">Write your email body content — the LDAS Electronics header and CAN-SPAM compliant footer are added automatically when sending. Use these variables for personalisation:</p>
   <div style="display:flex;flex-wrap:wrap;gap:8px;">
     {% for var, desc in [
       ('{{first_name}}', "Contact's first name"),
       ('{{last_name}}', "Contact's last name"),
-      ('{{email}}', "Contact's email address"),
-      ('{{unsubscribe_url}}', "Unsubscribe link (required by law)")
+      ('{{email}}', "Contact's email address")
     ] %}
     <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;">
       <code style="color:var(--purple2);font-size:13px;">{{ var }}</code>
@@ -70,4 +74,35 @@
   </div>
 </div>
 
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Shell wrapper for preview thumbnails (matches email_shell.py)
+const SHELL_BEFORE = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{margin:0;}</style></head><body style="margin:0;padding:0;background:#f4f4f8;font-family:Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f8;">
+<tr><td align="center" style="padding:12px 4px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.06);">
+<tr><td style="background:#fff;padding:16px 20px;text-align:center;border-bottom:1px solid #eeeef2;">
+<img src="https://ldas.ca/cdn/shop/files/Untitled_design_Logo.png?v=1758142321&width=300" alt="LDAS Electronics" width="120" style="max-width:120px;height:auto;" />
+</td></tr>`;
+
+const SHELL_AFTER = `
+<tr><td style="background:#f8f8fc;padding:16px 20px;text-align:center;border-top:1px solid #eeeef2;">
+<p style="margin:0 0 4px;font-size:10px;font-weight:600;color:#4a5568;">LDAS Electronics</p>
+<p style="margin:0;font-size:9px;color:#a0aec0;">Unsubscribe</p>
+</td></tr></table></td></tr></table></body></html>`;
+
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.template-preview').forEach(function(iframe) {
+    const body = iframe.getAttribute('data-body');
+    const shell = parseInt(iframe.getAttribute('data-shell') || '0');
+    if (shell >= 1) {
+      iframe.srcdoc = SHELL_BEFORE + body + SHELL_AFTER;
+    } else {
+      iframe.srcdoc = body;
+    }
+  });
+});
+</script>
 {% endblock %}

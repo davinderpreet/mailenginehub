@@ -68,6 +68,7 @@ class EmailTemplate(BaseModel):
     subject      = CharField()
     preview_text = CharField(default="")
     html_body    = TextField()
+    shell_version = IntegerField(default=1)
     created_at   = DateTimeField(default=datetime.now)
     updated_at   = DateTimeField(default=datetime.now)
 
