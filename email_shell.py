@@ -110,7 +110,7 @@ def wrap_email(body_html, preview_text="", unsubscribe_url="{{unsubscribe_url}}"
           <a href="''' + unsubscribe_url + '''" style="color:''' + TEXT_LIGHT + ''';text-decoration:underline;">Unsubscribe</a>
         </p>
         <p style="margin:0;font-size:11px;color:#a0aec0;">
-          You received this email because you subscribed at ldas-electronics.com.
+          You received this email because you subscribed at ldas.ca.
         </p>
       </td>
     </tr>
