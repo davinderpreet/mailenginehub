@@ -437,6 +437,9 @@
     </a>
 
     <div class="nav-label" style="margin-top:12px;">System</div>
+    <a href="/audit" class="nav-item {% if '/audit' in request.path %}active{% endif %}">
+      <i class="fas fa-clipboard-check"></i> Audit
+    </a>
     <a href="/agent" class="nav-item {% if '/agent' in request.path %}active{% endif %}">
       <i class="fas fa-robot"></i> IT Agent
     </a>

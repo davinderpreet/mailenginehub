@@ -600,6 +600,14 @@ def _migrate_total_spent_to_float():
         print("  [migrate] total_spent conversion: %s" % e)
 
 
+def _migrate_system_config():
+    """Ensure the singleton SystemConfig row exists."""
+    try:
+        get_system_config()
+    except Exception:
+        pass
+
+
 def init_db():
     db.connect(reuse_if_open=True)
     # Enable WAL mode for concurrent reads/writes (real-time pipeline)
@@ -619,7 +627,8 @@ def init_db():
          SuppressionEntry, BounceLog,
          PreflightLog,
          MessageDecision, MessageDecisionHistory,
-         SuggestedCampaign, OpportunityScanLog, ProductCommercial],
+         SuggestedCampaign, OpportunityScanLog, ProductCommercial,
+         SystemConfig, ActionLedger, DeliveryQueue],
         safe=True
     )
     _migrate_contact_columns()
@@ -631,6 +640,7 @@ def init_db():
     _migrate_flow_priority()
     _migrate_flow_enrollment_pause()
     _migrate_total_spent_to_float()
+    _migrate_system_config()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")
@@ -1146,4 +1156,105 @@ class ProductCommercial(BaseModel):
 
     class Meta:
         table_name = "product_commercial"
+
+
+# ═══════════════════════════════════════════════════════════════
+# Shadow Mode, Action Ledger & Delivery Queue
+# ═══════════════════════════════════════════════════════════════
+
+class SystemConfig(BaseModel):
+    """Singleton (id=1). Global delivery settings."""
+    delivery_mode = CharField(default="shadow")   # live | shadow | sandbox
+    updated_at    = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "system_config"
+
+
+class ActionLedger(BaseModel):
+    """Append-only audit log. One row per automation decision or send attempt.
+    Status lifecycle: detected → qualified → suppressed → queued → rendered → sent → shadowed → failed
+    """
+    # Identity
+    contact       = ForeignKeyField(Contact, null=True, backref="ledger_entries", on_delete="SET NULL")
+    email         = CharField(default="", index=True)
+
+    # Source
+    trigger_type  = CharField(default="")         # flow | campaign | ai_plan
+    source_type   = CharField(default="")         # human-readable: flow name or campaign name
+    source_id     = IntegerField(default=0)       # Flow.id or Campaign.id
+    enrollment_id = IntegerField(default=0)       # FlowEnrollment.id (0 for campaigns)
+    step_id       = IntegerField(default=0)       # FlowStep.id (0 for campaigns)
+
+    # Status
+    status        = CharField(default="detected", index=True)
+    reason_code   = CharField(default="", index=True)
+    # Reason codes: warmup_limit | cooldown_active | duplicate_trigger | unsubscribed
+    # | bounced | suppressed_entry | no_step_found | no_template | no_content
+    # | no_flow_match | ses_error | sandbox_mode | ok
+    reason_detail = TextField(default="")
+
+    # Email content (populated at render stage, stored for shadow review)
+    template_id   = IntegerField(default=0)
+    subject       = CharField(default="")
+    preview_text  = CharField(default="")
+    generated_html = TextField(default="")
+    ses_message_id = CharField(default="")
+
+    # Priority (lower number = higher priority)
+    priority      = IntegerField(default=50)
+
+    # Timestamps
+    created_at    = DateTimeField(default=datetime.now, index=True)
+
+    class Meta:
+        table_name = "action_ledger"
+
+
+class DeliveryQueue(BaseModel):
+    """Mutable work queue. Items are enqueued, then drained by the queue processor.
+    Status lifecycle: queued → sending → sent → failed → shadowed → cancelled
+    """
+    # Identity
+    contact       = ForeignKeyField(Contact, null=True, backref="delivery_queue", on_delete="SET NULL")
+    email         = CharField(default="", index=True)
+
+    # Source
+    email_type    = CharField(default="")          # flow | campaign
+    source_id     = IntegerField(default=0)        # Flow.id or Campaign.id
+    enrollment_id = IntegerField(default=0)
+    step_id       = IntegerField(default=0)
+
+    # Content (fully rendered, ready to send)
+    template_id   = IntegerField(default=0)
+    from_name     = CharField(default="")
+    from_email    = CharField(default="")
+    subject       = CharField(default="")
+    html          = TextField(default="")
+    unsubscribe_url = CharField(default="")
+
+    # Delivery control
+    priority      = IntegerField(default=50, index=True)
+    status        = CharField(default="queued", index=True)
+    error_msg     = TextField(default="")
+
+    # Links
+    ledger_id     = IntegerField(default=0)        # ActionLedger.id
+    campaign_id   = IntegerField(default=0)        # for CampaignEmail backward compat
+
+    # Timestamps
+    created_at    = DateTimeField(default=datetime.now, index=True)
+    sent_at       = DateTimeField(null=True)
+
+    class Meta:
+        table_name = "delivery_queue"
+
+
+def get_system_config():
+    """Return the singleton SystemConfig row (creates it if missing)."""
+    cfg, _ = SystemConfig.get_or_create(id=1, defaults={
+        "delivery_mode": "shadow",
+        "updated_at": datetime.now(),
+    })
+    return cfg
 

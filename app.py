@@ -1309,44 +1309,38 @@ def _increment_contact_send_counters(contact_id):
         app.logger.error("[SilentFix] send counter for contact %s: %s" % (contact_id, e))
 
 def _send_campaign_async(campaign_id):
+    """Enqueue all eligible contacts for a campaign into the delivery queue.
+    The queue processor handles warmup pacing and actual sending.
+    Every decision point is recorded in the ActionLedger.
+    """
+    from action_ledger import log_action, RC_UNSUBSCRIBED, RC_SUPPRESSED_ENTRY, RC_OK
+    from delivery_engine import enqueue_email
+
     campaign = Campaign.get_by_id(campaign_id)
     template = EmailTemplate.get_by_id(campaign.template_id)
     contacts = _get_campaign_contacts(campaign)
 
-    # ── Warmup enforcement ────────────────────────────────────────
-    warmup = get_warmup_config()
-    daily_limit = None
-    if warmup.is_active:
-        warmup = _check_phase_advance(warmup)
-        today_str = date.today().isoformat()
-        if warmup.last_reset_date != today_str:
-            warmup.emails_sent_today = 0
-            warmup.last_reset_date   = today_str
-            warmup.save()
-        daily_limit = WARMUP_PHASES[warmup.current_phase]["daily_limit"]
-    # ─────────────────────────────────────────────────────────────
-
-    sent_count = 0
+    queued_count = 0
     for contact in contacts:
         if not contact.subscribed:
+            log_action(contact, "campaign", campaign_id, "suppressed", RC_UNSUBSCRIBED,
+                       source_type=campaign.name,
+                       reason_detail="Contact unsubscribed")
             continue
+
         # ── Suppression list check ───────────────────────────
         try:
             from database import SuppressionEntry
             if SuppressionEntry.select().where(SuppressionEntry.email == contact.email).exists():
+                log_action(contact, "campaign", campaign_id, "suppressed", RC_SUPPRESSED_ENTRY,
+                           source_type=campaign.name,
+                           reason_detail="Contact on suppression list")
                 CampaignEmail.create(campaign=campaign, contact=contact, status="suppressed", error_msg="on suppression list")
                 continue
         except Exception:
-            pass  # Table may not exist yet
-        # ── Daily limit check ─────────────────────────────────────
-        if daily_limit is not None and warmup.emails_sent_today >= daily_limit:
-            campaign.status = "paused"
-            campaign.save()
-            if warmup.is_active:
-                _update_warmup_log(warmup.current_phase, daily_limit)
-            return
-        # ─────────────────────────────────────────────────────────
-        # Personalise with signed token URLs
+            pass
+
+        # ── Personalise ─────────────────────────────────────────
         html = template.html_body
         html = html.replace("{{first_name}}", contact.first_name or "Friend")
         html = html.replace("{{last_name}}",  contact.last_name  or "")
@@ -1364,36 +1358,36 @@ def _send_campaign_async(campaign_id):
 
         subject = template.subject.replace("{{first_name}}", contact.first_name or "Friend")
 
-        success, error, _msg_id = send_campaign_email(
-            to_email   = contact.email,
-            to_name    = f"{contact.first_name} {contact.last_name}".strip(),
-            from_email = campaign.from_email,
-            from_name  = campaign.from_name,
-            subject    = subject,
-            html_body  = html,
-            unsubscribe_url = unsub_url,
-            campaign_id = campaign_id,
-        )
+        # ── Log to ledger as "rendered" and enqueue ──
+        ledger = log_action(contact, "campaign", campaign_id, "rendered", RC_OK,
+                            source_type=campaign.name,
+                            template_id=template.id,
+                            subject=subject, preview_text=template.preview_text or "",
+                            html=html, priority=50)
 
-        status = "sent" if success else "failed"
-        CampaignEmail.create(
-            campaign = campaign,
-            contact  = contact,
-            status   = status,
-            error_msg= error or ""
+        enqueue_email(
+            contact=contact,
+            email_type="campaign",
+            source_id=campaign_id,
+            enrollment_id=0,
+            step_id=0,
+            template_id=template.id,
+            from_name=campaign.from_name,
+            from_email=campaign.from_email,
+            subject=subject,
+            html=html,
+            unsubscribe_url=unsub_url,
+            priority=50,
+            ledger_id=ledger.id if ledger else 0,
+            campaign_id=campaign_id,
         )
-        if success:
-            sent_count += 1
-            _increment_contact_send_counters(contact.id)
-            if daily_limit is not None:
-                warmup.emails_sent_today += 1
-                warmup.save()
+        queued_count += 1
 
-    campaign.status    = "sent"
-    campaign.sent_at   = datetime.now()
+    # Mark campaign as queued (queue processor will mark "sent" when all drained)
+    campaign.status = "queued" if queued_count > 0 else "sent"
+    if queued_count == 0:
+        campaign.sent_at = datetime.now()
     campaign.save()
-    if warmup.is_active:
-        _update_warmup_log(warmup.current_phase, daily_limit or 999999)
 
 def _get_campaign_contacts(campaign):
     """Get campaign contacts sorted by engagement (most engaged first).
@@ -1940,7 +1934,14 @@ def _get_last_email_sent_at(contact):
 
 
 def _process_flow_enrollments():
-    """Run every 60 seconds. Send pending flow emails whose next_send_at has passed."""
+    """Run every 60 seconds. Send pending flow emails whose next_send_at has passed.
+    Every decision point is recorded in the ActionLedger for full traceability.
+    Emails are enqueued into DeliveryQueue instead of sent directly.
+    """
+    from action_ledger import log_action, RC_COOLDOWN_ACTIVE, RC_UNSUBSCRIBED, \
+        RC_SUPPRESSED_ENTRY, RC_NO_STEP, RC_WARMUP_LIMIT, RC_OK
+    from delivery_engine import enqueue_email, get_priority_for_trigger
+
     now = datetime.now()
     pending = (FlowEnrollment.select(FlowEnrollment, Flow, Contact)
                .join(Flow)
@@ -1957,29 +1958,43 @@ def _process_flow_enrollments():
         warmup.last_reset_date   = today_str
         warmup.save()
 
-    # ── Phase 2: Track which contacts already sent this tick ──
+    # ── Track which contacts already enqueued this tick ──
     sent_contacts = set()
 
     for enrollment in pending:
         contact = enrollment.contact
+        flow = enrollment.flow
+        _priority = get_priority_for_trigger(flow.trigger_type)
 
-        # ── Phase 2: Priority gate — one send per contact per tick ──
+        # ── Priority gate — one send per contact per tick ──
         if contact.id in sent_contacts:
+            log_action(contact, "flow", flow.id, "suppressed", RC_COOLDOWN_ACTIVE,
+                       source_type=flow.name, enrollment_id=enrollment.id,
+                       priority=_priority,
+                       reason_detail="Higher-priority flow already queued this tick")
             app.logger.info(
                 "[Priority] Delayed '%s' (priority=%s) for %s — higher-priority flow already sending this tick"
-                % (enrollment.flow.name, enrollment.flow.priority, contact.email))
+                % (flow.name, flow.priority, contact.email))
             continue
 
         if not contact.subscribed:
+            log_action(contact, "flow", flow.id, "suppressed", RC_UNSUBSCRIBED,
+                       source_type=flow.name, enrollment_id=enrollment.id,
+                       priority=_priority,
+                       reason_detail="Contact unsubscribed")
             enrollment.status = "cancelled"
             enrollment.save()
-            _resume_paused_enrollments(enrollment.flow_id)  # Phase 3: resume paused flows
+            _resume_paused_enrollments(enrollment.flow_id)
             continue
 
         # ── Suppression list check ───────────────────────────
         try:
             from database import SuppressionEntry
             if SuppressionEntry.select().where(SuppressionEntry.email == contact.email).exists():
+                log_action(contact, "flow", flow.id, "suppressed", RC_SUPPRESSED_ENTRY,
+                           source_type=flow.name, enrollment_id=enrollment.id,
+                           priority=_priority,
+                           reason_detail="Contact on suppression list")
                 enrollment.status = "cancelled"
                 enrollment.save()
                 continue
@@ -1987,7 +2002,7 @@ def _process_flow_enrollments():
             pass
 
 
-        # ── Phase 1: Frequency cap (16h smart sending) ──────────
+        # ── Frequency cap (16h smart sending) ──────────
         FREQ_CAP_HOURS = 16
         last_sent_at = _get_last_email_sent_at(contact)
         if last_sent_at:
@@ -1996,9 +2011,14 @@ def _process_flow_enrollments():
                 new_send_at = last_sent_at + timedelta(hours=FREQ_CAP_HOURS)
                 enrollment.next_send_at = new_send_at
                 enrollment.save()
+                log_action(contact, "flow", flow.id, "suppressed", RC_COOLDOWN_ACTIVE,
+                           source_type=flow.name, enrollment_id=enrollment.id,
+                           priority=_priority,
+                           reason_detail="16h frequency cap — last email %.1fh ago, rescheduled to %s"
+                                         % (hours_since, new_send_at.strftime('%Y-%m-%d %H:%M')))
                 app.logger.info(
                     "[FreqCap] Delayed '%s' step %s for %s — last email %.1fh ago, rescheduled to %s"
-                    % (enrollment.flow.name, enrollment.current_step, contact.email,
+                    % (flow.name, enrollment.current_step, contact.email,
                        hours_since, new_send_at.strftime('%Y-%m-%d %H:%M')))
                 continue
 
@@ -2007,14 +2027,22 @@ def _process_flow_enrollments():
                        FlowStep.step_order == enrollment.current_step)
                 .first())
         if not step:
+            log_action(contact, "flow", flow.id, "suppressed", RC_NO_STEP,
+                       source_type=flow.name, enrollment_id=enrollment.id,
+                       priority=_priority,
+                       reason_detail="No step %d found, enrollment completed" % enrollment.current_step)
             enrollment.status = "completed"
             enrollment.save()
-            _resume_paused_enrollments(enrollment.flow_id)  # Phase 3: resume paused flows
+            _resume_paused_enrollments(enrollment.flow_id)
             continue
 
-        # Respect warmup daily limit
+        # Respect warmup daily limit (queue processor also enforces this, but skip here to avoid queue buildup)
         daily_limit = WARMUP_PHASES[warmup.current_phase]["daily_limit"] if warmup.is_active else None
         if daily_limit is not None and warmup.emails_sent_today >= daily_limit:
+            log_action(contact, "flow", flow.id, "suppressed", RC_WARMUP_LIMIT,
+                       source_type=flow.name, enrollment_id=enrollment.id,
+                       step_id=step.id, priority=_priority,
+                       reason_detail="Warmup daily limit (%d) reached" % daily_limit)
             continue  # Skip until tomorrow
 
         template = step.template
@@ -2033,7 +2061,7 @@ def _process_flow_enrollments():
                 html = html.replace("{{discount_code}}", "")
 
         # Inject checkout variables for abandoned checkout flows
-        if enrollment.flow.trigger_type == "checkout_abandoned" and ("{{cart_items}}" in html or "{{checkout_url}}" in html):
+        if flow.trigger_type == "checkout_abandoned" and ("{{cart_items}}" in html or "{{checkout_url}}" in html):
             _checkout = (AbandonedCheckout.select()
                          .where(AbandonedCheckout.contact == contact,
                                 AbandonedCheckout.recovered == False)
@@ -2070,52 +2098,42 @@ def _process_flow_enrollments():
 
         from_email = step.from_email or os.getenv("DEFAULT_FROM_EMAIL", "")
         from_name  = step.from_name
-
         unsub_url = _make_unsubscribe_url(contact)
-        success, error, _msg_id = send_campaign_email(
-            to_email=contact.email,
-            to_name=f"{contact.first_name} {contact.last_name}".strip(),
-            from_email=from_email,
-            from_name=from_name,
-            subject=subject,
-            html_body=html,
-            unsubscribe_url=unsub_url,
-            campaign_id=0,
-        )
 
-        fe = FlowEmail.create(
-            enrollment=enrollment,
-            step=step,
+        # ── Log to ledger as "rendered" and enqueue ──
+        ledger = log_action(contact, "flow", flow.id, "rendered", RC_OK,
+                            source_type=flow.name, enrollment_id=enrollment.id,
+                            step_id=step.id, template_id=template.id,
+                            subject=subject, preview_text=template.preview_text or "",
+                            html=html, priority=_priority)
+
+        enqueue_email(
             contact=contact,
-            status="sent" if success else "failed",
+            email_type="flow",
+            source_id=flow.id,
+            enrollment_id=enrollment.id,
+            step_id=step.id,
+            template_id=template.id,
+            from_name=from_name,
+            from_email=from_email,
+            subject=subject,
+            html=html,
+            unsubscribe_url=unsub_url,
+            priority=_priority,
+            ledger_id=ledger.id if ledger else 0,
         )
 
-        if success:
-            _increment_contact_send_counters(contact.id)
-            sent_contacts.add(contact.id)  # Phase 2: mark contact as sent this tick
-            # Real-time pipeline: refresh contact intelligence after flow email sent
-            try:
-                from cascade import cascade_contact
-                cascade_contact(contact.id, trigger="flow_email_sent")
-            except Exception:
-                pass
-        if success and warmup.is_active:
-            warmup.emails_sent_today += 1
-            warmup.save()
+        sent_contacts.add(contact.id)  # mark contact as enqueued this tick
 
-        # Advance to next step or complete
-        next_step = (FlowStep.select()
-                     .where(FlowStep.flow == enrollment.flow,
-                            FlowStep.step_order == enrollment.current_step + 1)
-                     .first())
-        if next_step:
-            enrollment.current_step = next_step.step_order
-            enrollment.next_send_at = datetime.now() + timedelta(hours=next_step.delay_hours)
-            enrollment.save()
-        else:
-            enrollment.status = "completed"
-            enrollment.save()
-            _resume_paused_enrollments(enrollment.flow_id)  # Phase 3: resume paused flows
+        # Real-time pipeline: refresh contact intelligence after flow email queued
+        try:
+            from cascade import cascade_contact
+            cascade_contact(contact.id, trigger="flow_email_sent")
+        except Exception:
+            pass
+
+        # Note: enrollment advancement is now handled by the delivery_engine
+        # queue processor after the email is actually sent/shadowed
 
 
 def _check_abandoned_checkouts():
@@ -2797,6 +2815,7 @@ def track_flow_open(enrollment_id, step_id):
 @app.route("/settings")
 def settings():
     import os
+    from database import get_system_config
     config = {
         "aws_region":          os.getenv("AWS_REGION", ""),
         "aws_access_key":      ("*" * 16) if os.getenv("AWS_ACCESS_KEY_ID") else "",
@@ -2804,7 +2823,20 @@ def settings():
         "shopify_token_set":   bool(os.getenv("SHOPIFY_ACCESS_TOKEN")),
         "from_email":          os.getenv("DEFAULT_FROM_EMAIL", ""),
     }
-    return render_template("settings.html", config=config)
+    system_config = get_system_config()
+    return render_template("settings.html", config=config, system_config=system_config)
+
+@app.route("/settings/delivery-mode", methods=["POST"])
+def settings_delivery_mode():
+    from database import get_system_config
+    mode = request.form.get("delivery_mode", "shadow")
+    if mode in ("live", "shadow", "sandbox"):
+        cfg = get_system_config()
+        cfg.delivery_mode = mode
+        cfg.updated_at = datetime.now()
+        cfg.save()
+        flash("Delivery mode set to %s" % mode, "success")
+    return redirect(url_for("settings"))
 
 @app.route("/settings/test-ses", methods=["POST"])
 def test_ses():
@@ -2815,6 +2847,42 @@ def test_ses():
     else:
         flash(f"SES Error: {message}", "error")
     return redirect(url_for("settings"))
+
+# ─────────────────────────────────
+#  AUDIT DASHBOARD
+# ─────────────────────────────────
+
+@app.route("/audit")
+def audit_dashboard():
+    from action_ledger import get_today_stats, get_top_reasons, get_recent_entries
+    stats = get_today_stats()
+    suppression_reasons = get_top_reasons("suppressed")
+    failure_reasons = get_top_reasons("failed")
+    recent = get_recent_entries(page=1, per_page=50)
+    return render_template("audit.html",
+                           stats=stats,
+                           suppression_reasons=suppression_reasons,
+                           failure_reasons=failure_reasons,
+                           recent=recent)
+
+@app.route("/api/audit/stats")
+def api_audit_stats():
+    from action_ledger import get_today_stats
+    return jsonify(get_today_stats())
+
+@app.route("/api/audit/details")
+def api_audit_details():
+    from action_ledger import get_recent_entries
+    page = request.args.get("page", 1, type=int)
+    contact_email = request.args.get("contact", None)
+    trigger_type = request.args.get("trigger_type", None)
+    status = request.args.get("status", None)
+    result = get_recent_entries(page=page, per_page=50,
+                                contact_email=contact_email,
+                                trigger_type=trigger_type,
+                                status=status)
+    return jsonify(result)
+
 
 # ─────────────────────────────────
 #  API (for future automation)
@@ -4472,9 +4540,21 @@ def _try_scheduler_lock():
             _scheduler_lock_fd = None
         return False
 
+def _process_delivery_queue_wrapper():
+    """Wrapper to call delivery_engine.process_queue() from the scheduler."""
+    try:
+        from delivery_engine import process_queue
+        count = process_queue()
+        if count > 0:
+            app.logger.info("[DeliveryQueue] Processed %d items" % count)
+    except Exception as _e:
+        app.logger.error("[DeliveryQueue] Error: %s" % _e)
+
 if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and _try_scheduler_lock():
     _scheduler.add_job(_process_flow_enrollments, "interval", seconds=60,
                        id="flow_processor", replace_existing=True)
+    _scheduler.add_job(_process_delivery_queue_wrapper, "interval", seconds=30,
+                       id="delivery_queue", replace_existing=True)
     _scheduler.add_job(_check_passive_triggers, "interval", minutes=30,
                        id="passive_triggers", replace_existing=True)
     _scheduler.add_job(_check_abandoned_checkouts, "interval", minutes=15,

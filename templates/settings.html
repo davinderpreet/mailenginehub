@@ -5,6 +5,51 @@
 {% block content %}
 <div style="max-width:720px;">
 
+  <!-- Delivery Mode -->
+  <div class="card" style="margin-bottom:24px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Delivery Mode</div>
+        <div style="color:#64748b;font-size:13px;margin-top:2px;">Controls whether emails are actually sent via SES</div>
+      </div>
+      {% if system_config.delivery_mode == 'live' %}
+        <span class="badge" style="background:rgba(16,185,129,0.15);color:#10b981;"><i class="fas fa-circle" style="font-size:8px;margin-right:4px;"></i> Live</span>
+      {% elif system_config.delivery_mode == 'shadow' %}
+        <span class="badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;"><i class="fas fa-ghost" style="font-size:10px;margin-right:4px;"></i> Shadow</span>
+      {% else %}
+        <span class="badge" style="background:rgba(6,182,212,0.15);color:#06b6d4;"><i class="fas fa-flask" style="font-size:10px;margin-right:4px;"></i> Sandbox</span>
+      {% endif %}
+    </div>
+
+    <form method="post" action="/settings/delivery-mode" style="padding:0;">
+      <div style="display:flex;gap:12px;margin-bottom:16px;">
+        <label style="flex:1;cursor:pointer;padding:14px;border-radius:10px;border:2px solid {% if system_config.delivery_mode == 'live' %}var(--green){% else %}var(--border){% endif %};background:{% if system_config.delivery_mode == 'live' %}rgba(16,185,129,0.06){% else %}var(--surface){% endif %};text-align:center;">
+          <input type="radio" name="delivery_mode" value="live" {% if system_config.delivery_mode == 'live' %}checked{% endif %} style="display:none;">
+          <div style="font-weight:600;color:var(--text);font-size:14px;margin-bottom:4px;"><i class="fas fa-paper-plane" style="color:#10b981;margin-right:4px;"></i> Live</div>
+          <div style="color:var(--text2);font-size:12px;">Sends real emails via SES</div>
+        </label>
+        <label style="flex:1;cursor:pointer;padding:14px;border-radius:10px;border:2px solid {% if system_config.delivery_mode == 'shadow' %}var(--amber){% else %}var(--border){% endif %};background:{% if system_config.delivery_mode == 'shadow' %}rgba(245,158,11,0.06){% else %}var(--surface){% endif %};text-align:center;">
+          <input type="radio" name="delivery_mode" value="shadow" {% if system_config.delivery_mode == 'shadow' %}checked{% endif %} style="display:none;">
+          <div style="font-weight:600;color:var(--text);font-size:14px;margin-bottom:4px;"><i class="fas fa-ghost" style="color:#f59e0b;margin-right:4px;"></i> Shadow</div>
+          <div style="color:var(--text2);font-size:12px;">Full pipeline, no real sends</div>
+        </label>
+        <label style="flex:1;cursor:pointer;padding:14px;border-radius:10px;border:2px solid {% if system_config.delivery_mode == 'sandbox' %}var(--cyan){% else %}var(--border){% endif %};background:{% if system_config.delivery_mode == 'sandbox' %}rgba(6,182,212,0.06){% else %}var(--surface){% endif %};text-align:center;">
+          <input type="radio" name="delivery_mode" value="sandbox" {% if system_config.delivery_mode == 'sandbox' %}checked{% endif %} style="display:none;">
+          <div style="font-weight:600;color:var(--text);font-size:14px;margin-bottom:4px;"><i class="fas fa-flask" style="color:#06b6d4;margin-right:4px;"></i> Sandbox</div>
+          <div style="color:var(--text2);font-size:12px;">SES sandbox testing only</div>
+        </label>
+      </div>
+      <button type="submit" class="btn" style="width:100%;">Save Delivery Mode</button>
+    </form>
+
+    {% if system_config.delivery_mode == 'shadow' %}
+    <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:12px;margin-top:12px;font-size:13px;color:#f59e0b;">
+      <i class="fas fa-info-circle" style="margin-right:6px;"></i>
+      Shadow mode runs the full pipeline (triggers, decisions, email generation) but records "would have sent" instead of calling SES. Check the <a href="/audit" style="color:#f59e0b;text-decoration:underline;">Audit Dashboard</a> to see shadowed sends.
+    </div>
+    {% endif %}
+  </div>
+
   <!-- Amazon SES -->
   <div class="card">
     <div class="card-header">
