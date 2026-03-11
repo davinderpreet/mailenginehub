@@ -34,7 +34,7 @@ class Contact(BaseModel):
     city         = CharField(default="")      # from default_address.city
     country      = CharField(default="")      # from default_address.country_code
     total_orders = IntegerField(default=0)    # orders_count from Shopify
-    total_spent  = CharField(default="0.00")  # total_spent string e.g. "149.99"
+    total_spent  = FloatField(default=0.0)    # total_spent as float e.g. 149.99
     # ── Deliverability fields (Phase I) ──
     fatigue_score       = IntegerField(default=0)        # 0-100
     spam_risk_score     = IntegerField(default=0)        # 0-100
@@ -145,6 +145,7 @@ class Flow(BaseModel):
     trigger_type  = CharField()   # contact_created | tag_added | no_purchase_days | manual
     trigger_value = CharField(default="")  # tag name for tag_added; days as string for no_purchase_days
     is_active     = BooleanField(default=False)
+    priority      = IntegerField(default=5)  # 1=highest, 10=lowest
     created_at    = DateTimeField(default=datetime.now)
 
     class Meta:
@@ -172,7 +173,8 @@ class FlowEnrollment(BaseModel):
     current_step = IntegerField(default=1)
     enrolled_at  = DateTimeField(default=datetime.now)
     next_send_at = DateTimeField()
-    status       = CharField(default="active")  # active | completed | cancelled
+    status       = CharField(default="active")  # active | completed | cancelled | paused
+    paused_by_flow = IntegerField(default=0)  # flow_id that caused pause, 0=not paused
 
     class Meta:
         table_name      = "flow_enrollments"
@@ -236,7 +238,7 @@ def _migrate_contact_columns():
         ("city",          "VARCHAR(255) DEFAULT ''"),
         ("country",       "VARCHAR(255) DEFAULT ''"),
         ("total_orders",  "INTEGER DEFAULT 0"),
-        ("total_spent",   "VARCHAR(50) DEFAULT '0.00'"),
+        ("total_spent",   "REAL DEFAULT 0.0"),
         ("sms_consent",   "INTEGER DEFAULT 0"),
     ]
     cursor = db.execute_sql("PRAGMA table_info(contacts)")
@@ -558,8 +560,54 @@ class PreflightLog(BaseModel):
         table_name = "preflight_log"
 
 
+
+def _migrate_flow_priority():
+    """Add priority column to flows table."""
+    cursor = db.execute_sql("PRAGMA table_info(flows)")
+    existing = {row[1] for row in cursor.fetchall()}
+    if "priority" not in existing:
+        db.execute_sql("ALTER TABLE flows ADD COLUMN priority INTEGER DEFAULT 5")
+        print("  [migrate] Added priority to flows")
+        # Set smart defaults based on trigger type
+        for trigger, prio in [("checkout_abandoned", 1), ("browse_abandonment", 2),
+                              ("order_placed", 3), ("contact_created", 4), ("no_purchase_days", 5)]:
+            db.execute_sql("UPDATE flows SET priority = ? WHERE trigger_type = ?", (prio, trigger))
+        print("  [migrate] Set default flow priorities")
+
+
+def _migrate_flow_enrollment_pause():
+    """Add paused_by_flow column to flow_enrollments table."""
+    cursor = db.execute_sql("PRAGMA table_info(flow_enrollments)")
+    existing = {row[1] for row in cursor.fetchall()}
+    if "paused_by_flow" not in existing:
+        db.execute_sql("ALTER TABLE flow_enrollments ADD COLUMN paused_by_flow INTEGER DEFAULT 0")
+        print("  [migrate] Added paused_by_flow to flow_enrollments")
+
+
+def _migrate_total_spent_to_float():
+    """Convert total_spent from string to float."""
+    try:
+        db.execute_sql("""
+            UPDATE contacts SET total_spent = CAST(
+                CASE WHEN total_spent IS NULL OR total_spent = '' THEN '0'
+                     ELSE total_spent END AS REAL
+            ) WHERE typeof(total_spent) = 'text'
+        """)
+        affected = db.execute_sql("SELECT changes()").fetchone()[0]
+        if affected > 0:
+            print("  [migrate] Converted %d total_spent values from string to float" % affected)
+    except Exception as e:
+        print("  [migrate] total_spent conversion: %s" % e)
+
+
 def init_db():
     db.connect(reuse_if_open=True)
+    # Enable WAL mode for concurrent reads/writes (real-time pipeline)
+    try:
+        db.execute_sql('PRAGMA journal_mode=WAL')
+        db.execute_sql('PRAGMA busy_timeout=10000')
+    except Exception:
+        pass
     db.create_tables(
         [Contact, EmailTemplate, Campaign, CampaignEmail, WarmupConfig, WarmupLog,
          Flow, FlowStep, FlowEnrollment, FlowEmail, AbandonedCheckout, AgentMessage,
@@ -580,6 +628,9 @@ def init_db():
     _migrate_bounce_log_fields()
     _migrate_intelligence_fields()
     _migrate_message_decision_tables()
+    _migrate_flow_priority()
+    _migrate_flow_enrollment_pause()
+    _migrate_total_spent_to_float()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")

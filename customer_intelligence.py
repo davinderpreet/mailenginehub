@@ -527,29 +527,181 @@ def _compute_churn_normalized(profile):
 
 def _build_intelligence_summary(lifecycle, ctype, intent, reorder, churn_score,
                                  next_cat, send_hour, send_dow, discount_sens,
-                                 contact_name):
-    """Build a plain-English intelligence summary for Claude and the UI."""
+                                 contact_name, profile=None, affinity=None,
+                                 orders_count=0, total_spent=0.0, avg_order=0.0,
+                                 days_since=999, avg_cycle=0, top_products=None,
+                                 channel=None, price_tier=None,
+                                 web_activity=None):
+    """Build a detailed intelligence summary for the AI engine and the UI.
+
+    Includes purchase history, product preferences, spending behavior,
+    timing patterns, website browsing activity, and actionable context —
+    so the AI knows exactly what product to offer and when.
+    """
+    import json as _json
+
     name = contact_name or "Contact"
     parts = []
 
+    # ── 1. Identity + Stage ──
     stage_label = LIFECYCLE_LABELS.get(lifecycle, lifecycle)
     type_label = CUSTOMER_TYPE_LABELS.get(ctype, ctype)
     parts.append(f"{name} is a {stage_label} ({type_label}).")
 
+    # ── 2. Purchase History ──
+    if orders_count > 0:
+        parts.append(
+            f"Purchase history: {orders_count} order{'s' if orders_count != 1 else ''}, "
+            f"${total_spent:.2f} total spent, ${avg_order:.2f} avg order value."
+        )
+    else:
+        parts.append("No purchases yet — subscriber only.")
+
+    # ── 3. Products Bought ──
+    prods = []
+    if top_products:
+        try:
+            prods = _json.loads(top_products) if isinstance(top_products, str) else top_products
+        except Exception:
+            prods = []
+
+    if prods:
+        # Deduplicate and count
+        prod_counts = {}
+        for p in prods:
+            title = p if isinstance(p, str) else (p.get("title", "") if isinstance(p, dict) else str(p))
+            if title:
+                prod_counts[title] = prod_counts.get(title, 0) + 1
+
+        # Show top 5 products
+        sorted_prods = sorted(prod_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        prod_strs = []
+        for title, cnt in sorted_prods:
+            # Shorten very long product names
+            short = title[:80] + "..." if len(title) > 80 else title
+            if cnt > 1:
+                prod_strs.append(f"{short} (x{cnt})")
+            else:
+                prod_strs.append(short)
+        parts.append("Products bought: " + "; ".join(prod_strs) + ".")
+
+    # ── 4. Category Affinity ──
+    if affinity and isinstance(affinity, dict) and len(affinity) > 0:
+        sorted_cats = sorted(affinity.items(), key=lambda x: x[1], reverse=True)
+        cat_strs = [f"{cat} ({score}/100)" for cat, score in sorted_cats]
+        parts.append("Category affinity: " + ", ".join(cat_strs) + ".")
+
+    # ── 5. Price Tier ──
+    if price_tier and price_tier != "unknown":
+        tier_labels = {"budget": "Budget buyer (<$50 avg)", "mid": "Mid-range buyer ($50-100 avg)", "premium": "Premium buyer (>$100 avg)"}
+        parts.append(f"Price tier: {tier_labels.get(price_tier, price_tier)}.")
+
+    # ── 6. Timing ──
+    if orders_count > 0:
+        if days_since <= 30:
+            timing = f"Last ordered {days_since} days ago (recent)."
+        elif days_since <= 90:
+            timing = f"Last ordered {days_since} days ago."
+        elif days_since <= 180:
+            timing = f"Last ordered {days_since} days ago (going cold)."
+        else:
+            timing = f"Last ordered {days_since} days ago (inactive)."
+        parts.append(timing)
+
+        if avg_cycle > 0 and orders_count >= 2:
+            if days_since > avg_cycle * 1.5:
+                parts.append(f"Typical reorder cycle: {int(avg_cycle)} days — significantly overdue.")
+            elif days_since > avg_cycle:
+                parts.append(f"Typical reorder cycle: {int(avg_cycle)} days — overdue.")
+            else:
+                remaining = int(avg_cycle - days_since)
+                parts.append(f"Typical reorder cycle: {int(avg_cycle)} days — {remaining} days until due.")
+
+    # ── 7. Website Browsing Activity ──
+    if web_activity:
+        wa = web_activity
+        web_parts = []
+
+        # Last visit
+        if wa.get("last_visit"):
+            from datetime import datetime as _dt
+            try:
+                last_dt = wa["last_visit"] if isinstance(wa["last_visit"], _dt) else _dt.fromisoformat(str(wa["last_visit"]))
+                days_ago_web = (datetime.now() - last_dt).days
+                if days_ago_web == 0:
+                    web_parts.append("Last website visit: today")
+                elif days_ago_web == 1:
+                    web_parts.append("Last website visit: yesterday")
+                else:
+                    web_parts.append(f"Last website visit: {days_ago_web} days ago")
+            except Exception:
+                pass
+
+        # Products browsed
+        if wa.get("products_browsed"):
+            prods_browsed = wa["products_browsed"][:5]  # top 5
+            prod_names = []
+            for pb in prods_browsed:
+                pname = pb.get("name", "")
+                if pname:
+                    # Clean up slug-style names
+                    pname = pname.replace("-", " ").title()
+                    if len(pname) > 60:
+                        pname = pname[:60] + "..."
+                    views = pb.get("views", 1)
+                    if views > 1:
+                        prod_names.append(f"{pname} ({views}x)")
+                    else:
+                        prod_names.append(pname)
+            if prod_names:
+                web_parts.append("Products browsed: " + "; ".join(prod_names))
+
+        # Abandoned checkouts
+        if wa.get("abandoned_carts"):
+            carts = wa["abandoned_carts"][:3]
+            cart_strs = []
+            for cart in carts:
+                items = cart.get("products", [])
+                total = cart.get("total", 0)
+                date = cart.get("date", "")
+                if items:
+                    cart_strs.append(f"{', '.join(items[:3])} (${total}, {date})")
+            if cart_strs:
+                web_parts.append("ABANDONED CART: " + "; ".join(cart_strs))
+
+        # Web engagement score
+        if wa.get("engagement_score", 0) > 0:
+            web_parts.append(f"Website engagement: {wa['engagement_score']}/100")
+
+        if web_parts:
+            parts.append(" ".join(web_parts) + ".")
+
+    # ── 8. Scores ──
     parts.append(f"Intent: {intent}/100. Reorder likelihood: {reorder}/100.")
 
-    if next_cat:
-        parts.append(f"Next likely purchase: {next_cat}.")
+    if churn_score > 70:
+        parts.append(f"Churn risk: HIGH ({churn_score}/100).")
+    elif churn_score > 50:
+        parts.append(f"Churn risk: ELEVATED ({churn_score}/100).")
+    elif churn_score > 30:
+        parts.append(f"Churn risk: moderate ({churn_score}/100).")
 
-    if churn_score > 50:
-        parts.append(f"Churn risk elevated ({churn_score}/100).")
+    if next_cat:
+        parts.append(f"Next likely purchase category: {next_cat}.")
+
+    # ── 8. Engagement Preferences ──
+    if discount_sens > 0.5:
+        parts.append(f"Discount-responsive ({int(discount_sens * 100)}% of orders used codes) — promotional offers likely effective.")
+    elif discount_sens > 0 and orders_count > 0:
+        parts.append(f"Low discount usage ({int(discount_sens * 100)}%) — responds to value, not just price.")
 
     if send_hour >= 0:
         dow_name = DOW_NAMES[send_dow] if 0 <= send_dow <= 6 else "Unknown"
         parts.append(f"Best send time: {send_hour}:00 on {dow_name}.")
 
-    if discount_sens > 0.5:
-        parts.append(f"Discount-responsive ({int(discount_sens * 100)}% of orders used codes).")
+    if channel and channel != "email":
+        channel_labels = {"sms": "Prefers SMS", "both": "Responds to both Email + SMS"}
+        parts.append(channel_labels.get(channel, f"Channel: {channel}") + ".")
 
     return " ".join(parts)
 
@@ -639,11 +791,98 @@ def compute_intelligence(contact_id):
     discount_sens = profile.discount_sensitivity if profile else 0.0
     conf_discount = min(100, (profile.total_orders if profile else 0) * 20)
 
-    # Intelligence summary
+    # ── Gather website browsing activity ──
+    web_activity = {}
+    try:
+        # Last visit date
+        last_visit_rec = (
+            CustomerActivity.select(CustomerActivity.occurred_at)
+            .where(
+                CustomerActivity.email == contact.email.lower(),
+                CustomerActivity.event_type.in_(["viewed_product", "viewed_page", "viewed_cart"])
+            )
+            .order_by(CustomerActivity.occurred_at.desc())
+            .first()
+        )
+        if last_visit_rec:
+            web_activity["last_visit"] = last_visit_rec.occurred_at
+
+        # Products browsed (deduplicated, with view counts)
+        product_views = list(
+            CustomerActivity.select(CustomerActivity.event_data, CustomerActivity.occurred_at)
+            .where(
+                CustomerActivity.email == contact.email.lower(),
+                CustomerActivity.event_type == "viewed_product"
+            )
+            .order_by(CustomerActivity.occurred_at.desc())
+            .limit(50)
+        )
+        if product_views:
+            prod_counts = {}
+            for pv in product_views:
+                try:
+                    d = json.loads(pv.event_data)
+                    url = d.get("url", "")
+                    name = url.split("/products/")[-1] if "/products/" in url else ""
+                    if name:
+                        if name not in prod_counts:
+                            prod_counts[name] = {"name": name, "views": 0}
+                        prod_counts[name]["views"] += 1
+                except Exception:
+                    pass
+            web_activity["products_browsed"] = sorted(
+                prod_counts.values(), key=lambda x: x["views"], reverse=True
+            )
+
+        # Abandoned checkouts
+        abandoned = list(
+            CustomerActivity.select(CustomerActivity.event_data, CustomerActivity.occurred_at)
+            .where(
+                CustomerActivity.email == contact.email.lower(),
+                CustomerActivity.event_type == "abandoned_checkout"
+            )
+            .order_by(CustomerActivity.occurred_at.desc())
+            .limit(3)
+        )
+        if abandoned:
+            carts = []
+            for ab in abandoned:
+                try:
+                    d = json.loads(ab.event_data)
+                    carts.append({
+                        "products": d.get("products", []),
+                        "total": d.get("total", 0),
+                        "date": ab.occurred_at.strftime("%b %d") if ab.occurred_at else "",
+                    })
+                except Exception:
+                    pass
+            if carts:
+                web_activity["abandoned_carts"] = carts
+
+        # Web engagement score
+        if profile and profile.website_engagement_score:
+            web_activity["engagement_score"] = profile.website_engagement_score
+
+    except Exception as e:
+        logger.error(f"[Intelligence] Web activity gather error for {contact_id}: {e}")
+
+    # Intelligence summary — rich version with full purchase + browsing context
+    _top_prods = profile.all_products_bought if profile else "[]"
     summary = _build_intelligence_summary(
         lifecycle, ctype, intent, reorder, churn_score,
         next_cat, send_hour, send_dow, discount_sens,
-        contact.first_name
+        contact.first_name,
+        profile=profile,
+        affinity=affinity,
+        orders_count=profile.total_orders if profile else 0,
+        total_spent=profile.total_spent if profile else 0.0,
+        avg_order=profile.avg_order_value if profile else 0.0,
+        days_since=profile.days_since_last_order if profile else 999,
+        avg_cycle=profile.avg_days_between_orders if profile else 0,
+        top_products=_top_prods,
+        channel=channel,
+        price_tier=profile.price_tier if profile else None,
+        web_activity=web_activity,
     )
 
     # ── Persist to CustomerProfile ──

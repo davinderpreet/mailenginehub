@@ -652,6 +652,98 @@ def scan_opportunities():
 # Accept / Dismiss
 # ═══════════════════════════════════════════════════════════════
 
+
+def _generate_campaign_email(sc):
+    """Generate email content for a campaign using Claude AI.
+    Returns EmailTemplate ID, or 0 if generation fails."""
+    import json
+    try:
+        from ai_engine import _get_anthropic_client, BRAND_CONTEXT, EMAIL_PURPOSES
+        from email_templates import render_email
+        from database import EmailTemplate
+
+        purpose = ACTION_TO_PURPOSE.get(sc.campaign_type, "re_engagement")
+        purpose_desc = EMAIL_PURPOSES.get(purpose, "Send a relevant, helpful email.")
+
+        # Parse top products
+        top_products = "Not specified"
+        if sc.top_products_json:
+            try:
+                prods = json.loads(sc.top_products_json)
+                if prods:
+                    top_products = ", ".join(prods[:8])
+            except Exception:
+                pass
+
+        prompt = BRAND_CONTEXT + """
+
+CAMPAIGN BRIEF:
+""" + (sc.brief_text or sc.campaign_name) + """
+
+TARGET AUDIENCE: """ + (sc.target_description or "General customer base") + """
+CAMPAIGN TYPE: """ + sc.campaign_type + """
+EMAIL PURPOSE: """ + purpose + " — " + purpose_desc + """
+TOP PRODUCTS: """ + top_products + """
+
+INSTRUCTIONS:
+- Write a compelling campaign email for this audience segment
+- Use {{first_name}} as the recipient's name variable — it will be replaced at send time
+- For the greeting, use something like "Hey {{first_name}}," or "Hi {{first_name}},"
+- Reference the top products naturally if relevant to the campaign type
+- Keep it warm, conversational, and helpful — like a fellow trucker who knows their tech
+- Subject line should be short and compelling — you may include {{first_name}} if it fits
+- The CTA button should link to https://ldas-electronics.com or a relevant collection page
+- Keep body paragraphs concise (2-3 sentences each, max 3 paragraphs)
+
+Return ONLY valid JSON (no markdown, no code blocks) with this structure:
+{
+  "subject": "email subject line",
+  "preheader": "inbox preview text (max 80 chars)",
+  "hero_headline": "big headline at top of email",
+  "hero_subheadline": "optional smaller text below headline",
+  "body_paragraphs": ["paragraph 1", "paragraph 2"],
+  "cta_text": "button text like Shop Now",
+  "cta_url": "https://ldas-electronics.com",
+  "urgency_message": "optional urgency text (leave empty string if not needed)"
+}"""
+
+        client = _get_anthropic_client()
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        raw = response.content[0].text.strip()
+        # Strip markdown code blocks if present
+        if raw.startswith("```"):
+            raw = raw.split(chr(10), 1)[1] if chr(10) in raw else raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            raw = raw.strip()
+
+        email_content = json.loads(raw)
+
+        # Render full HTML email using existing templates
+        html = render_email(purpose, email_content, products=[], discount=None)
+
+        # Create EmailTemplate
+        template = EmailTemplate.create(
+            name="[AI] " + sc.campaign_name,
+            subject=email_content.get("subject", sc.campaign_name),
+            preview_text=email_content.get("preheader", ""),
+            html_body=html,
+            shell_version=0,  # render_email already includes the shell
+        )
+
+        print("[CampaignPlanner] AI-generated template #%d for '%s'" % (template.id, sc.campaign_name))
+        return template.id
+
+    except Exception as e:
+        print("[CampaignPlanner] AI generation failed for '%s': %s" % (sc.campaign_name, e))
+        return 0
+
+
 def accept_opportunity(suggested_campaign_id):
     """Mark a suggested campaign as accepted and create a draft Campaign.
     Returns the new Campaign ID.
@@ -663,12 +755,15 @@ def accept_opportunity(suggested_campaign_id):
     sc.accepted_at = datetime.now()
     sc.save()
 
-    # Create a draft Campaign
+    # Generate email content via AI
+    template_id = _generate_campaign_email(sc)
+
+    # Create a draft Campaign with AI-generated template
     campaign = Campaign.create(
         name=sc.campaign_name,
         from_name=os.environ.get("DEFAULT_FROM_NAME", "LDAS Electronics"),
         from_email=os.environ.get("DEFAULT_FROM_EMAIL", ""),
-        template_id=0,
+        template_id=template_id,
         segment_filter=f"planner:{suggested_campaign_id}",
         status="draft",
     )

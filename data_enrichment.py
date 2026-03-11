@@ -313,6 +313,25 @@ def _compute_profile_for_email(email: str):
         for k, v in data.items():
             setattr(profile, k, v)
         profile.save()
+
+    # ── Sync Contact table with computed order data ──
+    try:
+        if contact:
+            _sync_changed = False
+            if contact.total_orders != total_orders:
+                contact.total_orders = total_orders
+                _sync_changed = True
+            _spent_str = f"{total_spent:.2f}"
+            if str(contact.total_spent) != _spent_str:
+                contact.total_spent = _spent_str
+                _sync_changed = True
+            if contact.source == 'pixel_capture' and not contact.subscribed and total_orders > 0:
+                contact.subscribed = True
+                _sync_changed = True
+            if _sync_changed:
+                contact.save()
+    except Exception:
+        pass
     else:
         CustomerProfile.create(**data)
 

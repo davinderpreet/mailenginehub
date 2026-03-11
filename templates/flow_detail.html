@@ -83,12 +83,12 @@
   /* Stats panel */
   .stats-panel { position: sticky; top: 80px; }
   .stat-row {
-    display: flex; justify-content: space-between; align-items: center;
+    display: flex; justify-content: space-between; align-items: baseline;
     padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 14px;
   }
   .stat-row:last-child { border-bottom: none; }
-  .stat-row .label { color: var(--text2); }
-  .stat-row .value { font-weight: 700; color: var(--text); font-size: 17px; }
+  .stat-row .label { color: var(--text2); font-size: 13px; white-space: nowrap; }
+  .stat-row .value { font-weight: 700; color: var(--text); font-size: 15px; text-align: right; min-width: 48px; }
 
   .status-pill {
     display: inline-block; padding: 2px 10px; border-radius: 999px;
@@ -97,6 +97,7 @@
   .status-active    { background: rgba(96,165,250,0.15); color: #60a5fa; border: 1px solid rgba(96,165,250,0.25); }
   .status-completed { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.25); }
   .status-cancelled { background: rgba(148,163,184,0.1); color: #94a3b8; border: 1px solid rgba(148,163,184,0.15); }
+  .status-paused    { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.25); }
 
   /* Trigger info banner — dark purple */
   .trigger-info {
@@ -305,8 +306,8 @@
 
   <!-- ── RIGHT: Stats Panel ── -->
   <div class="stats-panel">
-    <div class="card">
-      <div class="card-title" style="margin-bottom:16px;">Flow Performance</div>
+    <div class="card" style="padding: 24px;">
+      <div class="card-title" style="margin-bottom:20px;">Flow Performance</div>
       <div class="stat-row">
         <span class="label">Total Enrolled</span>
         <span class="value">{{ total }}</span>
@@ -323,22 +324,44 @@
         <span class="label">Cancelled (unsub)</span>
         <span class="value" style="color:var(--text2);">{{ cancelled }}</span>
       </div>
-      <div class="stat-row" style="margin-top:8px;padding-top:16px;border-top:2px solid var(--border);">
+      <div class="stat-row">
+        <span class="label">Paused (priority)</span>
+        <span class="value" style="color:#f59e0b;">{{ paused }}</span>
+      </div>
+      <div class="stat-row" style="padding-top:16px;margin-top:8px;border-top:2px solid rgba(255,255,255,0.08);border-bottom:1px solid var(--border);">
         <span class="label">Emails Sent</span>
         <span class="value">{{ sent }}</span>
       </div>
-      <div class="stat-row">
+      <div class="stat-row" style="border-bottom:none;">
         <span class="label">Open Rate</span>
-        <span class="value" style="color:{% if open_rate >= 20 %}var(--green){% elif open_rate >= 15 %}var(--amber){% else %}var(--red){% endif %};">
+        <span class="value" style="color:{% if sent > 0 %}{% if open_rate >= 20 %}var(--green){% elif open_rate >= 15 %}var(--amber){% else %}var(--red){% endif %}{% else %}var(--text2){% endif %};">
           {% if sent > 0 %}{{ open_rate }}%{% else %}—{% endif %}
         </span>
       </div>
-    </div>
-
-    <!-- Live stats auto-refresh -->
-    <div id="liveStats" style="font-size:12px;color:var(--text2);text-align:center;margin-top:-12px;margin-bottom:24px;">
-      <i class="fas fa-circle" style="color:var(--green);font-size:8px;margin-right:4px;"></i>
-      Live — updates every 30s
+      <!-- Priority Setting -->
+      <div style="margin-top:16px;padding-top:16px;border-top:2px solid rgba(255,255,255,0.08);">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="color:var(--text2);font-size:13px;">Priority</span>
+          <form method="POST" action="/flows/{{ flow.id }}/priority" style="margin:0;">
+            <select name="priority" onchange="this.form.submit()"
+                    style="width:auto;padding:4px 12px;font-size:13px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;cursor:pointer;">
+              {% for p in range(1, 11) %}
+              <option value="{{ p }}" {% if flow.priority == p %}selected{% endif %}>
+                {{ p }}{% if p == 1 %} (highest){% elif p == 10 %} (lowest){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </form>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;">
+          Higher priority flows send first when multiple flows target the same contact
+        </div>
+      </div>
+      <!-- Live indicator -->
+      <div id="liveStats" style="font-size:11px;color:var(--text2);text-align:center;margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
+        <i class="fas fa-circle" style="color:var(--green);font-size:7px;margin-right:4px;vertical-align:middle;"></i>
+        Live — updates every 30s
+      </div>
     </div>
   </div>
 
@@ -384,6 +407,8 @@
                 <span style="color:var(--green);font-weight:600;">Done</span>
               {% elif enroll.status == 'cancelled' %}
                 <span style="color:var(--text2);">—</span>
+              {% elif enroll.status == 'paused' %}
+                <span style="color:#f59e0b;font-weight:600;">Paused</span>
               {% else %}
                 Step {{ enroll.current_step }}
               {% endif %}

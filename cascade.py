@@ -64,6 +64,18 @@ def cascade_contact(contact_id, trigger="unknown"):
         steps_done = []
 
         try:
+            # Step 0: Rebuild profile from Shopify data
+            from database import Contact as _C
+            _contact = _C.get_or_none(_C.id == contact_id)
+            if _contact:
+                from shopify_enrichment import _build_profile
+                _build_profile(_contact)
+                steps_done.append("profile=OK")
+        except Exception as e:
+            logger.error(f"[Cascade] Profile rebuild failed for {contact_id}: {e}")
+            steps_done.append("profile=ERR")
+
+        try:
             # Step 1: Score (RFM + engagement)
             from ai_engine import score_single_contact
             segment = score_single_contact(contact_id)
@@ -114,6 +126,16 @@ def cascade_contact_sync(contact_id, trigger="unknown"):
     sys.path.insert(0, "/var/www/mailengine")
     start = time.time()
     results = {}
+
+    try:
+        from database import Contact as _C
+        _contact = _C.get_or_none(_C.id == contact_id)
+        if _contact:
+            from shopify_enrichment import _build_profile
+            _build_profile(_contact)
+            results["profile"] = "OK"
+    except Exception as e:
+        results["profile_error"] = str(e)
 
     try:
         from ai_engine import score_single_contact

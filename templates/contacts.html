@@ -27,6 +27,10 @@
   .orders-cell { font-size: 13px; }
   .orders-cell .spent { color: var(--green); font-weight: 600; }
   .orders-cell .count { color: var(--text2); font-size: 11px; }
+  tbody tr { cursor: pointer; transition: background 0.15s ease; }
+  tbody tr:hover { background: rgba(124,58,237,0.06) !important; }
+  .view-profile-icon { opacity: 0; transition: opacity 0.15s ease; color: var(--purple2); margin-left: 6px; font-size: 11px; }
+  tbody tr:hover .view-profile-icon { opacity: 1; }
 </style>
 {% endblock %}
 
@@ -36,6 +40,13 @@
 <div class="sync-bar" id="syncStatusBar" style="display:none;">
   <i class="fas fa-circle-notch spin" id="syncIcon"></i>
   <span id="syncStatusText">Syncing Shopify contacts...</span>
+</div>
+
+<!-- Quick Links -->
+<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+  <a href="/profiles" class="btn btn-outline btn-sm" style="font-size:12px;gap:6px;">
+    <i class="fas fa-id-card-clip"></i> View Customer Profiles
+  </a>
 </div>
 
 <!-- Stats Row -->
@@ -95,8 +106,8 @@
       </tr></thead>
       <tbody>
       {% for c in contacts %}
-      <tr>
-        <td style="font-weight:600;">{{ c.email }}</td>
+      <tr onclick="window.location.href='/profiles/{{ c.id }}'" title="View profile">
+        <td style="font-weight:600;">{{ c.email }}<i class="fas fa-arrow-right view-profile-icon"></i></td>
         <td>{{ c.full_name }}</td>
         <td style="color:#64748b;font-size:13px;">
           {% if c.phone %}<i class="fas fa-phone" style="margin-right:4px;"></i>{{ c.phone }}{% else %}-{% endif %}
@@ -108,7 +119,11 @@
           {% else %}-{% endif %}
         </td>
         <td class="orders-cell">
-          {% if c.total_orders > 0 %}
+          {% set p = profile_map.get(c.id) %}
+          {% if p and p.total_orders > 0 %}
+            <div class="spent">${{ "%.2f"|format(p.total_spent) }}</div>
+            <div class="count">{{ p.total_orders }} order{% if p.total_orders != 1 %}s{% endif %}</div>
+          {% elif c.total_orders > 0 %}
             <div class="spent">${{ c.total_spent }}</div>
             <div class="count">{{ c.total_orders }} order{% if c.total_orders != 1 %}s{% endif %}</div>
           {% else %}

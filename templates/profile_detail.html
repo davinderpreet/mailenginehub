@@ -228,12 +228,18 @@
       </div>
       {% endif %}
 
-      <!-- AI Summary -->
+      <!-- AI Intelligence Summary -->
       <div class="ai-box">
         <div class="ai-label">
           <i class="fas fa-brain"></i> AI Profile Summary
         </div>
-        <p>{{ profile.profile_summary }}</p>
+        {% if intelligence and intelligence.intelligence_summary %}
+          <p style="font-size:12.5px;line-height:1.65;">{{ intelligence.intelligence_summary }}</p>
+        {% elif profile.profile_summary %}
+          <p>{{ profile.profile_summary }}</p>
+        {% else %}
+          <p style="color:var(--text3);font-style:italic;">No intelligence data yet.</p>
+        {% endif %}
       </div>
     </div>
 
@@ -449,15 +455,7 @@
           </div>
           {% endif %}
 
-          <!-- AI Summary -->
-          {% if intelligence.intelligence_summary %}
-          <div style="margin-top:12px;padding:12px 14px;background:rgba(124,58,237,0.04);border:1px solid rgba(124,58,237,0.15);border-radius:10px;">
-            <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--purple2);margin-bottom:6px;">
-              <i class="fas fa-robot" style="margin-right:4px;"></i> AI Intelligence Summary
-            </div>
-            <div style="font-size:12.5px;color:var(--text2);line-height:1.6;">{{ intelligence.intelligence_summary }}</div>
-          </div>
-          {% endif %}
+          <!-- AI Intelligence Summary moved to sidebar -->
 
         </div>
       </div>
@@ -735,19 +733,35 @@
         {% for e in email_activity %}
         <div style="display:flex; align-items:center; justify-content:space-between;
                     padding:12px 20px; border-bottom:1px solid rgba(255,255,255,0.04);">
-          <div>
-            <div style="font-size:13px; color:var(--text);">{{ e.subject or '(no subject)' }}</div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:13px; color:var(--text); display:flex; align-items:center; gap:8px;">
+              {{ e.source_name or '(unknown)' }}
+              {% if e.email_type == 'flow' %}
+                <span style="font-size:9.5px; padding:2px 7px; border-radius:6px; font-weight:700;
+                             background:rgba(124,58,237,0.12); color:var(--purple2); letter-spacing:0.3px;">FLOW</span>
+              {% else %}
+                <span style="font-size:9.5px; padding:2px 7px; border-radius:6px; font-weight:700;
+                             background:rgba(6,182,212,0.12); color:var(--cyan); letter-spacing:0.3px;">CAMPAIGN</span>
+              {% endif %}
+            </div>
             <div style="font-size:11.5px; color:var(--text3); margin-top:2px;">
-              {{ e.created_at.strftime('%b %d, %Y') if e.created_at else '—' }}
+              {{ e.sent_at.strftime('%Y-%m-%d %H:%M') if e.sent_at else '—' }}
             </div>
           </div>
-          {% if e.status == 'sent' %}
-            <span class="badge badge-green">Sent</span>
-          {% elif e.status == 'failed' %}
-            <span class="badge badge-red">Failed</span>
-          {% else %}
-            <span class="badge badge-ghost">{{ e.status }}</span>
-          {% endif %}
+          <div style="display:flex; gap:6px; align-items:center;">
+            {% if e.opened %}
+              <span class="badge badge-cyan" style="font-size:10px;">Opened</span>
+            {% endif %}
+            {% if e.status == 'sent' %}
+              <span class="badge badge-green">Sent</span>
+            {% elif e.status == 'failed' %}
+              <span class="badge badge-red">Failed</span>
+            {% elif e.status == 'bounced' %}
+              <span class="badge badge-red">Bounced</span>
+            {% else %}
+              <span class="badge badge-ghost">{{ e.status }}</span>
+            {% endif %}
+          </div>
         </div>
         {% endfor %}
       </div>

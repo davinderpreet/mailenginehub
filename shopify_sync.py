@@ -117,7 +117,7 @@ def handle_shopify_customer_webhook(customer_data):
     city         = address.get("city") or ""
     country      = address.get("country_code") or ""
     total_orders = int(customer_data.get("orders_count") or 0)
-    total_spent  = str(customer_data.get("total_spent") or "0.00")
+    total_spent  = float(customer_data.get("total_spent") or 0)
     shopify_created_at = _parse_shopify_timestamp(customer_data.get("created_at"))
 
     contact, created = Contact.get_or_create(
@@ -144,13 +144,16 @@ def handle_shopify_customer_webhook(customer_data):
         contact.first_name   = customer_data.get("first_name") or contact.first_name
         contact.last_name    = customer_data.get("last_name") or contact.last_name
         contact.phone        = customer_data.get("phone") or contact.phone
-        contact.subscribed   = bool(customer_data.get("accepts_marketing", contact.subscribed))
-        contact.sms_consent  = bool(customer_data.get("sms_consent", contact.sms_consent))
+        # Only downgrade subscription if contact didn't explicitly opt in via popup
+        shopify_consent = _parse_email_consent(customer_data)
+        if shopify_consent or contact.source != "popup_widget":
+            contact.subscribed = shopify_consent
+        contact.sms_consent  = _parse_sms_consent(customer_data)
         contact.shopify_id   = shopify_id or contact.shopify_id
         contact.city         = city or contact.city
         contact.country      = country or contact.country
         contact.total_orders = total_orders if total_orders > 0 else contact.total_orders
-        contact.total_spent  = total_spent if total_spent != "0.00" else contact.total_spent
+        contact.total_spent  = total_spent if total_spent > 0 else contact.total_spent
         if shopify_created_at:
             contact.created_at = shopify_created_at
         if "shopify" not in contact.tags:
@@ -251,7 +254,10 @@ def sync_shopify_customers(progress_callback=None):
                     contact.first_name   = customer.get("first_name") or contact.first_name
                     contact.last_name    = customer.get("last_name")  or contact.last_name
                     contact.phone        = customer.get("phone")      or contact.phone
-                    contact.subscribed   = _parse_email_consent(customer)
+                    # Only downgrade subscription if contact didn't explicitly opt in via popup
+                    shopify_consent = _parse_email_consent(customer)
+                    if shopify_consent or contact.source != "popup_widget":
+                        contact.subscribed = shopify_consent
                     contact.sms_consent  = _parse_sms_consent(customer)
                     contact.shopify_id   = shopify_id   or contact.shopify_id
                     contact.city         = city         or contact.city

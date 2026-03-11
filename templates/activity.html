@@ -372,7 +372,7 @@
 &lt;!-- {% if customer %}&lt;script&gt;window.meh_email='{{ customer.email }}';&lt;/script&gt;{% endif %} --&gt;
 &lt;script&gt;
 (function() {
-  var ENDPOINT = 'https://mailenginehub.com/api/track';
+  var ENDPOINT = '{{ site_url }}/api/track';
   var sid = localStorage.getItem('meh_sid') || Math.random().toString(36).substr(2,9);
   localStorage.setItem('meh_sid', sid);
 
@@ -408,6 +408,26 @@
   <p style="font-size:11.5px; color:var(--text3); margin-top:10px;">
     <i class="fas fa-info-circle" style="color:var(--cyan);"></i>
     Tracks: product views, blog reads, searches, cart visits, page views. Customers are auto-identified when logged in (via Liquid) or when clicking from an email link (via <code style="color:var(--cyan);">?meh_e=EMAIL</code>).
+  </p>
+</div>
+<!-- ── Popup Subscription Widget Setup ───────────────────── -->
+<div class="pixel-box" style="margin-top:24px;">
+  <div class="px-title">
+    <i class="fas fa-bell"></i> Popup Subscription Widget — Email Capture
+  </div>
+  <div class="px-desc">
+    Add this line to your Shopify <code style="color:var(--cyan);">theme.liquid</code>
+    <strong>below</strong> the tracking pixel snippet to show a 5% discount popup that captures email subscribers.
+  </div>
+  <div style="position:relative;">
+    <div class="code-block" id="popup-code">&lt;!-- MailEngineHub Popup Subscription Widget --&gt;
+&lt;script src="https://mailenginehub.com/static/js/meh-popup.js" defer&gt;&lt;/script&gt;</div>
+    <button class="copy-btn" onclick="copyPopup()">Copy</button>
+  </div>
+  <p style="font-size:11.5px; color:var(--text3); margin-top:10px;">
+    <i class="fas fa-info-circle" style="color:var(--purple2);"></i>
+    Shows a bottom bar that slides up into a signup form. New subscribers get a unique <strong style="color:var(--purple2);">5% discount code</strong> instantly.
+    Dismissed popups won't reappear for 30 days.
   </p>
 </div>
 

@@ -419,8 +419,104 @@ def _build_profile(contact):
     else:
         CustomerProfile.create(**data)
 
+    # ── Sync Contact table with computed order data ──
+    try:
+        _sync_changed = False
+        if contact.total_orders != total_orders:
+            contact.total_orders = total_orders
+            _sync_changed = True
+        _spent_str = f"{total_spent:.2f}"
+        if str(contact.total_spent) != _spent_str:
+            contact.total_spent = _spent_str
+            _sync_changed = True
+        # Pixel-captured contacts who placed orders should be subscribed
+        if contact.source == 'pixel_capture' and not contact.subscribed and total_orders > 0:
+            contact.subscribed = True
+            _sync_changed = True
+        if _sync_changed:
+            contact.save()
+    except Exception as _sync_err:
+        pass
+
 
 # ── Full Shopify backfill ─────────────────────────────────────────────────────
+
+
+# ── Incremental Shopify order sync ────────────────────────────────────────────
+_LAST_ORDER_ID_FILE = "/var/www/mailengine/.last_shopify_order_id"
+
+def sync_new_orders():
+    """
+    Incremental Shopify order sync — pulls only orders newer than the last
+    known order ID. Rebuilds profiles + cascades intelligence for affected contacts.
+    Returns dict with counts.
+    """
+    from database import Contact, ShopifyOrder, init_db
+    init_db()
+
+    # Read last synced order ID
+    last_id = None
+    try:
+        with open(_LAST_ORDER_ID_FILE, "r") as f:
+            last_id = f.read().strip()
+            if not last_id or last_id == "0":
+                last_id = None
+    except FileNotFoundError:
+        pass
+
+    # If no last ID, get the max from database
+    if not last_id:
+        try:
+            from peewee import fn
+            max_row = ShopifyOrder.select(fn.MAX(ShopifyOrder.shopify_order_id)).scalar()
+            if max_row:
+                last_id = str(max_row)
+        except Exception:
+            pass
+
+    # Fetch new orders
+    new_orders = fetch_all_shopify_orders(since_id=last_id)
+    if not new_orders:
+        logger.info("[Incremental] No new Shopify orders")
+        return {"new_orders": 0, "profiles_refreshed": 0}
+
+    # Store them
+    new_count, updated_count = store_shopify_orders(new_orders)
+
+    # Save the highest order ID
+    max_new_id = max(str(o.get("id", "0")) for o in new_orders)
+    try:
+        with open(_LAST_ORDER_ID_FILE, "w") as f:
+            f.write(max_new_id)
+    except Exception:
+        pass
+
+    # Rebuild profiles + cascade only for affected contacts
+    affected_emails = set()
+    for o in new_orders:
+        email = (o.get("email") or o.get("contact_email") or "").lower().strip()
+        if email:
+            affected_emails.add(email)
+
+    profiles_refreshed = 0
+    for email in affected_emails:
+        try:
+            contact = Contact.get_or_none(Contact.email == email)
+            if contact:
+                _build_profile(contact)
+                # Cascade intelligence
+                try:
+                    from cascade import cascade_contact
+                    cascade_contact(contact.id, trigger="shopify_new_order")
+                except Exception:
+                    pass
+                profiles_refreshed += 1
+        except Exception as e:
+            logger.error(f"[Incremental] Profile rebuild failed for {email}: {e}")
+
+    logger.info(f"[Incremental] {new_count} new orders, {profiles_refreshed} profiles refreshed")
+    return {"new_orders": new_count, "updated": updated_count, "profiles_refreshed": profiles_refreshed}
+
 def run_shopify_backfill():
     logger.info("=" * 60)
     logger.info("SHOPIFY FULL BACKFILL STARTING")

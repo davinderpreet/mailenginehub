@@ -8,14 +8,16 @@
 from flask import Flask, render_template, request, redirect, url_for, jsonify, flash
 from database import (db, Contact, EmailTemplate, Campaign, CampaignEmail, init_db,
                       WarmupConfig, WarmupLog, get_warmup_config,
-                      Flow, FlowStep, FlowEnrollment, FlowEmail, AgentMessage,
+                      Flow, FlowStep, FlowEnrollment, FlowEmail, AbandonedCheckout, AgentMessage,
                       SuppressionEntry, BounceLog, PreflightLog,
                       get_bounce_stats_by_domain)
 from email_sender import send_campaign_email, test_ses_connection
+from discount_codes import generate_discount_code
 from token_utils import create_token, verify_token
 from shopify_sync import sync_shopify_customers, verify_shopify_webhook, handle_shopify_customer_webhook
 import json
 import os
+import fcntl
 import subprocess
 import sys
 from datetime import datetime, date, timedelta
@@ -24,6 +26,13 @@ import threading
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change_this_secret_key_2024")
 SITE_URL = os.environ.get("SITE_URL", "https://mailenginehub.com").rstrip("/")
+APP_DIR  = os.path.dirname(os.path.abspath(__file__))
+
+
+def _tag_match(tag):
+    """Exact comma-delimited tag match. Prevents 'vip' matching 'vip-gold'."""
+    from peewee import SQL
+    return SQL("(',' || tags || ',') LIKE ?", '%,' + tag.strip() + ',%')
 
 @app.template_filter("fromjson")
 def _fromjson(s):
@@ -56,11 +65,12 @@ def require_auth():
         "/unsubscribe/",           # new token-based unsubscribe
         "/track/",                 # tracking pixels (old + new)
         "/webhooks/",              # SES + Shopify webhooks
+        "/static/",                # static assets (popup widget JS)
     )
     if any(request.path.startswith(p) for p in public_prefixes):
         return
-    if request.path in ("/api/track", "/api/identify"):
-        return  # Shopify pixel / identity resolution — public
+    if request.path in ("/api/track", "/api/identify", "/api/subscribe"):
+        return  # Shopify pixel / identity resolution + popup subscribe — public
     auth = request.authorization
     if not auth or not _check_auth(auth.username, auth.password):
         return _request_auth()
@@ -142,8 +152,8 @@ def ses_webhook():
             attr_subject = ""
             try:
                 attr_campaign_id = int(ses_tags.get("campaign_id", ["0"])[0])
-            except (IndexError, ValueError, TypeError):
-                pass
+            except (IndexError, ValueError, TypeError) as e:
+                app.logger.warning("[SilentFix] Bounce campaign attribution: %s" % e)
             try:
                 attr_template_id = int(ses_tags.get("template_id", ["0"])[0])
             except (IndexError, ValueError, TypeError):
@@ -212,10 +222,10 @@ def ses_webhook():
                                     if _c:
                                         from cascade import cascade_contact
                                         cascade_contact(_c.id, trigger="ses_hard_bounce")
-                                except Exception:
-                                    pass
-                            except Exception:
-                                pass
+                                except Exception as e:
+                                    app.logger.warning("[SilentFix] Cascade after bounce for %s: %s" % (email, e))
+                            except Exception as e:
+                                app.logger.error("[SilentFix] CRITICAL — failed to suppress bounced contact %s: %s" % (email, e))
                             print(f"[SES] Hard bounce suppressed: {email}")
                         except Exception as e:
                             print(f"[SES] Suppression error: {e}")
@@ -270,8 +280,8 @@ def ses_webhook():
                                 if _c:
                                     from cascade import cascade_contact
                                     cascade_contact(_c.id, trigger="ses_complaint")
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                app.logger.warning("[SilentFix] Cascade after complaint for %s: %s" % (email, e))
                         except Exception:
                             pass
                         print(f"[SES] Complaint suppressed: {email}")
@@ -320,6 +330,11 @@ def _compute_health_score(config):
     total_sent    = recent.where(CampaignEmail.status == "sent").count()
     total_opened  = recent.where(CampaignEmail.opened == True).count()
     total_bounced = recent.where(CampaignEmail.status == "bounced").count()
+    # Include FlowEmail data
+    flow_recent = FlowEmail.select().where(FlowEmail.sent_at >= cutoff)
+    total_sent    += flow_recent.where(FlowEmail.status == "sent").count()
+    total_opened  += flow_recent.where(FlowEmail.opened == True).count()
+    total_bounced += flow_recent.where(FlowEmail.status == "bounced").count()
     if total_sent > 0:
         open_rate   = total_opened  / total_sent * 100
         bounce_rate = total_bounced / total_sent * 100
@@ -366,6 +381,11 @@ def _check_phase_advance(config):
     sent    = recent.where(CampaignEmail.status == "sent").count()
     opened  = recent.where(CampaignEmail.opened == True).count()
     bounced = recent.where(CampaignEmail.status == "bounced").count()
+    # Include FlowEmail data
+    flow_r = FlowEmail.select().where(FlowEmail.sent_at >= cutoff)
+    sent    += flow_r.where(FlowEmail.status == "sent").count()
+    opened  += flow_r.where(FlowEmail.opened == True).count()
+    bounced += flow_r.where(FlowEmail.status == "bounced").count()
     if sent > 0:
         open_rate   = opened  / sent * 100
         bounce_rate = bounced / sent * 100
@@ -392,6 +412,10 @@ def _update_warmup_log(phase, daily_limit):
     log.emails_bounced = (CampaignEmail.select()
                           .where(CampaignEmail.status == "bounced",
                                  CampaignEmail.created_at >= cutoff).count())
+    # Include FlowEmail data
+    log.emails_sent    += FlowEmail.select().where(FlowEmail.status == "sent", FlowEmail.sent_at >= cutoff).count()
+    log.emails_opened  += FlowEmail.select().where(FlowEmail.opened == True, FlowEmail.sent_at >= cutoff).count()
+    log.emails_bounced += FlowEmail.select().where(FlowEmail.status == "bounced", FlowEmail.sent_at >= cutoff).count()
     log.save()
     return log
 
@@ -403,7 +427,9 @@ def dashboard():
     total_contacts  = Contact.select().count()
     total_campaigns = Campaign.select().count()
     total_sent      = CampaignEmail.select().where(CampaignEmail.status == "sent").count()
+    total_sent     += FlowEmail.select().where(FlowEmail.status == "sent").count()
     total_opened    = CampaignEmail.select().where(CampaignEmail.opened == True).count()
+    total_opened   += FlowEmail.select().where(FlowEmail.opened == True).count()
     open_rate = round((total_opened / total_sent * 100), 1) if total_sent > 0 else 0
 
     recent_campaigns = (Campaign.select()
@@ -453,7 +479,7 @@ def contacts():
             (Contact.last_name.contains(search))
         )
     if tag:
-        query = query.where(Contact.tags.contains(tag))
+        query = query.where(_tag_match(tag))
     if country_filter:
         query = query.where(Contact.country == country_filter)
 
@@ -467,6 +493,20 @@ def contacts():
         if c.country
     ))
 
+    # Fetch CustomerProfile data for accurate order values
+    contact_ids = [c.id for c in contacts]
+    profile_map = {}
+    if contact_ids:
+        try:
+            _profiles = CustomerProfile.select(
+                CustomerProfile.contact,
+                CustomerProfile.total_orders,
+                CustomerProfile.total_spent,
+            ).where(CustomerProfile.contact.in_(contact_ids))
+            profile_map = {p.contact_id: p for p in _profiles}
+        except Exception:
+            pass
+
     return render_template("contacts.html",
         contacts=contacts,
         total=total,
@@ -477,6 +517,7 @@ def contacts():
         country_filter=country_filter,
         shopify_total=shopify_total,
         countries=countries,
+        profile_map=profile_map,
     )
 
 
@@ -661,7 +702,7 @@ def webhook_shopify_customer_create():
             # Trigger background enrichment to pull in any activity data
             _email_copy = contact.email
             def _enrich_bg():
-                import sys as _s; _s.path.insert(0, '/var/www/mailengine')
+                import sys as _s; _s.path.insert(0, APP_DIR)
                 from activity_sync import enrich_single_profile
                 enrich_single_profile(_email_copy)
             import threading as _th
@@ -720,6 +761,17 @@ def webhook_shopify_customer_update():
                 contact=contact,
                 defaults={"email": contact.email, "last_computed_at": datetime.now()}
             )
+            # Real-time pipeline: refresh after Shopify customer update
+            import threading as _th_upd
+            def _cascade_shopify_update():
+                import time as _t_upd; _t_upd.sleep(2)
+                try:
+                    from cascade import cascade_contact
+                    cascade_contact(contact.id, trigger="shopify_update")
+                except Exception:
+                    pass
+            _th_upd.Thread(target=_cascade_shopify_update, daemon=True).start()
+
             app.logger.info(f"Shopify customer update webhook: {contact.email} (subscribed={contact.subscribed})")
             return jsonify({"success": True, "contact_id": contact.id, "updated": True}), 200
         else:
@@ -727,6 +779,110 @@ def webhook_shopify_customer_update():
 
     except Exception as e:
         app.logger.error(f"Customer update webhook error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ─────────────────────────────────
+#  SHOPIFY CHECKOUT + ORDER WEBHOOKS
+# ─────────────────────────────────
+@app.route("/webhooks/shopify/checkout/create", methods=["POST"])
+def webhook_shopify_checkout_create():
+    """Store abandoned checkout data from Shopify for cart recovery flows."""
+    try:
+        raw_body = request.get_data()
+        is_valid, error = verify_shopify_webhook(raw_body, request.headers)
+        if not is_valid:
+            app.logger.warning(f"Checkout webhook HMAC failed: {error}")
+            return jsonify({"error": "Unauthorized"}), 401
+
+        data = request.get_json(force=True)
+        checkout_id = str(data.get("id", ""))
+        email = (data.get("email") or "").strip().lower()
+        if not checkout_id or not email:
+            return jsonify({"error": "Missing checkout_id or email"}), 400
+
+        # Parse line items
+        line_items = []
+        for item in data.get("line_items", []):
+            line_items.append({
+                "title": item.get("title", ""),
+                "quantity": item.get("quantity", 1),
+                "price": item.get("price", "0.00"),
+                "image_url": item.get("image_url", "") or "",
+            })
+
+        # Find contact
+        contact = Contact.get_or_none(Contact.email == email)
+
+        import json as _json
+        AbandonedCheckout.insert(
+            shopify_checkout_id=checkout_id,
+            email=email,
+            contact=contact,
+            checkout_url=data.get("abandoned_checkout_url") or data.get("checkout_url", ""),
+            total_price=float(data.get("total_price", 0)),
+            currency=data.get("currency", "CAD"),
+            line_items_json=_json.dumps(line_items),
+            recovered=False,
+            abandoned_at=data.get("created_at") or datetime.now().isoformat(),
+            enrolled_in_flow=False,
+        ).on_conflict(
+            conflict_target=[AbandonedCheckout.shopify_checkout_id],
+            update={
+                AbandonedCheckout.email: email,
+                AbandonedCheckout.total_price: float(data.get("total_price", 0)),
+                AbandonedCheckout.line_items_json: _json.dumps(line_items),
+                AbandonedCheckout.checkout_url: data.get("abandoned_checkout_url") or data.get("checkout_url", ""),
+            }
+        ).execute()
+
+        app.logger.info(f"Checkout webhook stored: {email} (checkout {checkout_id})")
+        return jsonify({"success": True}), 200
+
+    except Exception as e:
+        app.logger.error(f"Checkout webhook error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/webhooks/shopify/order/create", methods=["POST"])
+def webhook_shopify_order_create():
+    """
+    Handle Shopify order creation:
+    1. Mark any matching abandoned checkout as recovered
+    2. Cancel any active checkout_abandoned flow enrollments
+    3. Enroll contact in order_placed flows
+    """
+    try:
+        raw_body = request.get_data()
+        is_valid, error = verify_shopify_webhook(raw_body, request.headers)
+        if not is_valid:
+            app.logger.warning(f"Order webhook HMAC failed: {error}")
+            return jsonify({"error": "Unauthorized"}), 401
+
+        data = request.get_json(force=True)
+        email = (data.get("email") or data.get("contact_email") or "").strip().lower()
+        if not email:
+            return jsonify({"error": "No email in order"}), 400
+
+        contact = Contact.get_or_none(Contact.email == email)
+
+        # 1. Mark abandoned checkouts as recovered
+        (AbandonedCheckout.update(recovered=True, recovered_at=datetime.now())
+         .where(AbandonedCheckout.email == email, AbandonedCheckout.recovered == False)
+         .execute())
+
+        if contact:
+            # 2. Smart exit: cancel checkout + browse flows (Phase 3)
+            _exit_flows_by_trigger_type(contact, ["checkout_abandoned", "browse_abandonment"])
+
+            # 3. Enroll in order_placed flows
+            _enroll_contact_in_flows(contact, "order_placed")
+            app.logger.info(f"Order webhook: {email} — exited checkout/browse flows, enrolled in post-purchase")
+
+        return jsonify({"success": True}), 200
+
+    except Exception as e:
+        app.logger.error(f"Order webhook error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -807,6 +963,206 @@ def delete_template(template_id):
     return redirect(url_for("templates"))
 
 # ─────────────────────────────────
+#  SENT EMAILS LOG
+# ─────────────────────────────────
+@app.route("/sent-emails")
+def sent_emails():
+    from datetime import datetime, timedelta
+
+    page = int(request.args.get("page", 1))
+    per_page = 50
+    search = request.args.get("search", "").strip()
+    email_type = request.args.get("type", "")
+    status_filter = request.args.get("status", "")
+    date_from = request.args.get("from", "")
+    date_to = request.args.get("to", "")
+
+    # Default to last 7 days
+    default_from = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    if not date_from:
+        date_from = default_from
+    if not date_to:
+        date_to = datetime.now().strftime("%Y-%m-%d")
+
+    dt_from = datetime.strptime(date_from, "%Y-%m-%d")
+    dt_to = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+
+    all_emails = []
+
+    # ── Campaign Emails ──
+    if email_type != "flow":
+        ce_query = (CampaignEmail
+                    .select(CampaignEmail, Contact, Campaign)
+                    .join(Contact, on=(CampaignEmail.contact == Contact.id))
+                    .switch(CampaignEmail)
+                    .join(Campaign, on=(CampaignEmail.campaign == Campaign.id))
+                    .where(CampaignEmail.created_at.between(dt_from, dt_to)))
+
+        if search:
+            ce_query = ce_query.where(Contact.email.contains(search))
+        if status_filter == "opened":
+            ce_query = ce_query.where(CampaignEmail.opened == True)
+        elif status_filter:
+            ce_query = ce_query.where(CampaignEmail.status == status_filter)
+
+        # Build subject lookup: campaign_id → subject
+        campaign_subjects = {}
+        for c in Campaign.select(Campaign.id, Campaign.name):
+            try:
+                tpl = EmailTemplate.get_by_id(c.template_id)
+                campaign_subjects[c.id] = tpl.subject or c.name
+            except Exception:
+                campaign_subjects[c.id] = c.name
+
+        for ce in ce_query:
+            name = ""
+            try:
+                name = "{} {}".format(ce.contact.first_name or "", ce.contact.last_name or "").strip()
+            except Exception:
+                pass
+            all_emails.append({
+                "id": ce.id,
+                "sent_at": ce.created_at,
+                "email": ce.contact.email,
+                "name": name or ce.contact.email,
+                "contact_id": ce.contact.id,
+                "type": "campaign",
+                "source": ce.campaign.name,
+                "subject": campaign_subjects.get(ce.campaign.id, ce.campaign.name).replace("{{first_name}}", ce.contact.first_name or "Friend").replace("{{last_name}}", ce.contact.last_name or "").replace("{{email}}", ce.contact.email or ""),
+                "status": "opened" if ce.opened else ce.status,
+                "opened": ce.opened,
+                "opened_at": ce.opened_at,
+                "error_msg": ce.error_msg or "",
+            })
+
+    # ── Flow Emails ──
+    if email_type != "campaign":
+        fe_query = (FlowEmail
+                    .select(FlowEmail, Contact, FlowStep, FlowEnrollment)
+                    .join(Contact, on=(FlowEmail.contact == Contact.id))
+                    .switch(FlowEmail)
+                    .join(FlowStep, on=(FlowEmail.step == FlowStep.id))
+                    .switch(FlowEmail)
+                    .join(FlowEnrollment, on=(FlowEmail.enrollment == FlowEnrollment.id))
+                    .where(FlowEmail.sent_at.between(dt_from, dt_to)))
+
+        if search:
+            fe_query = fe_query.where(Contact.email.contains(search))
+        if status_filter == "opened":
+            fe_query = fe_query.where(FlowEmail.opened == True)
+        elif status_filter:
+            fe_query = fe_query.where(FlowEmail.status == status_filter)
+
+        # Build flow name + subject lookup
+        flow_names = {}
+        for f in Flow.select(Flow.id, Flow.name):
+            flow_names[f.id] = f.name
+        step_subjects = {}
+        for s in FlowStep.select(FlowStep.id, FlowStep.flow, FlowStep.step_order, FlowStep.subject_override, FlowStep.template):
+            try:
+                subject = s.subject_override
+                if not subject:
+                    tpl = EmailTemplate.get_by_id(s.template_id)
+                    subject = tpl.subject or ""
+                step_subjects[s.id] = {
+                    "flow_name": flow_names.get(s.flow_id, "Flow"),
+                    "step_order": s.step_order,
+                    "subject": subject,
+                }
+            except Exception:
+                step_subjects[s.id] = {
+                    "flow_name": flow_names.get(s.flow_id, "Flow"),
+                    "step_order": s.step_order,
+                    "subject": "",
+                }
+
+        for fe in fe_query:
+            name = ""
+            try:
+                name = "{} {}".format(fe.contact.first_name or "", fe.contact.last_name or "").strip()
+            except Exception:
+                pass
+            step_info = step_subjects.get(fe.step.id, {"flow_name": "Flow", "step_order": "?", "subject": ""})
+            all_emails.append({
+                "id": fe.id,
+                "sent_at": fe.sent_at,
+                "email": fe.contact.email,
+                "name": name or fe.contact.email,
+                "contact_id": fe.contact.id,
+                "type": "flow",
+                "source": "{} \u2192 Step {}".format(step_info["flow_name"], step_info["step_order"]),
+                "subject": step_info["subject"].replace("{{first_name}}", fe.contact.first_name or "Friend").replace("{{last_name}}", fe.contact.last_name or "").replace("{{email}}", fe.contact.email or ""),
+                "status": "opened" if fe.opened else fe.status,
+                "opened": fe.opened,
+                "opened_at": fe.opened_at,
+                "error_msg": "",
+            })
+
+    # Sort by time descending
+    all_emails.sort(key=lambda x: x["sent_at"] or datetime.min, reverse=True)
+
+    # Stats (from full filtered list, before pagination)
+    total_count = len(all_emails)
+    total_sent = sum(1 for e in all_emails if e["status"] in ("sent", "opened"))
+    total_opened = sum(1 for e in all_emails if e["opened"])
+    total_failed = sum(1 for e in all_emails if e["status"] in ("failed", "bounced"))
+    open_rate = round(total_opened / total_sent * 100, 1) if total_sent > 0 else 0
+
+    # Paginate
+    start = (page - 1) * per_page
+    end = start + per_page
+    emails = all_emails[start:end]
+
+    return render_template("sent_emails.html",
+        emails=emails,
+        page=page,
+        per_page=per_page,
+        total_count=total_count,
+        total_sent=total_sent,
+        total_opened=total_opened,
+        total_failed=total_failed,
+        open_rate=open_rate,
+        search=search,
+        email_type=email_type,
+        status_filter=status_filter,
+        date_from=date_from,
+        date_to=date_to,
+        default_from=default_from,
+    )
+
+
+# ─────────────────────────────────
+#  SENT EMAIL PREVIEW
+# ─────────────────────────────────
+@app.route("/sent-emails/preview/<email_type>/<int:email_id>")
+def sent_email_preview(email_type, email_id):
+    """Return the rendered HTML of a sent email (for iframe preview)."""
+    try:
+        if email_type == "campaign":
+            ce = CampaignEmail.get_by_id(email_id)
+            contact = ce.contact
+            campaign = ce.campaign
+            template = EmailTemplate.get_by_id(campaign.template_id)
+        elif email_type == "flow":
+            fe = FlowEmail.get_by_id(email_id)
+            contact = fe.contact
+            step = fe.step
+            template = EmailTemplate.get_by_id(step.template_id)
+        else:
+            return "Invalid email type", 400
+
+        html = template.html_body or ""
+        html = html.replace("{{first_name}}", contact.first_name or "Friend")
+        html = html.replace("{{last_name}}", contact.last_name or "")
+        html = html.replace("{{email}}", contact.email or "")
+        html = html.replace("{{unsubscribe_url}}", "#")
+
+        return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+    except Exception as e:
+        return "<html><body><p style='padding:40px;font-family:sans-serif;color:#666;'>Email content not available: %s</p></body></html>" % str(e), 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+# ─────────────────────────────────
 #  CAMPAIGNS
 # ─────────────────────────────────
 @app.route("/campaigns")
@@ -842,9 +1198,9 @@ def api_recipient_count():
     tag = request.args.get("tag", "").strip()
     query = Contact.select().where(Contact.subscribed == True)
     if segment == "custom" and tag:
-        query = query.where(Contact.tags.contains(tag))
+        query = query.where(_tag_match(tag))
     elif segment and segment != "all":
-        query = query.where(Contact.tags.contains(segment))
+        query = query.where(_tag_match(segment))
     return jsonify({"count": query.count()})
 
 
@@ -949,8 +1305,8 @@ def _increment_contact_send_counters(contact_id):
             emails_received_7d=Contact.emails_received_7d + 1,
             emails_received_30d=Contact.emails_received_30d + 1,
         ).where(Contact.id == contact_id).execute()
-    except Exception:
-        pass
+    except Exception as e:
+        app.logger.error("[SilentFix] send counter for contact %s: %s" % (contact_id, e))
 
 def _send_campaign_async(campaign_id):
     campaign = Campaign.get_by_id(campaign_id)
@@ -1047,7 +1403,7 @@ def _get_campaign_contacts(campaign):
 
     query = Contact.select().where(Contact.subscribed == True)
     if campaign.segment_filter and campaign.segment_filter != "all":
-        query = query.where(Contact.tags.contains(campaign.segment_filter))
+        query = query.where(_tag_match(campaign.segment_filter))
 
     # Count recent opens per contact (last 30 days)
     cutoff_30d = (date.today() - timedelta(days=30)).isoformat()
@@ -1083,6 +1439,12 @@ def track_open(campaign_id, contact_id):
         # Update contact-level last_open_at
         try:
             Contact.update(last_open_at=datetime.now()).where(Contact.id == contact_id).execute()
+        except Exception as e:
+            app.logger.warning("[SilentFix] Update last_open_at for contact %s: %s" % (contact_id, e))
+        # Real-time pipeline: refresh after email open
+        try:
+            from cascade import cascade_contact
+            cascade_contact(contact_id, trigger="campaign_open")
         except Exception:
             pass
     except:
@@ -1132,6 +1494,12 @@ def track_open_token(token):
                 ce.opened_at = datetime.now()
                 ce.save()
             Contact.update(last_open_at=datetime.now()).where(Contact.id == contact_id).execute()
+        except Exception as e:
+            app.logger.warning("[SilentFix] Update last_open_at for contact %s: %s" % (contact_id, e))
+        # Real-time pipeline: refresh after email open
+        try:
+            from cascade import cascade_contact
+            cascade_contact(contact_id, trigger="campaign_open_token")
         except Exception:
             pass
     pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
@@ -1157,6 +1525,12 @@ def track_flow_open_token(token):
                 fe.opened_at = datetime.now()
                 fe.save()
             Contact.update(last_open_at=datetime.now()).where(Contact.id == contact_id).execute()
+        except Exception as e:
+            app.logger.warning("[SilentFix] Update last_open_at for contact %s: %s" % (contact_id, e))
+        # Real-time pipeline: refresh after flow email open
+        try:
+            from cascade import cascade_contact
+            cascade_contact(contact_id, trigger="flow_open_token")
         except Exception:
             pass
     pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
@@ -1184,6 +1558,11 @@ def warmup_dashboard():
     total_sent  = recent.where(CampaignEmail.status == "sent").count()
     total_open  = recent.where(CampaignEmail.opened == True).count()
     total_bnc   = recent.where(CampaignEmail.status == "bounced").count()
+    # Include FlowEmail data
+    flow_recent = FlowEmail.select().where(FlowEmail.sent_at >= cutoff)
+    total_sent  += flow_recent.where(FlowEmail.status == "sent").count()
+    total_open  += flow_recent.where(FlowEmail.opened == True).count()
+    total_bnc   += flow_recent.where(FlowEmail.status == "bounced").count()
     open_rate   = round(total_open / total_sent * 100, 1) if total_sent > 0 else 0
     bounce_rate = round(total_bnc  / total_sent * 100, 1) if total_sent > 0 else 0
 
@@ -1247,7 +1626,9 @@ def warmup_dashboard():
     try:
         from peewee import fn
         # Get send/open/bounce stats per recipient domain (top 10)
-        domain_rows = (CampaignEmail
+        # Campaign email domain stats
+        domain_map = {}
+        campaign_rows = (CampaignEmail
             .select(
                 fn.SUBSTR(Contact.email, fn.INSTR(Contact.email, '@') + 1).alias('domain'),
                 fn.COUNT(CampaignEmail.id).alias('sent'),
@@ -1257,18 +1638,41 @@ def warmup_dashboard():
             .where(CampaignEmail.status == "sent", CampaignEmail.created_at >= cutoff)
             .group_by(fn.SUBSTR(Contact.email, fn.INSTR(Contact.email, '@') + 1))
             .order_by(fn.COUNT(CampaignEmail.id).desc())
-            .limit(10)
+            .limit(20)
             .dicts())
+        for row in campaign_rows:
+            d = row.get("domain", "unknown")
+            domain_map[d] = {"sent": row.get("sent", 0), "opens": row.get("opens", 0) or 0}
 
+        # Flow email domain stats — merge in
+        flow_rows = (FlowEmail
+            .select(
+                fn.SUBSTR(Contact.email, fn.INSTR(Contact.email, '@') + 1).alias('domain'),
+                fn.COUNT(FlowEmail.id).alias('sent'),
+                fn.SUM(FlowEmail.opened.cast('int')).alias('opens'),
+            )
+            .join(Contact, on=(FlowEmail.contact == Contact.id))
+            .where(FlowEmail.status == "sent", FlowEmail.sent_at >= cutoff)
+            .group_by(fn.SUBSTR(Contact.email, fn.INSTR(Contact.email, '@') + 1))
+            .order_by(fn.COUNT(FlowEmail.id).desc())
+            .limit(20)
+            .dicts())
+        for row in flow_rows:
+            d = row.get("domain", "unknown")
+            if d in domain_map:
+                domain_map[d]["sent"] += row.get("sent", 0)
+                domain_map[d]["opens"] += row.get("opens", 0) or 0
+            else:
+                domain_map[d] = {"sent": row.get("sent", 0), "opens": row.get("opens", 0) or 0}
+
+        # Sort by sent count, take top 10
         domain_stats = []
-        for row in domain_rows:
-            sent_ct = row.get("sent", 0)
-            open_ct = row.get("opens", 0) or 0
+        for d, v in sorted(domain_map.items(), key=lambda x: x[1]["sent"], reverse=True)[:10]:
             domain_stats.append({
-                "domain": row.get("domain", "unknown"),
-                "sent": sent_ct,
-                "opens": open_ct,
-                "open_rate": round(open_ct / sent_ct * 100, 1) if sent_ct > 0 else 0,
+                "domain": d,
+                "sent": v["sent"],
+                "opens": v["opens"],
+                "open_rate": round(v["opens"] / v["sent"] * 100, 1) if v["sent"] > 0 else 0,
             })
     except Exception:
         pass
@@ -1404,6 +1808,11 @@ def api_warmup_health():
     total_sent = recent.where(CampaignEmail.status == "sent").count()
     total_open = recent.where(CampaignEmail.opened == True).count()
     total_bnc  = recent.where(CampaignEmail.status == "bounced").count()
+    # Include FlowEmail data
+    flow_r     = FlowEmail.select().where(FlowEmail.sent_at >= cutoff)
+    total_sent += flow_r.where(FlowEmail.status == "sent").count()
+    total_open += flow_r.where(FlowEmail.opened == True).count()
+    total_bnc  += flow_r.where(FlowEmail.status == "bounced").count()
     return jsonify({
         "health_score":   health,
         "phase":          config.current_phase,
@@ -1420,6 +1829,69 @@ def api_warmup_health():
 # ─────────────────────────────────
 #  AUTOMATION FLOWS — CORE ENGINE
 # ─────────────────────────────────
+
+# ─────────────────────────────────
+#  FLOW CONTROL: PAUSE / RESUME / EXIT
+# ─────────────────────────────────
+def _pause_lower_priority_enrollments(contact, new_flow):
+    """Pause any active enrollments in flows with LOWER priority (higher number) than new_flow."""
+    active_enrollments = (
+        FlowEnrollment.select(FlowEnrollment, Flow)
+        .join(Flow)
+        .where(FlowEnrollment.contact == contact,
+               FlowEnrollment.status == "active",
+               Flow.priority > new_flow.priority,
+               FlowEnrollment.flow != new_flow)
+    )
+    paused_count = 0
+    for enrollment in active_enrollments:
+        enrollment.status = "paused"
+        enrollment.paused_by_flow = new_flow.id
+        enrollment.save()
+        paused_count += 1
+        app.logger.info(
+            "[SmartExit] Paused '%s' (priority=%s) for contact #%s — entering '%s' (priority=%s)"
+            % (enrollment.flow.name, enrollment.flow.priority, contact.id,
+               new_flow.name, new_flow.priority))
+    return paused_count
+
+
+def _resume_paused_enrollments(completed_flow_id):
+    """Resume enrollments that were paused by the given flow."""
+    paused = list(FlowEnrollment.select().where(
+        FlowEnrollment.paused_by_flow == completed_flow_id,
+        FlowEnrollment.status == "paused"))
+    resumed_count = 0
+    for enrollment in paused:
+        enrollment.status = "active"
+        enrollment.paused_by_flow = 0
+        enrollment.next_send_at = datetime.now()
+        enrollment.save()
+        resumed_count += 1
+        app.logger.info(
+            "[SmartExit] Resumed enrollment #%s (flow #%s) for contact #%s — pausing flow #%s completed/cancelled"
+            % (enrollment.id, enrollment.flow_id, enrollment.contact_id, completed_flow_id))
+    return resumed_count
+
+
+def _exit_flows_by_trigger_type(contact, trigger_types):
+    """Cancel active+paused enrollments in flows matching given trigger types."""
+    flows_to_exit = list(Flow.select().where(Flow.trigger_type.in_(trigger_types)))
+    for flow in flows_to_exit:
+        enrollments = list(FlowEnrollment.select().where(
+            FlowEnrollment.contact == contact,
+            FlowEnrollment.flow == flow,
+            FlowEnrollment.status.in_(["active", "paused"])))
+        for enrollment in enrollments:
+            old_status = enrollment.status
+            enrollment.status = "cancelled"
+            enrollment.save()
+            app.logger.info(
+                "[SmartExit] Exited '%s' for contact #%s (was %s) — conversion event"
+                % (flow.name, contact.id, old_status))
+            # If this flow was pausing others, resume them
+            _resume_paused_enrollments(flow.id)
+
 
 def _enroll_contact_in_flows(contact, trigger_type, trigger_value=""):
     """Enroll a contact in all active flows matching trigger_type (and trigger_value if relevant)."""
@@ -1443,8 +1915,28 @@ def _enroll_contact_in_flows(contact, trigger_type, trigger_value=""):
                 next_send_at=next_send,
                 status="active",
             )
+            # ── Phase 3: Pause lower-priority enrollments ──
+            _pause_lower_priority_enrollments(contact, flow)
         except Exception:
             pass  # Unique constraint — already enrolled
+
+
+
+def _get_last_email_sent_at(contact):
+    """Return datetime of most recent email sent to this contact, or None.
+    Checks both FlowEmail and CampaignEmail tables."""
+    last_flow = (FlowEmail.select(FlowEmail.sent_at)
+                 .where(FlowEmail.contact == contact, FlowEmail.status == "sent")
+                 .order_by(FlowEmail.sent_at.desc()).first())
+    last_campaign = (CampaignEmail.select(CampaignEmail.created_at)
+                     .where(CampaignEmail.contact == contact, CampaignEmail.status == "sent")
+                     .order_by(CampaignEmail.created_at.desc()).first())
+    times = []
+    if last_flow and last_flow.sent_at:
+        times.append(last_flow.sent_at)
+    if last_campaign and last_campaign.created_at:
+        times.append(last_campaign.created_at)
+    return max(times) if times else None
 
 
 def _process_flow_enrollments():
@@ -1455,7 +1947,8 @@ def _process_flow_enrollments():
                .switch(FlowEnrollment)
                .join(Contact)
                .where(FlowEnrollment.status == "active",
-                      FlowEnrollment.next_send_at <= now))
+                      FlowEnrollment.next_send_at <= now)
+               .order_by(Flow.priority.asc()))  # highest priority first
 
     warmup = get_warmup_config()
     today_str = date.today().isoformat()
@@ -1464,11 +1957,23 @@ def _process_flow_enrollments():
         warmup.last_reset_date   = today_str
         warmup.save()
 
+    # ── Phase 2: Track which contacts already sent this tick ──
+    sent_contacts = set()
+
     for enrollment in pending:
         contact = enrollment.contact
+
+        # ── Phase 2: Priority gate — one send per contact per tick ──
+        if contact.id in sent_contacts:
+            app.logger.info(
+                "[Priority] Delayed '%s' (priority=%s) for %s — higher-priority flow already sending this tick"
+                % (enrollment.flow.name, enrollment.flow.priority, contact.email))
+            continue
+
         if not contact.subscribed:
             enrollment.status = "cancelled"
             enrollment.save()
+            _resume_paused_enrollments(enrollment.flow_id)  # Phase 3: resume paused flows
             continue
 
         # ── Suppression list check ───────────────────────────
@@ -1481,6 +1986,22 @@ def _process_flow_enrollments():
         except Exception:
             pass
 
+
+        # ── Phase 1: Frequency cap (16h smart sending) ──────────
+        FREQ_CAP_HOURS = 16
+        last_sent_at = _get_last_email_sent_at(contact)
+        if last_sent_at:
+            hours_since = (now - last_sent_at).total_seconds() / 3600
+            if hours_since < FREQ_CAP_HOURS:
+                new_send_at = last_sent_at + timedelta(hours=FREQ_CAP_HOURS)
+                enrollment.next_send_at = new_send_at
+                enrollment.save()
+                app.logger.info(
+                    "[FreqCap] Delayed '%s' step %s for %s — last email %.1fh ago, rescheduled to %s"
+                    % (enrollment.flow.name, enrollment.current_step, contact.email,
+                       hours_since, new_send_at.strftime('%Y-%m-%d %H:%M')))
+                continue
+
         step = (FlowStep.select()
                 .where(FlowStep.flow == enrollment.flow,
                        FlowStep.step_order == enrollment.current_step)
@@ -1488,6 +2009,7 @@ def _process_flow_enrollments():
         if not step:
             enrollment.status = "completed"
             enrollment.save()
+            _resume_paused_enrollments(enrollment.flow_id)  # Phase 3: resume paused flows
             continue
 
         # Respect warmup daily limit
@@ -1501,6 +2023,39 @@ def _process_flow_enrollments():
         html = html.replace("{{last_name}}",  contact.last_name  or "")
         html = html.replace("{{email}}",      contact.email)
         html = html.replace("{{unsubscribe_url}}", _make_unsubscribe_url(contact))
+        # Generate unique discount code if template uses one
+        if "{{discount_code}}" in html:
+            _dcode = generate_discount_code(template.name, enrollment.id, contact.id)
+            if _dcode:
+                html = html.replace("{{discount_code}}", _dcode)
+                subject = subject if "subject" in dir() else (step.subject_override or template.subject)
+            else:
+                html = html.replace("{{discount_code}}", "")
+
+        # Inject checkout variables for abandoned checkout flows
+        if enrollment.flow.trigger_type == "checkout_abandoned" and ("{{cart_items}}" in html or "{{checkout_url}}" in html):
+            _checkout = (AbandonedCheckout.select()
+                         .where(AbandonedCheckout.contact == contact,
+                                AbandonedCheckout.recovered == False)
+                         .order_by(AbandonedCheckout.created_at.desc())
+                         .first())
+            if _checkout:
+                import json as _json
+                try:
+                    _items = _json.loads(_checkout.line_items_json)
+                    _cart_html = ""
+                    for _it in _items:
+                        _cart_html += f'<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; {_it.get("title","")} x{_it.get("quantity",1)} — ${_it.get("price","0.00")}</p>'
+                    if not _cart_html:
+                        _cart_html = '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>'
+                except Exception:
+                    _cart_html = '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>'
+                html = html.replace("{{cart_items}}", _cart_html)
+                html = html.replace("{{checkout_url}}", _checkout.checkout_url or "https://ldas.ca/checkout")
+            else:
+                html = html.replace("{{cart_items}}", '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>')
+                html = html.replace("{{checkout_url}}", "https://ldas.ca")
+
         flow_pixel = _make_flow_tracking_pixel_url(enrollment.id, step.id, contact.id)
         html += f'<img src="{flow_pixel}" width="1" height="1" />'
 
@@ -1537,6 +2092,13 @@ def _process_flow_enrollments():
 
         if success:
             _increment_contact_send_counters(contact.id)
+            sent_contacts.add(contact.id)  # Phase 2: mark contact as sent this tick
+            # Real-time pipeline: refresh contact intelligence after flow email sent
+            try:
+                from cascade import cascade_contact
+                cascade_contact(contact.id, trigger="flow_email_sent")
+            except Exception:
+                pass
         if success and warmup.is_active:
             warmup.emails_sent_today += 1
             warmup.save()
@@ -1553,238 +2115,412 @@ def _process_flow_enrollments():
         else:
             enrollment.status = "completed"
             enrollment.save()
+            _resume_paused_enrollments(enrollment.flow_id)  # Phase 3: resume paused flows
+
+
+def _check_abandoned_checkouts():
+    """Run every 15 min. Enroll contacts with 1h+ old un-recovered checkouts into checkout_abandoned flows."""
+    try:
+        one_hour_ago = datetime.now() - timedelta(hours=1)
+        pending = (AbandonedCheckout.select()
+                   .where(AbandonedCheckout.recovered == False,
+                          AbandonedCheckout.enrolled_in_flow == False,
+                          AbandonedCheckout.created_at <= one_hour_ago))
+
+        enrolled_count = 0
+        for checkout in pending:
+            contact = checkout.contact
+            if not contact or not contact.subscribed:
+                continue
+
+            # Enroll in checkout_abandoned flows
+            checkout_flows = (Flow.select()
+                              .where(Flow.is_active == True,
+                                     Flow.trigger_type == "checkout_abandoned"))
+            for flow in checkout_flows:
+                first_step = (FlowStep.select()
+                              .where(FlowStep.flow == flow)
+                              .order_by(FlowStep.step_order)
+                              .first())
+                if not first_step:
+                    continue
+                try:
+                    FlowEnrollment.create(
+                        flow=flow,
+                        contact=contact,
+                        current_step=1,
+                        next_send_at=datetime.now() + timedelta(hours=first_step.delay_hours),
+                        status="active",
+                    )
+                    enrolled_count += 1
+                    # Phase 3: Pause lower-priority enrollments
+                    _pause_lower_priority_enrollments(contact, flow)
+                except Exception:
+                    pass  # Already enrolled
+
+            checkout.enrolled_in_flow = True
+            checkout.save()
+
+        if enrolled_count > 0:
+            app.logger.info(f"Abandoned checkout checker: {enrolled_count} enrollments created")
+    except Exception as e:
+        app.logger.error(f"Abandoned checkout checker error: {e}")
 
 
 def _check_passive_triggers():
-    """Run every 30 min. Check no_purchase_days triggers and cancel unsubscribed enrollments."""
-    # Cancel enrollments for unsubscribed contacts
-    unsubbed = Contact.select().where(Contact.subscribed == False)
-    for contact in unsubbed:
-        (FlowEnrollment.update(status="cancelled")
-                       .where(FlowEnrollment.contact == contact,
-                              FlowEnrollment.status == "active")
-                       .execute())
+    """Run every 30 min. Check no_purchase_days triggers and cancel unsubscribed enrollments.
 
-    # no_purchase_days: enroll shopify contacts not yet in these flows
+    Uses batched processing with sleeps to avoid SQLite 'database is locked' errors.
+    Total timeout: 5 minutes max per run.
+    """
+    import time as _time
+
+    BATCH_SIZE = 100
+    BATCH_SLEEP = 0.1  # seconds between batches
+    MAX_RUNTIME = 300  # 5 minutes total timeout
+    _start_time = _time.time()
+
+    def _timed_out():
+        return (_time.time() - _start_time) >= MAX_RUNTIME
+
+    # -- Cancel enrollments for unsubscribed contacts (batched) --
+    try:
+        unsub_ids = list(
+            Contact.select(Contact.id)
+            .where(Contact.subscribed == False)
+            .tuples()
+        )
+        unsub_ids = [r[0] for r in unsub_ids]
+        app.logger.info("Passive triggers: %d unsubscribed contacts to check" % len(unsub_ids))
+
+        for offset in range(0, len(unsub_ids), BATCH_SIZE):
+            if _timed_out():
+                app.logger.warning("Passive triggers: timed out during unsub cancellation at offset %d" % offset)
+                break
+            batch = unsub_ids[offset:offset + BATCH_SIZE]
+            try:
+                (FlowEnrollment.update(status="cancelled")
+                    .where(FlowEnrollment.contact_id.in_(batch),
+                           FlowEnrollment.status.in_(["active", "paused"]))
+                    .execute())
+            except Exception as e:
+                app.logger.warning("Passive triggers: unsub batch error at offset %d: %s" % (offset, e))
+            _time.sleep(BATCH_SLEEP)
+    except Exception as e:
+        app.logger.warning("Passive triggers: unsub phase error: %s" % e)
+
+    if _timed_out():
+        app.logger.warning("Passive triggers: timed out after unsub phase, skipping winback")
+        return
+
+    # -- no_purchase_days: enroll shopify contacts not yet in these flows (batched) --
     winback_flows = (Flow.select()
                      .where(Flow.is_active == True, Flow.trigger_type == "no_purchase_days"))
     for flow in winback_flows:
+        if _timed_out():
+            app.logger.warning("Passive triggers: timed out during winback flows")
+            break
         try:
             days = int(flow.trigger_value)
         except (ValueError, TypeError):
             continue
         cutoff = datetime.now() - timedelta(days=days)
-        shopify_contacts = (Contact.select()
-                            .where(Contact.source == "shopify",
-                                   Contact.created_at <= cutoff,
-                                   Contact.subscribed == True))
-        for contact in shopify_contacts:
-            first_step = (FlowStep.select()
-                          .where(FlowStep.flow == flow)
-                          .order_by(FlowStep.step_order)
-                          .first())
-            if not first_step:
-                continue
-            try:
-                FlowEnrollment.create(
-                    flow=flow,
-                    contact=contact,
-                    current_step=1,
-                    next_send_at=datetime.now(),
-                    status="active",
-                )
-            except Exception:
-                pass  # Already enrolled
 
-    # ── Phase G: Behavioural Trigger Detection (queue, don't send while in sandbox) ──
-    _detect_behavioural_triggers()
+        from database import CustomerProfile
+        try:
+            contact_ids = list(
+                Contact.select(Contact.id)
+                .join(CustomerProfile, on=(CustomerProfile.contact == Contact.id))
+                .where(Contact.source == "shopify",
+                       Contact.subscribed == True,
+                       CustomerProfile.last_order_at.is_null(False),
+                       CustomerProfile.last_order_at <= cutoff)
+                .tuples()
+            )
+            contact_ids = [r[0] for r in contact_ids]
+        except Exception as e:
+            app.logger.warning("Passive triggers: winback query error for flow %s: %s" % (flow.id, e))
+            continue
+
+        first_step = (FlowStep.select()
+                      .where(FlowStep.flow == flow)
+                      .order_by(FlowStep.step_order)
+                      .first())
+        if not first_step:
+            continue
+
+        app.logger.info("Passive triggers: %d candidates for winback flow %s" % (len(contact_ids), flow.id))
+
+        for offset in range(0, len(contact_ids), BATCH_SIZE):
+            if _timed_out():
+                app.logger.warning("Passive triggers: timed out during winback enrollment at offset %d" % offset)
+                break
+            batch = contact_ids[offset:offset + BATCH_SIZE]
+            for cid in batch:
+                try:
+                    FlowEnrollment.create(
+                        flow=flow,
+                        contact=cid,
+                        current_step=1,
+                        next_send_at=datetime.now(),
+                        status="active",
+                    )
+                except Exception:
+                    pass  # Already enrolled
+            _time.sleep(BATCH_SLEEP)
+
+    if _timed_out():
+        app.logger.warning("Passive triggers: timed out after winback phase, skipping behavioural triggers")
+        return
+
+    # -- Phase G: Behavioural Trigger Detection (batched) --
+    _detect_behavioural_triggers(_start_time, MAX_RUNTIME, BATCH_SIZE, BATCH_SLEEP)
 
 
-def _detect_behavioural_triggers():
+def _detect_behavioural_triggers(_start_time=None, _max_runtime=300, _batch_size=100, _batch_sleep=0.1):
     """
     Scan for browse abandonment, cart abandonment, churn risk, high-intent visitors.
-    Queues PendingTrigger records — does NOT trigger email sends (sandbox safe).
+    Queues PendingTrigger records -- does NOT trigger email sends (sandbox safe).
+
+    Uses batched processing to avoid SQLite locking.
     """
     from database import CustomerProfile, CustomerActivity, PendingTrigger, ShopifyOrder
     import json as _json
+    import time as _time
+
+    if _start_time is None:
+        _start_time = _time.time()
+
+    def _timed_out():
+        return (_time.time() - _start_time) >= _max_runtime
 
     now = datetime.now()
 
-    # ── 1. Browse Abandonment: viewed product 2+ times in last 48hrs, didn't buy ──
+    # -- 1. Browse Abandonment: viewed product 2+ times in last 48hrs, didn't buy --
     cutoff_48h = now - timedelta(hours=48)
     try:
-        # Get emails with recent product views
         from peewee import fn
-        browse_candidates = (
+        browse_candidates = list(
             CustomerActivity.select(CustomerActivity.email, fn.COUNT(CustomerActivity.id).alias('view_count'))
             .where(CustomerActivity.event_type == 'viewed_product')
             .where(CustomerActivity.occurred_at >= cutoff_48h)
             .where(CustomerActivity.email != '')
             .group_by(CustomerActivity.email)
             .having(fn.COUNT(CustomerActivity.id) >= 2)
+            .tuples()
         )
-        for row in browse_candidates:
-            email = row.email
-            # Skip if already triggered recently
-            existing = PendingTrigger.select().where(
-                PendingTrigger.email == email,
-                PendingTrigger.trigger_type == 'browse_abandonment',
-                PendingTrigger.detected_at >= cutoff_48h
-            ).count()
-            if existing > 0:
-                continue
+        app.logger.info("Passive triggers: %d browse abandonment candidates" % len(browse_candidates))
 
-            # Check they didn't buy recently
-            recent_order = ShopifyOrder.select().where(
-                ShopifyOrder.email == email,
-                ShopifyOrder.created_at >= cutoff_48h
-            ).count()
-            if recent_order > 0:
-                continue
-
-            # Get the product they viewed most
-            views = (CustomerActivity.select()
-                .where(CustomerActivity.email == email,
-                       CustomerActivity.event_type == 'viewed_product',
-                       CustomerActivity.occurred_at >= cutoff_48h)
-                .order_by(CustomerActivity.occurred_at.desc()))
-            products = {}
-            for v in views:
+        for offset in range(0, len(browse_candidates), _batch_size):
+            if _timed_out():
+                app.logger.warning("Passive triggers: timed out during browse abandonment at offset %d" % offset)
+                break
+            batch = browse_candidates[offset:offset + _batch_size]
+            for row_tuple in batch:
                 try:
-                    data = _json.loads(v.event_data or '{}')
-                    title = data.get('product_title', '').strip()
-                    if title:
-                        products[title] = products.get(title, 0) + 1
-                except:
-                    pass
+                    email = row_tuple[0]
+                    existing = PendingTrigger.select().where(
+                        PendingTrigger.email == email,
+                        PendingTrigger.trigger_type == 'browse_abandonment',
+                        PendingTrigger.detected_at >= cutoff_48h
+                    ).count()
+                    if existing > 0:
+                        continue
 
-            if products:
-                top_product = max(products, key=products.get)
-                PendingTrigger.create(
-                    email=email,
-                    trigger_type='browse_abandonment',
-                    trigger_data=_json.dumps({
-                        'product': top_product,
-                        'view_count': products[top_product],
-                        'all_products': dict(list(products.items())[:5])
-                    }),
-                    detected_at=now,
-                    status='pending'
-                )
+                    recent_order = ShopifyOrder.select().where(
+                        ShopifyOrder.email == email,
+                        ShopifyOrder.created_at >= cutoff_48h
+                    ).count()
+                    if recent_order > 0:
+                        continue
+
+                    views = (CustomerActivity.select()
+                        .where(CustomerActivity.email == email,
+                               CustomerActivity.event_type == 'viewed_product',
+                               CustomerActivity.occurred_at >= cutoff_48h)
+                        .order_by(CustomerActivity.occurred_at.desc()))
+                    products = {}
+                    for v in views:
+                        try:
+                            data = _json.loads(v.event_data or '{}')
+                            title = data.get('product_title', '').strip()
+                            if title:
+                                products[title] = products.get(title, 0) + 1
+                        except:
+                            pass
+
+                    if products:
+                        top_product = max(products, key=products.get)
+                        PendingTrigger.create(
+                            email=email,
+                            trigger_type='browse_abandonment',
+                            trigger_data=_json.dumps({
+                                'product': top_product,
+                                'view_count': products[top_product],
+                                'all_products': dict(list(products.items())[:5])
+                            }),
+                            detected_at=now,
+                            status='pending'
+                        )
+                except Exception as _e:
+                    app.logger.warning("Browse abandonment error for record: %s" % _e)
+            _time.sleep(_batch_sleep)
     except Exception as _e:
         app.logger.warning("Browse abandonment detection error: %s" % _e)
 
-    # ── 2. Cart Abandonment: abandoned_checkout with no completed order ──
+    if _timed_out():
+        app.logger.warning("Passive triggers: timed out after browse abandonment, skipping remaining")
+        return
+
+    # -- 2. Cart Abandonment: abandoned_checkout with no completed order (batched) --
     cutoff_4h = now - timedelta(hours=4)
     cutoff_7d = now - timedelta(days=7)
     try:
-        cart_events = (CustomerActivity.select()
+        cart_events = list(CustomerActivity.select()
             .where(CustomerActivity.event_type == 'abandoned_checkout')
             .where(CustomerActivity.occurred_at >= cutoff_7d)
             .where(CustomerActivity.email != ''))
 
-        for event in cart_events:
-            email = event.email
-            # Skip if already triggered
-            existing = PendingTrigger.select().where(
-                PendingTrigger.email == email,
-                PendingTrigger.trigger_type == 'cart_abandonment',
-                PendingTrigger.detected_at >= cutoff_7d
-            ).count()
-            if existing > 0:
-                continue
+        app.logger.info("Passive triggers: %d cart abandonment events to check" % len(cart_events))
 
-            # Check they didn't complete the order
-            completed = (CustomerActivity.select().where(
-                CustomerActivity.email == email,
-                CustomerActivity.event_type.in_(['completed_checkout', 'placed_order']),
-                CustomerActivity.occurred_at >= event.occurred_at
-            ).count())
-            if completed > 0:
-                continue
+        for offset in range(0, len(cart_events), _batch_size):
+            if _timed_out():
+                app.logger.warning("Passive triggers: timed out during cart abandonment at offset %d" % offset)
+                break
+            batch = cart_events[offset:offset + _batch_size]
+            for event in batch:
+                try:
+                    email = event.email
+                    existing = PendingTrigger.select().where(
+                        PendingTrigger.email == email,
+                        PendingTrigger.trigger_type == 'cart_abandonment',
+                        PendingTrigger.detected_at >= cutoff_7d
+                    ).count()
+                    if existing > 0:
+                        continue
 
-            try:
-                data = _json.loads(event.event_data or '{}')
-            except:
-                data = {}
+                    completed = (CustomerActivity.select().where(
+                        CustomerActivity.email == email,
+                        CustomerActivity.event_type.in_(['completed_checkout', 'placed_order']),
+                        CustomerActivity.occurred_at >= event.occurred_at
+                    ).count())
+                    if completed > 0:
+                        continue
 
-            PendingTrigger.create(
-                email=email,
-                trigger_type='cart_abandonment',
-                trigger_data=_json.dumps({
-                    'checkout_id': data.get('checkout_id', ''),
-                    'products': data.get('products', []),
-                    'total': data.get('total', ''),
-                    'item_count': data.get('item_count', 0)
-                }),
-                detected_at=now,
-                status='pending'
-            )
+                    try:
+                        data = _json.loads(event.event_data or '{}')
+                    except:
+                        data = {}
+
+                    PendingTrigger.create(
+                        email=email,
+                        trigger_type='cart_abandonment',
+                        trigger_data=_json.dumps({
+                            'checkout_id': data.get('checkout_id', ''),
+                            'products': data.get('products', []),
+                            'total': data.get('total', ''),
+                            'item_count': data.get('item_count', 0)
+                        }),
+                        detected_at=now,
+                        status='pending'
+                    )
+                except Exception as _e:
+                    app.logger.warning("Cart abandonment error for record: %s" % _e)
+            _time.sleep(_batch_sleep)
     except Exception as _e:
         app.logger.warning("Cart abandonment detection error: %s" % _e)
 
-    # ── 3. Churn Risk High: churn_risk >= 1.5 for customers with orders ──
+    if _timed_out():
+        app.logger.warning("Passive triggers: timed out after cart abandonment, skipping remaining")
+        return
+
+    # -- 3. Churn Risk High: churn_risk >= 1.5 for customers with orders (batched) --
     try:
-        churn_profiles = (CustomerProfile.select()
+        churn_profiles = list(CustomerProfile.select()
             .where(CustomerProfile.churn_risk >= 1.5)
             .where(CustomerProfile.total_orders > 0))
 
-        for profile in churn_profiles:
-            email = profile.email
-            # Skip if already triggered in last 30 days
-            cutoff_30d = now - timedelta(days=30)
-            existing = PendingTrigger.select().where(
-                PendingTrigger.email == email,
-                PendingTrigger.trigger_type == 'churn_risk_high',
-                PendingTrigger.detected_at >= cutoff_30d
-            ).count()
-            if existing > 0:
-                continue
+        app.logger.info("Passive triggers: %d churn risk profiles to check" % len(churn_profiles))
 
-            PendingTrigger.create(
-                email=email,
-                trigger_type='churn_risk_high',
-                trigger_data=_json.dumps({
-                    'churn_risk': profile.churn_risk,
-                    'predicted_ltv': profile.predicted_ltv,
-                    'days_since_last_order': profile.days_since_last_order,
-                    'total_orders': profile.total_orders,
-                    'avg_order_value': profile.avg_order_value
-                }),
-                detected_at=now,
-                status='pending'
-            )
+        for offset in range(0, len(churn_profiles), _batch_size):
+            if _timed_out():
+                app.logger.warning("Passive triggers: timed out during churn risk at offset %d" % offset)
+                break
+            batch = churn_profiles[offset:offset + _batch_size]
+            for profile in batch:
+                try:
+                    email = profile.email
+                    cutoff_30d = now - timedelta(days=30)
+                    existing = PendingTrigger.select().where(
+                        PendingTrigger.email == email,
+                        PendingTrigger.trigger_type == 'churn_risk_high',
+                        PendingTrigger.detected_at >= cutoff_30d
+                    ).count()
+                    if existing > 0:
+                        continue
+
+                    PendingTrigger.create(
+                        email=email,
+                        trigger_type='churn_risk_high',
+                        trigger_data=_json.dumps({
+                            'churn_risk': profile.churn_risk,
+                            'predicted_ltv': profile.predicted_ltv,
+                            'days_since_last_order': profile.days_since_last_order,
+                            'total_orders': profile.total_orders,
+                            'avg_order_value': profile.avg_order_value
+                        }),
+                        detected_at=now,
+                        status='pending'
+                    )
+                except Exception as _e:
+                    app.logger.warning("Churn risk error for record: %s" % _e)
+            _time.sleep(_batch_sleep)
     except Exception as _e:
         app.logger.warning("Churn risk detection error: %s" % _e)
 
-    # ── 4. High Intent No Purchase: engagement > 50, 0 orders ──
+    if _timed_out():
+        app.logger.warning("Passive triggers: timed out after churn risk, skipping remaining")
+        return
+
+    # -- 4. High Intent No Purchase: engagement > 50, 0 orders (batched) --
     try:
-        intent_profiles = (CustomerProfile.select()
+        intent_profiles = list(CustomerProfile.select()
             .where(CustomerProfile.website_engagement_score >= 50)
             .where(CustomerProfile.total_orders == 0))
 
-        for profile in intent_profiles:
-            email = profile.email
-            cutoff_7d = now - timedelta(days=7)
-            existing = PendingTrigger.select().where(
-                PendingTrigger.email == email,
-                PendingTrigger.trigger_type == 'high_engagement_no_purchase',
-                PendingTrigger.detected_at >= cutoff_7d
-            ).count()
-            if existing > 0:
-                continue
+        app.logger.info("Passive triggers: %d high intent profiles to check" % len(intent_profiles))
 
-            PendingTrigger.create(
-                email=email,
-                trigger_type='high_engagement_no_purchase',
-                trigger_data=_json.dumps({
-                    'engagement_score': profile.website_engagement_score,
-                    'product_views': profile.total_product_views,
-                    'last_viewed': profile.last_viewed_product or ''
-                }),
-                detected_at=now,
-                status='pending'
-            )
+        for offset in range(0, len(intent_profiles), _batch_size):
+            if _timed_out():
+                app.logger.warning("Passive triggers: timed out during high intent at offset %d" % offset)
+                break
+            batch = intent_profiles[offset:offset + _batch_size]
+            for profile in batch:
+                try:
+                    email = profile.email
+                    cutoff_7d_intent = now - timedelta(days=7)
+                    existing = PendingTrigger.select().where(
+                        PendingTrigger.email == email,
+                        PendingTrigger.trigger_type == 'high_engagement_no_purchase',
+                        PendingTrigger.detected_at >= cutoff_7d_intent
+                    ).count()
+                    if existing > 0:
+                        continue
+
+                    PendingTrigger.create(
+                        email=email,
+                        trigger_type='high_engagement_no_purchase',
+                        trigger_data=_json.dumps({
+                            'engagement_score': profile.website_engagement_score,
+                            'product_views': profile.total_product_views,
+                            'last_viewed': profile.last_viewed_product or ''
+                        }),
+                        detected_at=now,
+                        status='pending'
+                    )
+                except Exception as _e:
+                    app.logger.warning("High intent error for record: %s" % _e)
+            _time.sleep(_batch_sleep)
     except Exception as _e:
         app.logger.warning("High intent detection error: %s" % _e)
 
@@ -1794,10 +2530,10 @@ def _detect_behavioural_triggers():
         cart_count = PendingTrigger.select().where(PendingTrigger.trigger_type == 'cart_abandonment', PendingTrigger.status == 'pending').count()
         churn_count = PendingTrigger.select().where(PendingTrigger.trigger_type == 'churn_risk_high', PendingTrigger.status == 'pending').count()
         intent_count = PendingTrigger.select().where(PendingTrigger.trigger_type == 'high_engagement_no_purchase', PendingTrigger.status == 'pending').count()
-        app.logger.info("Trigger detection: browse=%d, cart=%d, churn=%d, intent=%d" % (browse_count, cart_count, churn_count, intent_count))
+        elapsed = _time.time() - _start_time
+        app.logger.info("Trigger detection complete in %.1fs: browse=%d, cart=%d, churn=%d, intent=%d" % (elapsed, browse_count, cart_count, churn_count, intent_count))
     except:
         pass
-
 
 # ─────────────────────────────────
 #  AUTOMATION FLOWS — ROUTES
@@ -1840,6 +2576,7 @@ def new_flow():
             description=request.form.get("description", ""),
             trigger_type=request.form["trigger_type"],
             trigger_value=request.form.get("trigger_value", ""),
+            priority=int(request.form.get("priority", "5")),
             is_active=False,
         )
         flash(f"Flow '{flow.name}' created! Add steps below, then enable it.", "success")
@@ -1868,6 +2605,8 @@ def flow_detail(flow_id):
                                                FlowEnrollment.status == "completed").count()
     cancelled = FlowEnrollment.select().where(FlowEnrollment.flow == flow,
                                                FlowEnrollment.status == "cancelled").count()
+    paused   = FlowEnrollment.select().where(FlowEnrollment.flow == flow,
+                                              FlowEnrollment.status == "paused").count()
 
     flow_emails = FlowEmail.select().join(FlowEnrollment).where(FlowEnrollment.flow == flow)
     sent   = flow_emails.where(FlowEmail.status == "sent").count()
@@ -1879,7 +2618,7 @@ def flow_detail(flow_id):
         steps=steps,
         templates=templates,
         enrollments=enrollments,
-        total=total, active=active, completed=completed, cancelled=cancelled,
+        total=total, active=active, completed=completed, cancelled=cancelled, paused=paused,
         sent=sent, open_rate=open_rate,
     )
 
@@ -1891,6 +2630,20 @@ def flow_toggle(flow_id):
     flow.save()
     state = "enabled" if flow.is_active else "disabled"
     flash(f"Flow '{flow.name}' {state}.", "success")
+    return redirect(url_for("flow_detail", flow_id=flow_id))
+
+
+@app.route("/flows/<int:flow_id>/priority", methods=["POST"])
+def flow_update_priority(flow_id):
+    flow = Flow.get_by_id(flow_id)
+    try:
+        new_priority = int(request.form.get("priority", flow.priority))
+        new_priority = max(1, min(10, new_priority))
+    except (ValueError, TypeError):
+        new_priority = flow.priority
+    flow.priority = new_priority
+    flow.save()
+    flash(f"Priority updated to {new_priority}.", "success")
     return redirect(url_for("flow_detail", flow_id=flow_id))
 
 
@@ -2023,6 +2776,12 @@ def track_flow_open(enrollment_id, step_id):
         # Update contact-level last_open_at
         try:
             Contact.update(last_open_at=datetime.now()).where(Contact.id == fe.contact_id).execute()
+        except Exception as e:
+            app.logger.warning("[SilentFix] Update last_open_at for flow contact %s: %s" % (fe.contact_id, e))
+        # Real-time pipeline: refresh after flow email open
+        try:
+            from cascade import cascade_contact
+            cascade_contact(fe.contact_id, trigger="flow_open_legacy")
         except Exception:
             pass
     except Exception:
@@ -2592,7 +3351,7 @@ def profiles_list():
 
 @app.route("/profiles/<int:contact_id>")
 def profile_detail(contact_id):
-    from database import Contact, CustomerProfile, ShopifyOrder, ShopifyOrderItem, CampaignEmail
+    from database import Contact, CustomerProfile, ShopifyOrder, ShopifyOrderItem, CampaignEmail, FlowEmail, FlowStep, Campaign
     import json as _json
 
     contact = Contact.get_or_none(Contact.id == contact_id)
@@ -2623,13 +3382,49 @@ def profile_detail(contact_id):
         cat_counts[cat] = cat_counts.get(cat, 0) + item.get("qty", 1)
     top_categories = sorted(cat_counts.items(), key=lambda x: -x[1])
 
-    # Email activity (last 20)
-    email_activity = list(
-        CampaignEmail.select()
+    # Email activity (last 20) — merge CampaignEmail + FlowEmail
+    campaign_emails = list(
+        CampaignEmail.select(
+            CampaignEmail.id,
+            CampaignEmail.status,
+            CampaignEmail.opened,
+            CampaignEmail.opened_at,
+            CampaignEmail.created_at,
+            Campaign.name.alias("source_name"),
+        )
+        .join(Campaign, on=(CampaignEmail.campaign == Campaign.id))
         .where(CampaignEmail.contact_id == contact_id)
         .order_by(CampaignEmail.created_at.desc())
         .limit(20)
+        .dicts()
     )
+    for ce in campaign_emails:
+        ce["email_type"] = "campaign"
+        ce["sent_at"] = ce["created_at"]
+
+    flow_emails = list(
+        FlowEmail.select(
+            FlowEmail.id,
+            FlowEmail.status,
+            FlowEmail.opened,
+            FlowEmail.opened_at,
+            FlowEmail.sent_at,
+            EmailTemplate.name.alias("source_name"),
+        )
+        .join(FlowStep, on=(FlowEmail.step == FlowStep.id))
+        .join(EmailTemplate, on=(FlowStep.template == EmailTemplate.id))
+        .where(FlowEmail.contact == contact_id)
+        .order_by(FlowEmail.sent_at.desc())
+        .limit(20)
+        .dicts()
+    )
+    for fe in flow_emails:
+        fe["email_type"] = "flow"
+
+    # Merge and sort by sent_at descending, take top 20
+    _all_emails = campaign_emails + flow_emails
+    _all_emails.sort(key=lambda x: x.get("sent_at") or "", reverse=True)
+    email_activity = _all_emails[:20]
 
     # Website activity / journey (last 30 events)
     from database import CustomerActivity
@@ -2685,7 +3480,7 @@ def profile_detail(contact_id):
             f"We noticed you've been checking out the {top_intent}.",
             "We'd love to help you get it — here's a special offer just for you:",
             "",
-            "Shop now: https://ldas-electronics.com",
+            "Shop now: https://ldas.ca",
             "",
         ]
     if search_terms:
@@ -2890,7 +3685,7 @@ def campaign_planner_page():
 def campaign_planner_scan():
     import threading
     def _run():
-        import sys as _sp; _sp.path.insert(0, "/var/www/mailengine")
+        import sys as _sp; _sp.path.insert(0, APP_DIR)
         from campaign_planner import scan_opportunities
         scan_opportunities()
     threading.Thread(target=_run, daemon=True).start()
@@ -2900,7 +3695,7 @@ def campaign_planner_scan():
 @app.route("/api/campaign-planner/<int:sc_id>/accept", methods=["POST"])
 def campaign_planner_accept(sc_id):
     try:
-        import sys as _sa; _sa.path.insert(0, "/var/www/mailengine")
+        import sys as _sa; _sa.path.insert(0, APP_DIR)
         from campaign_planner import accept_opportunity
         campaign_id = accept_opportunity(sc_id)
         return jsonify({"ok": True, "campaign_id": campaign_id})
@@ -3057,7 +3852,7 @@ def ai_email_preview(contact_id):
 
 @app.route("/ai-engine")
 def ai_engine_dashboard():
-    from database import ContactScore, AIMarketingPlan, AIDecisionLog, CustomerProfile, PendingTrigger, AIGeneratedEmail
+    from database import ContactScore, AIMarketingPlan, AIDecisionLog, CustomerProfile, PendingTrigger, AIGeneratedEmail, WarmupConfig
     from peewee import fn
 
     segments = {}
@@ -3136,6 +3931,9 @@ def ai_engine_dashboard():
     except:
         top_recs = []
 
+    # Warmup / SES status for banner
+    warmup_config = WarmupConfig.get_or_none()
+
     return render_template("ai_engine.html",
         segments=segments, plan=plan, recent_plans=recent_plans,
         recent_decisions=recent_decisions, total_scored=total_scored,
@@ -3143,7 +3941,7 @@ def ai_engine_dashboard():
         revenue_on_track=revenue_on_track,
         trigger_counts=trigger_counts, total_triggers=total_triggers,
         recent_ai_emails=recent_ai_emails, total_ai_emails=total_ai_emails,
-        top_recs=top_recs)
+        top_recs=top_recs, warmup_config=warmup_config)
 
 
 
@@ -3261,6 +4059,7 @@ def activity_feed():
 
     return render_template("activity.html",
         feed=feed,
+        site_url=SITE_URL,
         total_events=total_events,
         today_events=today_events,
         week_events=week_events,
@@ -3376,7 +4175,7 @@ def identify_visitor():
         import threading as _th
         _email_copy = email
         def _enrich_bg():
-            import sys as _s; _s.path.insert(0, '/var/www/mailengine')
+            import sys as _s; _s.path.insert(0, APP_DIR)
             from activity_sync import enrich_single_profile
             enrich_single_profile(_email_copy)
         _th.Thread(target=_enrich_bg, daemon=True).start()
@@ -3437,12 +4236,148 @@ def track_event():
         return jsonify({"ok": False, "error": str(e)}), 400, cors_headers
 
 
+
+@app.route("/api/subscribe", methods=["POST", "OPTIONS"])
+def api_subscribe():
+    """Popup subscription widget — capture email, create contact, generate discount."""
+    from database import CustomerActivity, Contact, CustomerProfile
+    import json as _json, re as _re
+
+    cors_headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+    }
+
+    if request.method == "OPTIONS":
+        return "", 204, cors_headers
+
+    try:
+        payload    = request.get_json(silent=True) or {}
+        email      = (payload.get("email") or "").strip().lower()
+        session_id = (payload.get("session_id") or "").strip()
+
+        # ── Validate email ──
+        if not email or not _re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
+            return jsonify({"ok": False, "error": "Please enter a valid email address."}), 400, cors_headers
+
+        # Block obviously disposable domains
+        disposable = {"mailinator.com", "guerrillamail.com", "tempmail.com", "throwaway.email",
+                      "yopmail.com", "sharklasers.com", "guerrillamailblock.com", "grr.la",
+                      "dispostable.com", "trashmail.com", "10minutemail.com", "temp-mail.org"}
+        domain = email.split("@")[-1]
+        if domain in disposable:
+            return jsonify({"ok": False, "error": "Please use a real email address."}), 400, cors_headers
+
+        # ── Rate limiting (simple IP-based, 5 per hour) ──
+        client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown")
+        if "," in client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+
+        from datetime import datetime, timedelta
+        one_hour_ago = datetime.now() - timedelta(hours=1)
+        recent_subs = CustomerActivity.select().where(
+            CustomerActivity.event_type == "popup_subscribe",
+            CustomerActivity.source_ref == client_ip,
+            CustomerActivity.occurred_at >= one_hour_ago
+        ).count()
+        if recent_subs >= 5:
+            return jsonify({"ok": False, "error": "Too many requests. Please try again later."}), 429, cors_headers
+
+        # ── Create or find contact ──
+        contact, created = Contact.get_or_create(
+            email=email,
+            defaults={
+                "source": "popup_widget",
+                "subscribed": True,
+                "created_at": datetime.now(),
+            }
+        )
+
+        # If existing contact, ensure they're subscribed
+        if not created and not contact.subscribed:
+            contact.subscribed = True
+            contact.save()
+            app.logger.info(f"Popup re-subscribed existing contact: {email}")
+
+        # Create CustomerProfile stub if new
+        if created:
+            try:
+                CustomerProfile.get_or_create(
+                    contact=contact,
+                    defaults={"email": email, "last_computed_at": datetime.now()}
+                )
+            except Exception:
+                pass
+
+        # ── Session stitching (same as /api/identify) ──
+        if session_id:
+            try:
+                stitched = (
+                    CustomerActivity.update(email=email, contact_id=contact.id)
+                    .where(CustomerActivity.session_id == session_id)
+                    .where(CustomerActivity.email == "")
+                    .execute()
+                )
+                if stitched:
+                    app.logger.info(f"Popup stitched {stitched} events for {email}")
+            except Exception:
+                pass
+
+        # ── Log the subscribe event ──
+        CustomerActivity.create(
+            contact_id=contact.id,
+            email=email,
+            event_type="popup_subscribe",
+            event_data=_json.dumps({"source": "popup_widget", "new": created}),
+            source="popup",
+            source_ref=client_ip,
+            session_id=session_id,
+            occurred_at=datetime.now(),
+        )
+
+        # ── Generate 10% discount code ──
+        discount_code = None
+        try:
+            from discount_codes import generate_popup_discount
+            discount_code = generate_popup_discount(contact.id, email)
+        except Exception as e:
+            app.logger.error(f"Popup discount generation failed for {email}: {e}")
+
+        # ── Trigger intelligence cascade ──
+        try:
+            from cascade import cascade_contact
+            cascade_contact(contact.id, trigger="popup_subscribe")
+        except Exception as e:
+            app.logger.warning(f"Popup cascade trigger failed for {email}: {e}")
+
+        # ── Enroll new subscribers in welcome flow ──
+        if created:
+            try:
+                _enroll_contact_in_flows(contact, "contact_created")
+                app.logger.info(f"Popup enrolled {email} in welcome flow")
+            except Exception as e:
+                app.logger.warning(f"Popup flow enrollment failed for {email}: {e}")
+
+        app.logger.info(f"Popup subscribe: {email} (new={created}, code={discount_code})")
+
+        return jsonify({
+            "ok": True,
+            "discount_code": discount_code,
+            "new_contact": created,
+        }), 200, cors_headers
+
+    except Exception as e:
+        app.logger.error(f"Popup subscribe error: {e}")
+        return jsonify({"ok": False, "error": "Something went wrong. Please try again."}), 500, cors_headers
+
+
 @app.route("/activity/sync", methods=["POST"])
 def activity_sync_trigger():
     """Manually trigger full activity sync in background."""
     import threading, sys as _sys
     def _run():
-        _sys.path.insert(0, "/var/www/mailengine")
+        _sys.path.insert(0, APP_DIR)
         import activity_sync as _sync
         _sync.run_full_activity_sync()
     threading.Thread(target=_run, daemon=True).start()
@@ -3520,16 +4455,34 @@ def _recalculate_deliverability_scores():
 # ─────────────────────────────────
 #  START BACKGROUND SCHEDULER
 # ─────────────────────────────────
-# Guard prevents double-scheduling in Flask debug/reloader mode.
-if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
+# Guard prevents double-scheduling across Gunicorn workers using file lock.
+_scheduler_lock_fd = None
+def _try_scheduler_lock():
+    """Try to acquire exclusive lock. Returns True if lock acquired."""
+    global _scheduler_lock_fd
+    try:
+        _scheduler_lock_fd = open("/tmp/mailengine_scheduler.lock", "a")
+        fcntl.flock(_scheduler_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _scheduler_lock_fd.write(str(os.getpid()) + "\n")
+        _scheduler_lock_fd.flush()
+        return True
+    except (IOError, OSError):
+        if _scheduler_lock_fd:
+            _scheduler_lock_fd.close()
+            _scheduler_lock_fd = None
+        return False
+
+if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and _try_scheduler_lock():
     _scheduler.add_job(_process_flow_enrollments, "interval", seconds=60,
                        id="flow_processor", replace_existing=True)
     _scheduler.add_job(_check_passive_triggers, "interval", minutes=30,
                        id="passive_triggers", replace_existing=True)
+    _scheduler.add_job(_check_abandoned_checkouts, "interval", minutes=15,
+                       id="abandoned_checkout_checker", replace_existing=True)
     # ── Nightly contact scoring at 2:30am (RFM + engagement) ──
     def _run_nightly_contact_scoring():
         try:
-            import sys as _sc; _sc.path.insert(0, '/var/www/mailengine')
+            import sys as _sc; _sc.path.insert(0, APP_DIR)
             from ai_engine import score_all_contacts
             app.logger.info("Nightly contact scoring starting...")
             count = score_all_contacts()
@@ -3543,7 +4496,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
     # Nightly activity sync + profile enrichment at 3am
     def _run_nightly_activity_sync():
         try:
-            import sys as _s; _s.path.insert(0, '/var/www/mailengine')
+            import sys as _s; _s.path.insert(0, APP_DIR)
             from activity_sync import run_full_activity_sync
             app.logger.info("Nightly activity sync starting...")
             results = run_full_activity_sync()
@@ -3553,7 +4506,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
 
     def _run_nightly_intelligence():
         try:
-            import sys as _si; _si.path.insert(0, "/var/www/mailengine")
+            import sys as _si; _si.path.insert(0, APP_DIR)
             from customer_intelligence import compute_all_intelligence
             app.logger.info("Nightly intelligence computation starting...")
             count = compute_all_intelligence()
@@ -3565,7 +4518,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
                        id="nightly_intelligence", replace_existing=True)
     def _run_nightly_decisions():
         try:
-            import sys as _sn; _sn.path.insert(0, '/var/www/mailengine')
+            import sys as _sn; _sn.path.insert(0, APP_DIR)
             from next_best_message import decide_all_contacts
             app.logger.info("Nightly decision engine starting...")
             count = decide_all_contacts()
@@ -3577,7 +4530,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
                        id="nightly_decisions", replace_existing=True)
     def _run_nightly_opportunity_scan():
         try:
-            import sys as _so; _so.path.insert(0, '/var/www/mailengine')
+            import sys as _so; _so.path.insert(0, APP_DIR)
             from campaign_planner import scan_opportunities
             app.logger.info("Nightly opportunity scan starting...")
             opps = scan_opportunities()
@@ -3587,7 +4540,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
 
     def _run_nightly_profit_scoring():
         try:
-            import sys as _sp2; _sp2.path.insert(0, '/var/www/mailengine')
+            import sys as _sp2; _sp2.path.insert(0, APP_DIR)
             from profit_engine import sync_product_commercial_data, compute_product_scores
             app.logger.info("Nightly profit scoring starting...")
             sync_result = sync_product_commercial_data()
@@ -3606,12 +4559,48 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running:
     _scheduler.add_job(_run_nightly_activity_sync, "cron", hour=3, minute=0,
                        id="activity_sync_nightly", replace_existing=True)
 
+    # Incremental Shopify order sync every 2 hours
+    def _run_incremental_shopify_sync():
+        try:
+            import sys as _ss2; _ss2.path.insert(0, APP_DIR)
+            from shopify_enrichment import sync_new_orders
+            app.logger.info("Incremental Shopify sync starting...")
+            result = sync_new_orders()
+            if result.get("new_orders", 0) > 0:
+                app.logger.info(f"Shopify sync: {result['new_orders']} new orders, "
+                                f"{result.get('profiles_refreshed', 0)} profiles refreshed")
+            else:
+                app.logger.info("Shopify sync: no new orders")
+        except Exception as _e:
+            app.logger.error(f"Incremental Shopify sync failed: {_e}")
+
+    _scheduler.add_job(_run_incremental_shopify_sync, "interval", hours=2,
+                       id="shopify_sync_incremental", replace_existing=True)
+
+    # Full Shopify backfill at 2:00am as safety net
+    def _run_nightly_shopify_sync():
+        try:
+            import sys as _ss; _ss.path.insert(0, APP_DIR)
+            from shopify_enrichment import run_shopify_backfill
+            app.logger.info("Nightly Shopify full sync starting...")
+            count = run_shopify_backfill()
+            app.logger.info(f"Shopify full sync complete: {count} profiles rebuilt")
+        except Exception as _e:
+            app.logger.error(f"Nightly Shopify sync failed: {_e}")
+
+    _scheduler.add_job(_run_nightly_shopify_sync, "cron", hour=2, minute=0,
+                       id="shopify_sync_nightly", replace_existing=True)
+
     _scheduler.start()
     atexit.register(lambda: _scheduler.shutdown(wait=False))
-    print("[OK] Background scheduler started (ENABLE_SCHEDULER=1)")
+    sys.stderr.write("[OK] Background scheduler started (ENABLE_SCHEDULER=1, pid=%d)\n" % os.getpid())
 else:
     if os.environ.get("ENABLE_SCHEDULER", "1") != "1":
-        print("[INFO] Scheduler disabled (ENABLE_SCHEDULER != 1)")
+        sys.stderr.write("[INFO] Scheduler disabled (ENABLE_SCHEDULER != 1)\n")
+    elif _scheduler.running:
+        sys.stderr.write("[INFO] Scheduler already running\n")
+    else:
+        sys.stderr.write("[INFO] Scheduler skipped (another worker has lock, pid=%d)\n" % os.getpid())
 
 if __name__ == "__main__":
     init_db()

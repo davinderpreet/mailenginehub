@@ -7,9 +7,10 @@ Stores everything in CustomerActivity table and enriches CustomerProfile.
 import os, sys, json, logging, time, re
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-load_dotenv('/var/www/mailengine/.env')
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_THIS_DIR, '.env'))
 
-sys.path.insert(0, '/var/www/mailengine')
+sys.path.insert(0, _THIS_DIR)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
