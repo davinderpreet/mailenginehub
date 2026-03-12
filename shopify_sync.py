@@ -37,6 +37,93 @@ def _parse_sms_consent(customer):
     return consent.get("state") == "subscribed"
 
 
+def _has_popup_subscription(email):
+    """Check if this email has ever subscribed via popup (our widget overrides Shopify consent)."""
+    try:
+        from database import CustomerActivity
+        return CustomerActivity.select().where(
+            CustomerActivity.email == email,
+            CustomerActivity.event_type == "popup_subscribe"
+        ).count() > 0
+    except Exception:
+        return False
+
+
+def push_consent_to_shopify(email, subscribed=True):
+    """Push email marketing consent to Shopify for a customer.
+
+    Called after popup subscribe so Shopify stays in sync with our system.
+    Uses Shopify Admin REST API: PUT /admin/api/2024-01/customers/{id}.json
+    """
+    import logging
+    logger = logging.getLogger("shopify_sync")
+
+    store_url = _build_store_url()
+    token = os.getenv("SHOPIFY_ACCESS_TOKEN", "").strip()
+    if not store_url or not token:
+        logger.warning("push_consent_to_shopify: missing store URL or token")
+        return False
+
+    # Find Shopify customer ID by email
+    try:
+        contact = Contact.get(Contact.email == email)
+        shopify_id = (contact.shopify_id or "").strip()
+    except Exception:
+        logger.warning("push_consent_to_shopify: contact not found for %s" % email)
+        return False
+
+    # If no shopify_id, search Shopify by email
+    if not shopify_id:
+        try:
+            search_url = "%s/admin/api/2024-01/customers/search.json?query=email:%s" % (store_url, email)
+            headers = {"X-Shopify-Access-Token": token}
+            resp = requests.get(search_url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                customers = resp.json().get("customers", [])
+                if customers:
+                    shopify_id = str(customers[0]["id"])
+                    # Save for future use
+                    contact.shopify_id = shopify_id
+                    contact.save()
+                else:
+                    logger.info("push_consent_to_shopify: %s not found in Shopify" % email)
+                    return False
+            else:
+                logger.warning("push_consent_to_shopify: search failed %d" % resp.status_code)
+                return False
+        except Exception as e:
+            logger.warning("push_consent_to_shopify: search error for %s: %s" % (email, e))
+            return False
+
+    # Update customer marketing consent
+    state = "subscribed" if subscribed else "unsubscribed"
+    payload = {
+        "customer": {
+            "id": int(shopify_id),
+            "email_marketing_consent": {
+                "state": state,
+                "opt_in_level": "single_opt_in",
+                "consent_updated_at": datetime.now().isoformat() + "Z",
+            }
+        }
+    }
+
+    try:
+        url = "%s/admin/api/2024-01/customers/%s.json" % (store_url, shopify_id)
+        headers = {"X-Shopify-Access-Token": token, "Content-Type": "application/json"}
+        resp = requests.put(url, json=payload, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            logger.info("push_consent_to_shopify: %s -> %s (Shopify #%s)" % (email, state, shopify_id))
+            return True
+        else:
+            logger.warning("push_consent_to_shopify: failed %d for %s: %s" % (
+                resp.status_code, email, resp.text[:200]))
+            return False
+    except Exception as e:
+        logger.warning("push_consent_to_shopify: error for %s: %s" % (email, e))
+        return False
+
+
 def _build_store_url():
     """Return the store base URL with https:// guaranteed."""
     url = os.getenv("SHOPIFY_STORE_URL", "").strip().rstrip("/")
@@ -146,7 +233,10 @@ def handle_shopify_customer_webhook(customer_data):
         contact.phone        = customer_data.get("phone") or contact.phone
         # Only downgrade subscription if contact didn't explicitly opt in via popup
         shopify_consent = _parse_email_consent(customer_data)
-        if shopify_consent or contact.source != "popup_widget":
+        if shopify_consent:
+            contact.subscribed = True
+        elif not _has_popup_subscription(contact.email):
+            # Shopify says not subscribed AND no popup opt-in — safe to unsubscribe
             contact.subscribed = shopify_consent
         contact.sms_consent  = _parse_sms_consent(customer_data)
         contact.shopify_id   = shopify_id or contact.shopify_id
@@ -256,7 +346,9 @@ def sync_shopify_customers(progress_callback=None):
                     contact.phone        = customer.get("phone")      or contact.phone
                     # Only downgrade subscription if contact didn't explicitly opt in via popup
                     shopify_consent = _parse_email_consent(customer)
-                    if shopify_consent or contact.source != "popup_widget":
+                    if shopify_consent:
+                        contact.subscribed = True
+                    elif not _has_popup_subscription(contact.email):
                         contact.subscribed = shopify_consent
                     contact.sms_consent  = _parse_sms_consent(customer)
                     contact.shopify_id   = shopify_id   or contact.shopify_id

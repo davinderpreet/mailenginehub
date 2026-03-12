@@ -4786,6 +4786,17 @@ def api_subscribe():
         except Exception as e:
             app.logger.warning(f"Popup flow enrollment failed for {email}: {e}")
 
+        # ── Push consent to Shopify so both systems stay in sync ──
+        try:
+            import threading as _th_shopify
+            _email_push = email
+            def _push_bg():
+                from shopify_sync import push_consent_to_shopify
+                push_consent_to_shopify(_email_push, subscribed=True)
+            _th_shopify.Thread(target=_push_bg, daemon=True).start()
+        except Exception as e:
+            app.logger.warning(f"Popup Shopify consent push failed for {email}: {e}")
+
         app.logger.info(f"Popup subscribe: {email} (new={created}, code={discount_code})")
 
         return jsonify({
