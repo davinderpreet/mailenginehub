@@ -24,6 +24,9 @@ TEST_EMAILS = [
     "scenario6-exit-winback@test.local",
     "scenario7-exit-checkout@test.local",
     "scenario8-exit-browse@test.local",
+    "scenario9-alt-browse@test.local",
+    "scenario10-alt-cart@test.local",
+    "scenario11-url-browse@test.local",
 ]
 
 
@@ -205,8 +208,52 @@ def setup():
     else:
         print("[S8] WARN: No active browse_abandonment flow found")
 
+    # ── S9: Browse with product_name variant ──
+    c9 = Contact.create(
+        email="scenario9-alt-browse@test.local",
+        first_name="ScenarioNine", last_name="Test",
+        subscribed=True, source="shopify",
+    )
+    for i in range(2):
+        CustomerActivity.create(
+            contact=c9, email=c9.email,
+            event_type="viewed_product",
+            event_data='{"product_name": "Alt Widget Deluxe", "product_id": "888"}',
+            occurred_at=datetime.now() - timedelta(hours=2 + i),
+        )
+    print("[S9] Created contact #%d with 2 product views using product_name" % c9.id)
+
+    # ── S10: Cart with checkout_token + line_items array ──
+    c10 = Contact.create(
+        email="scenario10-alt-cart@test.local",
+        first_name="ScenarioTen", last_name="Test",
+        subscribed=True, source="shopify",
+    )
+    CustomerActivity.create(
+        contact=c10, email=c10.email,
+        event_type="abandoned_checkout",
+        event_data='{"checkout_token": "tok-789", "line_items": [{"title": "Item A"}, {"name": "Item B"}], "total_price": "79.99"}',
+        occurred_at=datetime.now() - timedelta(hours=3),
+    )
+    print("[S10] Created contact #%d with abandoned checkout using checkout_token + line_items" % c10.id)
+
+    # ── S11: Browse with product title from URL only ──
+    c11 = Contact.create(
+        email="scenario11-url-browse@test.local",
+        first_name="ScenarioEleven", last_name="Test",
+        subscribed=True, source="shopify",
+    )
+    for i in range(2):
+        CustomerActivity.create(
+            contact=c11, email=c11.email,
+            event_type="viewed_product",
+            event_data='{"url": "https://ldas.ca/products/premium-headphones"}',
+            occurred_at=datetime.now() - timedelta(hours=2 + i),
+        )
+    print("[S11] Created contact #%d with 2 product views from URL only" % c11.id)
+
     print()
-    print("=== All 8 fixtures ready. Run 'trigger' next. ===")
+    print("=== All 11 fixtures ready. Run 'trigger' next. ===")
 
 
 def trigger():
@@ -312,6 +359,29 @@ def trigger():
     en_after = FlowEnrollment.select().where(
         FlowEnrollment.contact == c8, FlowEnrollment.status == "cancelled").count()
     print("  Active before: %d, Cancelled after: %d" % (en_before, en_after))
+
+    # ── S9/S10/S11: Alternative Payload Shape Detection ──
+    from app import _detect_behavioural_triggers
+    import time as _time
+
+    print()
+    print("--- S9/S10/S11: Running behavioural trigger detection ---")
+    _detect_behavioural_triggers(_start_time=_time.time(), _max_runtime=120)
+
+    for label, email in [
+        ("S9", "scenario9-alt-browse@test.local"),
+        ("S10", "scenario10-alt-cart@test.local"),
+        ("S11", "scenario11-url-browse@test.local"),
+    ]:
+        triggers = list(PendingTrigger.select().where(PendingTrigger.email == email))
+        print()
+        print("--- %s: %s ---" % (label, email))
+        if triggers:
+            for t in triggers:
+                print("  PendingTrigger: type=%s status=%s data=%s" % (
+                    t.trigger_type, t.status, (t.trigger_data or "")[:100]))
+        else:
+            print("  WARNING: No PendingTrigger created")
 
     print()
     print("=== Triggers fired. Run 'verify' after ~90 seconds (flow processor + queue processor). ===")
@@ -487,6 +557,98 @@ def verify():
             print("  >>> SCENARIO %s: FAIL" % label.split(":")[0])
             all_pass = False
 
+    # ── S9/S10/S11: Alternative Payload Shape Verification ──
+    import json as _json
+
+    # S9: Browse with product_name variant
+    print()
+    print("--- S9: Browse with product_name variant (scenario9-alt-browse@test.local) ---")
+    results = []
+    triggers = list(PendingTrigger.select().where(
+        PendingTrigger.email == "scenario9-alt-browse@test.local",
+        PendingTrigger.trigger_type == "browse_abandonment"))
+    if triggers:
+        td = _json.loads(triggers[0].trigger_data or '{}')
+        product = td.get('product', '')
+        if 'Alt Widget Deluxe' in product:
+            print("  [PASS] PendingTrigger product='%s' (resolved from product_name)" % product)
+            results.append(True)
+        else:
+            print("  [FAIL] PendingTrigger product='%s' (expected 'Alt Widget Deluxe')" % product)
+            results.append(False)
+    else:
+        print("  [FAIL] No PendingTrigger for browse_abandonment")
+        results.append(False)
+    if all(results):
+        print("  >>> SCENARIO S9: PASS")
+    else:
+        print("  >>> SCENARIO S9: FAIL")
+        all_pass = False
+
+    # S10: Cart with checkout_token + line_items
+    print()
+    print("--- S10: Cart with checkout_token + line_items (scenario10-alt-cart@test.local) ---")
+    results = []
+    triggers = list(PendingTrigger.select().where(
+        PendingTrigger.email == "scenario10-alt-cart@test.local",
+        PendingTrigger.trigger_type == "cart_abandonment"))
+    if triggers:
+        td = _json.loads(triggers[0].trigger_data or '{}')
+        cid = td.get('checkout_id', '')
+        products = td.get('products', [])
+        total = td.get('total', '')
+        if cid == 'tok-789':
+            print("  [PASS] checkout_id='%s' (resolved from checkout_token)" % cid)
+            results.append(True)
+        else:
+            print("  [FAIL] checkout_id='%s' (expected 'tok-789')" % cid)
+            results.append(False)
+        if 'Item A' in products and 'Item B' in products:
+            print("  [PASS] products=%s (resolved from line_items)" % products)
+            results.append(True)
+        else:
+            print("  [FAIL] products=%s (expected ['Item A', 'Item B'])" % products)
+            results.append(False)
+        if str(total) == '79.99':
+            print("  [PASS] total='%s' (resolved from total_price)" % total)
+            results.append(True)
+        else:
+            print("  [FAIL] total='%s' (expected '79.99')" % total)
+            results.append(False)
+    else:
+        print("  [FAIL] No PendingTrigger for cart_abandonment")
+        results.append(False)
+    if all(results):
+        print("  >>> SCENARIO S10: PASS")
+    else:
+        print("  >>> SCENARIO S10: FAIL")
+        all_pass = False
+
+    # S11: Browse with product title from URL
+    print()
+    print("--- S11: Browse with URL-only product (scenario11-url-browse@test.local) ---")
+    results = []
+    triggers = list(PendingTrigger.select().where(
+        PendingTrigger.email == "scenario11-url-browse@test.local",
+        PendingTrigger.trigger_type == "browse_abandonment"))
+    if triggers:
+        td = _json.loads(triggers[0].trigger_data or '{}')
+        product = td.get('product', '')
+        if 'headphones' in product.lower():
+            print("  [PASS] PendingTrigger product='%s' (extracted from URL)" % product)
+            results.append(True)
+        else:
+            print("  [FAIL] PendingTrigger product='%s' (expected URL-derived product)" % product)
+            results.append(False)
+    else:
+        print("  [FAIL] No PendingTrigger for browse_abandonment")
+        results.append(False)
+    if all(results):
+        print("  >>> SCENARIO S11: PASS")
+    else:
+        print("  >>> SCENARIO S11: FAIL")
+        all_pass = False
+
     print()
     print("=" * 60)
     if all_pass:
@@ -494,6 +656,42 @@ def verify():
     else:
         print("OVERALL: SOME SCENARIOS FAILED — see details above")
     print("=" * 60)
+
+
+def backfill():
+    """Re-normalize event_data for all existing CustomerActivity rows."""
+    import json as _json
+    from normalize_activity import normalize_event_data
+
+    total = CustomerActivity.select().count()
+    updated = 0
+    skipped = 0
+    batch_size = 200
+
+    print("Backfilling %d CustomerActivity rows..." % total)
+
+    for offset in range(0, total, batch_size):
+        rows = list(CustomerActivity.select()
+                    .order_by(CustomerActivity.id)
+                    .offset(offset).limit(batch_size))
+        for row in rows:
+            try:
+                data = _json.loads(row.event_data or '{}')
+                if 'raw_payload' in data:
+                    skipped += 1
+                    continue
+                normalized = normalize_event_data(row.event_type, data)
+                row.event_data = _json.dumps(normalized)
+                row.save()
+                updated += 1
+            except Exception as e:
+                skipped += 1
+
+        print("  Processed %d / %d (updated %d, skipped %d)" % (
+            min(offset + batch_size, total), total, updated, skipped))
+
+    print()
+    print("Backfill complete — updated: %d, skipped: %d" % (updated, skipped))
 
 
 if __name__ == "__main__":
@@ -510,5 +708,7 @@ if __name__ == "__main__":
         setup()
         print()
         trigger()
+    elif cmd == "backfill":
+        backfill()
     else:
-        print("Usage: python test_scenarios_live.py [setup|trigger|verify|cleanup|all]")
+        print("Usage: python test_scenarios_live.py [setup|trigger|verify|cleanup|all|backfill]")

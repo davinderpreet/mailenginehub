@@ -822,8 +822,10 @@ def compute_intelligence(contact_id):
             for pv in product_views:
                 try:
                     d = json.loads(pv.event_data)
-                    url = d.get("url", "")
-                    name = url.split("/products/")[-1] if "/products/" in url else ""
+                    name = (d.get("product_title") or d.get("product_name") or "").strip()
+                    if not name:
+                        url = d.get("url", "")
+                        name = url.split("/products/")[-1].split("?")[0] if "/products/" in url else ""
                     if name:
                         if name not in prod_counts:
                             prod_counts[name] = {"name": name, "views": 0}

@@ -2479,7 +2479,12 @@ def _detect_behavioural_triggers(_start_time=None, _max_runtime=300, _batch_size
                     for v in views:
                         try:
                             data = _json.loads(v.event_data or '{}')
-                            title = data.get('product_title', '').strip()
+                            title = (data.get('product_title') or data.get('product_name')
+                                     or data.get('title') or data.get('name') or '').strip()
+                            if not title:
+                                _url = data.get('url', '')
+                                if '/products/' in _url:
+                                    title = _url.split('/products/')[-1].split('?')[0].split('#')[0].replace('-', ' ').strip()
                             if title:
                                 products[title] = products.get(title, 0) + 1
                         except:
@@ -2548,14 +2553,28 @@ def _detect_behavioural_triggers(_start_time=None, _max_runtime=300, _batch_size
                     except:
                         data = {}
 
+                    # Normalize variant field names for old + new data
+                    _cid = (data.get('checkout_id') or data.get('checkout_token')
+                            or data.get('token') or data.get('id', ''))
+                    _products = data.get('products') or []
+                    if not _products:
+                        _items = data.get('line_items') or data.get('items') or []
+                        if _items and isinstance(_items, list):
+                            _products = [(i.get('title') or i.get('name') or i.get('product_title', ''))
+                                         for i in _items if isinstance(i, dict)]
+                            _products = [p for p in _products if p]
+                    _total = (data.get('total') or data.get('total_price')
+                              or data.get('subtotal_price') or data.get('amount', ''))
+                    _ic = data.get('item_count') or data.get('items_count') or len(_products)
+
                     PendingTrigger.create(
                         email=email,
                         trigger_type='cart_abandonment',
                         trigger_data=_json.dumps({
-                            'checkout_id': data.get('checkout_id', ''),
-                            'products': data.get('products', []),
-                            'total': data.get('total', ''),
-                            'item_count': data.get('item_count', 0)
+                            'checkout_id': str(_cid),
+                            'products': _products,
+                            'total': _total,
+                            'item_count': _ic
                         }),
                         detected_at=now,
                         status='pending'
@@ -4393,6 +4412,10 @@ def track_event():
         event_data = payload.get("event_data", {})
         session_id = payload.get("session_id", "")
 
+        # Normalize variant field names into canonical fields
+        from normalize_activity import normalize_event_data
+        event_data = normalize_event_data(event_type, event_data)
+
         contact_id = None
         if email:
             c = Contact.get_or_none(Contact.email == email)
@@ -4511,11 +4534,13 @@ def api_subscribe():
                 pass
 
         # ── Log the subscribe event ──
+        from normalize_activity import normalize_event_data as _norm
+        _sub_data = _norm("popup_subscribe", {"source": "popup_widget", "new": created})
         CustomerActivity.create(
             contact_id=contact.id,
             email=email,
             event_type="popup_subscribe",
-            event_data=_json.dumps({"source": "popup_widget", "new": created}),
+            event_data=_json.dumps(_sub_data),
             source="popup",
             source_ref=client_ip,
             session_id=session_id,

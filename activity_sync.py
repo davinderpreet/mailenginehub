@@ -127,7 +127,8 @@ def sync_shopify_abandoned_checkouts():
         # If completed_at is set, this checkout was completed (= became an order)
         event_type = 'completed_checkout' if completed_at else 'abandoned_checkout'
 
-        event_data = json.dumps({
+        from normalize_activity import normalize_event_data
+        raw = {
             'checkout_id': checkout_id,
             'products': products,
             'total': total,
@@ -135,7 +136,8 @@ def sync_shopify_abandoned_checkouts():
             'item_count': len(line_items),
             'completed': bool(completed_at),
             'utm_source': _extract_utm(ch.get('landing_site', '') or ''),
-        })
+        }
+        event_data = json.dumps(normalize_event_data(event_type, raw))
 
         # Check if already exists
         existing = CustomerActivity.get_or_none(
@@ -195,7 +197,8 @@ def sync_shopify_order_activity():
             continue
 
         contact_id = email_to_contact.get(email)
-        event_data = json.dumps({
+        from normalize_activity import normalize_event_data
+        raw_order = {
             'order_number': o.order_number,
             'order_total': o.order_total,
             'currency': o.currency,
@@ -203,7 +206,8 @@ def sync_shopify_order_activity():
             'fulfillment_status': o.fulfillment_status,
             'discount': o.total_discounts,
             'discount_codes': o.discount_codes,
-        })
+        }
+        event_data = json.dumps(normalize_event_data('placed_order', raw_order))
 
         CustomerActivity.create(
             contact_id  = contact_id,
@@ -345,7 +349,8 @@ def enrich_profiles_with_activity():
                 data = {}
 
             if a.event_type == 'viewed_product':
-                title = data.get('product_title', '').strip()
+                title = (data.get('product_title') or data.get('product_name')
+                         or data.get('title') or data.get('name') or '').strip()
                 if title:
                     product_view_counts[title] = product_view_counts.get(title, 0) + 1
                     if not last_product:
