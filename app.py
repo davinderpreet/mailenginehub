@@ -1062,6 +1062,131 @@ def preview_blocks_template(template_id):
 
 
 # ─────────────────────────────────
+#  AI BLOCK CONTENT GENERATION (Phase 3)
+# ─────────────────────────────────
+@app.route("/api/templates/ai-generate-block", methods=["POST"])
+def api_ai_generate_block():
+    """Generate AI content for a single block type.
+
+    POST JSON:
+      {
+        "block_type": "hero",
+        "family": "welcome",        # optional
+        "purpose": "welcome email", # optional
+        "contact_id": 123,          # optional
+        "fallback": {"headline": "Welcome!"}  # REQUIRED
+      }
+
+    Returns JSON:
+      {"content": {...}, "ai_generated": true/false}
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    block_type = data.get("block_type", "")
+    family = data.get("family", "")
+    purpose = data.get("purpose", "")
+    fallback = data.get("fallback", {})
+    contact_id = data.get("contact_id")
+
+    if not block_type:
+        return jsonify({"error": "block_type is required"}), 400
+    if not fallback:
+        return jsonify({"error": "fallback content is required"}), 400
+
+    from block_registry import BLOCK_TYPES
+    if block_type not in BLOCK_TYPES:
+        return jsonify({"error": "Unknown block_type '%s'" % block_type}), 400
+
+    contact = None
+    if contact_id:
+        try:
+            contact = Contact.get_by_id(int(contact_id))
+        except (Contact.DoesNotExist, ValueError):
+            pass
+
+    try:
+        from ai_content import generate_block_content, AI_WRITABLE_FIELDS
+        writable = AI_WRITABLE_FIELDS.get(block_type, [])
+        if not writable:
+            return jsonify({"content": fallback, "ai_generated": False,
+                            "reason": "No AI-writable fields for block type '%s'" % block_type})
+
+        content = generate_block_content(
+            block_type=block_type,
+            contact=contact,
+            family=family,
+            fallback=fallback,
+            purpose=purpose,
+        )
+        # Check if AI actually changed anything
+        ai_generated = any(content.get(f) != fallback.get(f) for f in writable if f in content)
+        return jsonify({"content": content, "ai_generated": ai_generated})
+
+    except Exception as e:
+        app.logger.error("[AI Content] Generate error: %s" % e)
+        return jsonify({"content": fallback, "ai_generated": False,
+                        "error": str(e)[:200]})
+
+
+@app.route("/api/templates/ai-generate-template", methods=["POST"])
+def api_ai_generate_template():
+    """Generate AI content for all blocks in a template.
+
+    POST JSON:
+      {
+        "blocks": [...],             # REQUIRED: list of block dicts
+        "family": "welcome",         # optional
+        "purpose": "welcome email",  # optional
+        "contact_id": 123            # optional
+      }
+
+    Returns JSON:
+      {"blocks": [...], "ai_fields_updated": int}
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    blocks = data.get("blocks", [])
+    family = data.get("family", "")
+    purpose = data.get("purpose", "")
+    contact_id = data.get("contact_id")
+
+    if not blocks or not isinstance(blocks, list):
+        return jsonify({"error": "blocks list is required"}), 400
+
+    contact = None
+    if contact_id:
+        try:
+            contact = Contact.get_by_id(int(contact_id))
+        except (Contact.DoesNotExist, ValueError):
+            pass
+
+    try:
+        from ai_content import generate_template_content, AI_WRITABLE_FIELDS
+
+        result_blocks = generate_template_content(
+            blocks=blocks,
+            family=family,
+            contact=contact,
+            purpose=purpose,
+            fallback_blocks=blocks,
+        )
+
+        # Count how many fields were updated by AI
+        updated = 0
+        for i, (orig, new) in enumerate(zip(blocks, result_blocks)):
+            bt = orig.get("block_type", "")
+            writable = AI_WRITABLE_FIELDS.get(bt, [])
+            for f in writable:
+                if new.get("content", {}).get(f) != orig.get("content", {}).get(f):
+                    updated += 1
+
+        return jsonify({"blocks": result_blocks, "ai_fields_updated": updated})
+
+    except Exception as e:
+        app.logger.error("[AI Content] Template generate error: %s" % e)
+        return jsonify({"blocks": blocks, "ai_fields_updated": 0,
+                        "error": str(e)[:200]})
+
+
+# ─────────────────────────────────
 #  SENT EMAILS LOG
 # ─────────────────────────────────
 @app.route("/sent-emails")

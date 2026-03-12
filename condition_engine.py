@@ -20,6 +20,7 @@ FIELDS (CONDITION_FIELDS):
     days_since_last_order  | int     | CustomerProfile  | >= 0 (999 = never ordered)
     has_used_discount      | bool    | CustomerProfile  | true / false
     tags                   | str     | Contact          | comma-separated tag string
+    source                 | str     | Contact          | shopify, csv_import, manual, pixel_capture, popup_widget, pixel_identify, popup_subscribe
 
 OPERATORS (CONDITION_OPERATORS):
     Operator       | Accepts types         | Value format         | Behaviour
@@ -148,6 +149,17 @@ CONDITION_FIELDS = {
         "allowed_ops": ["contains", "not_contains", "eq"],
         "default": "",
     },
+    "source": {
+        "type": "str",
+        "label": "Contact Source",
+        "source": "Contact",
+        "allowed_values": [
+            "shopify", "csv_import", "manual",
+            "pixel_capture", "popup_widget", "pixel_identify", "popup_subscribe",
+        ],
+        "allowed_ops": ["eq", "neq", "in"],
+        "default": "manual",
+    },
 }
 
 CONDITION_OPERATORS = {
@@ -216,6 +228,7 @@ def get_contact_context(contact):
         "days_since_last_order": 999,
         "has_used_discount": False,
         "tags": getattr(contact, "tags", "") or "",
+        "source": getattr(contact, "source", "manual") or "manual",
     }
 
     if not contact:
@@ -223,6 +236,7 @@ def get_contact_context(contact):
 
     # Pull from Contact model directly
     ctx["tags"] = getattr(contact, "tags", "") or ""
+    ctx["source"] = getattr(contact, "source", "manual") or "manual"
     ctx["total_orders"] = getattr(contact, "total_orders", 0) or 0
     ctx["total_spent"] = float(getattr(contact, "total_spent", 0.0) or 0.0)
 
