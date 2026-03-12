@@ -21,6 +21,9 @@ TEST_EMAILS = [
     "scenario3-cart@test.local",
     "scenario4-checkout@test.local",
     "scenario5-lapsed@test.local",
+    "scenario6-exit-winback@test.local",
+    "scenario7-exit-checkout@test.local",
+    "scenario8-exit-browse@test.local",
 ]
 
 
@@ -138,8 +141,72 @@ def setup():
         lifecycle_stage="at_risk",
     )
     print("[S5] Created contact #%d with last order 120 days ago" % c5.id)
+
+    # ── S6: Exit Win-Back on Purchase ──
+    # Contact actively enrolled in a win-back flow, then "purchases"
+    c6 = Contact.create(
+        email="scenario6-exit-winback@test.local",
+        first_name="ScenarioSix", last_name="Test",
+        subscribed=True, source="shopify",
+    )
+    winback_flow = Flow.get_or_none(Flow.trigger_type == "no_purchase_days", Flow.is_active == True)
+    if winback_flow:
+        first_step = FlowStep.select().where(FlowStep.flow == winback_flow).order_by(FlowStep.step_order).first()
+        if first_step:
+            FlowEnrollment.create(
+                flow=winback_flow, contact=c6, current_step=1,
+                next_send_at=datetime.now() + timedelta(hours=1), status="active",
+            )
+            print("[S6] Created contact #%d enrolled in '%s' (active)" % (c6.id, winback_flow.name))
+        else:
+            print("[S6] WARN: Win-back flow has no steps")
+    else:
+        print("[S6] WARN: No active win-back flow found")
+
+    # ── S7: Exit Checkout Flow on Order ──
+    # Contact actively enrolled in abandoned checkout flow, then "places order"
+    c7 = Contact.create(
+        email="scenario7-exit-checkout@test.local",
+        first_name="ScenarioSeven", last_name="Test",
+        subscribed=True, source="shopify",
+    )
+    checkout_flow = Flow.get_or_none(Flow.trigger_type == "checkout_abandoned", Flow.is_active == True)
+    if checkout_flow:
+        first_step = FlowStep.select().where(FlowStep.flow == checkout_flow).order_by(FlowStep.step_order).first()
+        if first_step:
+            FlowEnrollment.create(
+                flow=checkout_flow, contact=c7, current_step=1,
+                next_send_at=datetime.now() + timedelta(hours=1), status="active",
+            )
+            print("[S7] Created contact #%d enrolled in '%s' (active)" % (c7.id, checkout_flow.name))
+        else:
+            print("[S7] WARN: Checkout flow has no steps")
+    else:
+        print("[S7] WARN: No active checkout_abandoned flow found")
+
+    # ── S8: Exit Browse Flow on Checkout Start ──
+    # Contact actively enrolled in browse abandonment flow, then "starts checkout"
+    c8 = Contact.create(
+        email="scenario8-exit-browse@test.local",
+        first_name="ScenarioEight", last_name="Test",
+        subscribed=True, source="shopify",
+    )
+    browse_flow = Flow.get_or_none(Flow.trigger_type == "browse_abandonment", Flow.is_active == True)
+    if browse_flow:
+        first_step = FlowStep.select().where(FlowStep.flow == browse_flow).order_by(FlowStep.step_order).first()
+        if first_step:
+            FlowEnrollment.create(
+                flow=browse_flow, contact=c8, current_step=1,
+                next_send_at=datetime.now() + timedelta(hours=1), status="active",
+            )
+            print("[S8] Created contact #%d enrolled in '%s' (active)" % (c8.id, browse_flow.name))
+        else:
+            print("[S8] WARN: Browse flow has no steps")
+    else:
+        print("[S8] WARN: No active browse_abandonment flow found")
+
     print()
-    print("=== All 5 fixtures ready. Run 'trigger' next. ===")
+    print("=== All 8 fixtures ready. Run 'trigger' next. ===")
 
 
 def trigger():
@@ -200,6 +267,51 @@ def trigger():
             print("  Enrollment: %s step=%d next=%s status=%s" % (f.name, en.current_step, en.next_send_at, en.status))
         if not enrollments:
             print("  BUG: No enrollment created for %s" % expected_flow)
+
+    # ── S6/S7/S8: Flow Exit Scenarios ──
+    from app import _exit_flows_by_trigger_type
+
+    print()
+    print("--- S6: Exit Win-Back on Purchase ---")
+    c6 = Contact.get(Contact.email == "scenario6-exit-winback@test.local")
+    en_before = FlowEnrollment.select().where(
+        FlowEnrollment.contact == c6, FlowEnrollment.status == "active").count()
+    _exit_flows_by_trigger_type(
+        c6,
+        ["checkout_abandoned", "browse_abandonment", "cart_abandonment", "no_purchase_days"],
+        reason_code="flow_exit_purchase",
+    )
+    en_after = FlowEnrollment.select().where(
+        FlowEnrollment.contact == c6, FlowEnrollment.status == "cancelled").count()
+    print("  Active before: %d, Cancelled after: %d" % (en_before, en_after))
+
+    print()
+    print("--- S7: Exit Checkout Flow on Order ---")
+    c7 = Contact.get(Contact.email == "scenario7-exit-checkout@test.local")
+    en_before = FlowEnrollment.select().where(
+        FlowEnrollment.contact == c7, FlowEnrollment.status == "active").count()
+    _exit_flows_by_trigger_type(
+        c7,
+        ["checkout_abandoned", "browse_abandonment", "cart_abandonment", "no_purchase_days"],
+        reason_code="flow_exit_purchase",
+    )
+    en_after = FlowEnrollment.select().where(
+        FlowEnrollment.contact == c7, FlowEnrollment.status == "cancelled").count()
+    print("  Active before: %d, Cancelled after: %d" % (en_before, en_after))
+
+    print()
+    print("--- S8: Exit Browse Flow on Checkout Start ---")
+    c8 = Contact.get(Contact.email == "scenario8-exit-browse@test.local")
+    en_before = FlowEnrollment.select().where(
+        FlowEnrollment.contact == c8, FlowEnrollment.status == "active").count()
+    _exit_flows_by_trigger_type(
+        c8,
+        ["browse_abandonment"],
+        reason_code="flow_exit_checkout_started",
+    )
+    en_after = FlowEnrollment.select().where(
+        FlowEnrollment.contact == c8, FlowEnrollment.status == "cancelled").count()
+    print("  Active before: %d, Cancelled after: %d" % (en_before, en_after))
 
     print()
     print("=== Triggers fired. Run 'verify' after ~90 seconds (flow processor + queue processor). ===")
@@ -312,6 +424,61 @@ def verify():
             else:
                 print("  [INFO] No FlowEmail yet (pipeline may not have completed)")
                 results.append(True)
+
+        # Scenario verdict
+        if all(results):
+            print("  >>> SCENARIO %s: PASS" % label.split(":")[0])
+        else:
+            print("  >>> SCENARIO %s: FAIL" % label.split(":")[0])
+            all_pass = False
+
+    # ── S6/S7/S8: Flow Exit Verification ──
+    for label, email, expected_reason in [
+        ("S6: Exit Win-Back on Purchase", "scenario6-exit-winback@test.local", "flow_exit_purchase"),
+        ("S7: Exit Checkout on Order", "scenario7-exit-checkout@test.local", "flow_exit_purchase"),
+        ("S8: Exit Browse on Checkout", "scenario8-exit-browse@test.local", "flow_exit_checkout_started"),
+    ]:
+        print()
+        print("--- %s (%s) ---" % (label, email))
+        results = []
+
+        try:
+            c = Contact.get(Contact.email == email)
+        except Contact.DoesNotExist:
+            print("  FAIL: Contact not found")
+            all_pass = False
+            continue
+
+        # 1. FlowEnrollment should be cancelled
+        enrollments = list(FlowEnrollment.select().where(FlowEnrollment.contact == c))
+        if enrollments:
+            for en in enrollments:
+                f = Flow.get_by_id(en.flow_id)
+                if en.status == "cancelled":
+                    print("  [PASS] FlowEnrollment: %s status=cancelled" % f.name)
+                    results.append(True)
+                else:
+                    print("  [FAIL] FlowEnrollment: %s status=%s (expected cancelled)" % (f.name, en.status))
+                    results.append(False)
+        else:
+            print("  [FAIL] No FlowEnrollment found")
+            results.append(False)
+
+        # 2. ActionLedger should have status=exited with correct reason_code
+        ledger = list(ActionLedger.select().where(
+            ActionLedger.email == email, ActionLedger.status == "exited"
+        ).order_by(ActionLedger.id.asc()))
+        if ledger:
+            for le in ledger:
+                if le.reason_code == expected_reason:
+                    print("  [PASS] ActionLedger #%d: status=exited reason=%s" % (le.id, le.reason_code))
+                    results.append(True)
+                else:
+                    print("  [FAIL] ActionLedger #%d: reason=%s (expected %s)" % (le.id, le.reason_code, expected_reason))
+                    results.append(False)
+        else:
+            print("  [FAIL] No ActionLedger entry with status=exited")
+            results.append(False)
 
         # Scenario verdict
         if all(results):

@@ -27,6 +27,12 @@ RC_SES_ERROR        = "ses_error"
 RC_SANDBOX          = "sandbox_mode"
 RC_MISSING_IDENTITY = "missing_identity"
 
+# Flow exit reason codes — logged when a flow is auto-cancelled due to conversion
+RC_EXIT_PURCHASE           = "flow_exit_purchase"            # customer placed an order
+RC_EXIT_CHECKOUT_STARTED   = "flow_exit_checkout_started"    # customer started checkout
+RC_EXIT_ORDER_COMPLETED    = "flow_exit_order_completed"     # order confirmed / fulfilled
+RC_EXIT_MANUAL             = "flow_exit_manual"              # admin manually cancelled
+
 
 # ── Core logging function ────────────────────────────────────────────
 

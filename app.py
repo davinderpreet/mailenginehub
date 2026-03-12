@@ -837,6 +837,15 @@ def webhook_shopify_checkout_create():
         ).execute()
 
         app.logger.info(f"Checkout webhook stored: {email} (checkout {checkout_id})")
+
+        # Smart exit: cancel browse abandonment flows when customer starts checkout
+        if contact:
+            _exit_flows_by_trigger_type(
+                contact,
+                ["browse_abandonment"],
+                reason_code="flow_exit_checkout_started",
+            )
+
         return jsonify({"success": True}), 200
 
     except Exception as e:
@@ -872,12 +881,16 @@ def webhook_shopify_order_create():
          .execute())
 
         if contact:
-            # 2. Smart exit: cancel checkout + browse flows (Phase 3)
-            _exit_flows_by_trigger_type(contact, ["checkout_abandoned", "browse_abandonment"])
+            # 2. Smart exit: cancel ALL abandonment + winback flows on purchase
+            _exit_flows_by_trigger_type(
+                contact,
+                ["checkout_abandoned", "browse_abandonment", "cart_abandonment", "no_purchase_days"],
+                reason_code="flow_exit_purchase",
+            )
 
             # 3. Enroll in order_placed flows
             _enroll_contact_in_flows(contact, "order_placed")
-            app.logger.info(f"Order webhook: {email} — exited checkout/browse flows, enrolled in post-purchase")
+            app.logger.info(f"Order webhook: {email} — exited abandonment/winback flows, enrolled in post-purchase")
 
         return jsonify({"success": True}), 200
 
@@ -1868,8 +1881,13 @@ def _resume_paused_enrollments(completed_flow_id):
     return resumed_count
 
 
-def _exit_flows_by_trigger_type(contact, trigger_types):
-    """Cancel active+paused enrollments in flows matching given trigger types."""
+def _exit_flows_by_trigger_type(contact, trigger_types, reason_code="flow_exit_purchase"):
+    """Cancel active+paused enrollments in flows matching given trigger types.
+
+    Logs an ActionLedger entry with status='exited' for each cancelled enrollment
+    so flow exits are fully auditable.
+    """
+    from action_ledger import log_action
     flows_to_exit = list(Flow.select().where(Flow.trigger_type.in_(trigger_types)))
     for flow in flows_to_exit:
         enrollments = list(FlowEnrollment.select().where(
@@ -1880,9 +1898,15 @@ def _exit_flows_by_trigger_type(contact, trigger_types):
             old_status = enrollment.status
             enrollment.status = "cancelled"
             enrollment.save()
+            log_action(
+                contact, "flow", flow.id, "exited", reason_code,
+                source_type=flow.name,
+                enrollment_id=enrollment.id,
+                reason_detail="Auto-exited from '%s' (was %s) — customer converted" % (flow.name, old_status),
+            )
             app.logger.info(
-                "[SmartExit] Exited '%s' for contact #%s (was %s) — conversion event"
-                % (flow.name, contact.id, old_status))
+                "[SmartExit] Exited '%s' for contact #%s (was %s) — %s"
+                % (flow.name, contact.id, old_status, reason_code))
             # If this flow was pausing others, resume them
             _resume_paused_enrollments(flow.id)
 

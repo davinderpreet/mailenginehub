@@ -292,9 +292,9 @@
 
             {% if item.event_type == 'placed_order' %}
               <span class="action"> placed an order </span>
-              <span class="order-highlight">${{ "%.2f"|format(item.event_data.get('order_total', 0)) }} {{ item.event_data.get('currency', 'CAD') }}</span>
-              {% if item.event_data.get('discount') and item.event_data.get('discount') > 0 %}
-                <span style="color:var(--green); font-size:11.5px;"> · -${{ "%.2f"|format(item.event_data.get('discount', 0)) }} off</span>
+              <span class="order-highlight">${{ "%.2f"|format(item.event_data.get('order_total', 0)|float) }} {{ item.event_data.get('currency', 'CAD') }}</span>
+              {% if item.event_data.get('discount') and item.event_data.get('discount')|float > 0 %}
+                <span style="color:var(--green); font-size:11.5px;"> · -${{ "%.2f"|format(item.event_data.get('discount', 0)|float) }} off</span>
               {% endif %}
 
             {% elif item.event_type == 'abandoned_checkout' %}
@@ -302,14 +302,14 @@
               {% if item.event_data.get('products') %}
                 <span style="color:var(--text3); font-size:12px;"> — {{ item.event_data.get('products', [])|join(', ')|truncate(60) }}</span>
               {% endif %}
-              {% if item.event_data.get('total') and item.event_data.get('total') > 0 %}
-                <span style="color:var(--amber); font-weight:600;"> (${{ "%.2f"|format(item.event_data.get('total', 0)) }})</span>
+              {% if item.event_data.get('total') and item.event_data.get('total')|float > 0 %}
+                <span style="color:var(--amber); font-weight:600;"> (${{ "%.2f"|format(item.event_data.get('total', 0)|float) }})</span>
               {% endif %}
 
             {% elif item.event_type == 'completed_checkout' %}
               <span class="action"> completed checkout</span>
-              {% if item.event_data.get('total') and item.event_data.get('total') > 0 %}
-                <span class="order-highlight"> ${{ "%.2f"|format(item.event_data.get('total', 0)) }}</span>
+              {% if item.event_data.get('total') and item.event_data.get('total')|float > 0 %}
+                <span class="order-highlight"> ${{ "%.2f"|format(item.event_data.get('total', 0)|float) }}</span>
               {% endif %}
 
             {% elif item.event_type == 'viewed_product' %}
