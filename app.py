@@ -2294,6 +2294,100 @@ def _check_passive_triggers():
     # -- Phase G: Behavioural Trigger Detection (batched) --
     _detect_behavioural_triggers(_start_time, MAX_RUNTIME, BATCH_SIZE, BATCH_SLEEP)
 
+    if _timed_out():
+        return
+
+    # -- Phase H: Consume PendingTriggers into FlowEnrollments (batched) --
+    _consume_pending_triggers(_start_time, MAX_RUNTIME, BATCH_SIZE, BATCH_SLEEP)
+
+
+def _consume_pending_triggers(_start_time=None, _max_runtime=300, _batch_size=50, _batch_sleep=0.1):
+    """Convert pending PendingTrigger rows into FlowEnrollments.
+
+    For each pending trigger with a matching active flow (by trigger_type),
+    find the contact, create a FlowEnrollment, and mark the trigger as processed.
+    Skips triggers where no active flow exists or contact is unsubscribed.
+    """
+    import time as _time
+    from database import PendingTrigger, Contact, FlowStep, FlowEnrollment
+
+    if _start_time is None:
+        _start_time = _time.time()
+
+    def _timed_out():
+        return (_time.time() - _start_time) >= _max_runtime
+
+    # Trigger types that map to flows
+    CONSUMABLE_TYPES = ["browse_abandonment", "cart_abandonment"]
+
+    # Build map: trigger_type → active Flow
+    flow_map = {}
+    for flow in Flow.select().where(Flow.is_active == True, Flow.trigger_type.in_(CONSUMABLE_TYPES)):
+        first_step = FlowStep.select().where(FlowStep.flow == flow).order_by(FlowStep.step_order).first()
+        if first_step:
+            flow_map[flow.trigger_type] = (flow, first_step)
+
+    if not flow_map:
+        return
+
+    # Fetch pending triggers in batches
+    pending = list(
+        PendingTrigger.select()
+        .where(PendingTrigger.status == "pending",
+               PendingTrigger.trigger_type.in_(list(flow_map.keys())))
+        .order_by(PendingTrigger.detected_at.asc())
+        .limit(500)
+    )
+
+    enrolled = 0
+    skipped = 0
+    for trigger in pending:
+        if _timed_out():
+            break
+
+        flow, first_step = flow_map.get(trigger.trigger_type, (None, None))
+        if not flow:
+            trigger.status = "skipped"
+            trigger.save()
+            skipped += 1
+            continue
+
+        # Find the contact
+        try:
+            contact = Contact.get(Contact.email == trigger.email)
+        except Contact.DoesNotExist:
+            trigger.status = "skipped"
+            trigger.save()
+            skipped += 1
+            continue
+
+        if not contact.subscribed:
+            trigger.status = "skipped"
+            trigger.save()
+            skipped += 1
+            continue
+
+        # Create enrollment (unique constraint prevents duplicates)
+        try:
+            FlowEnrollment.create(
+                flow=flow,
+                contact=contact,
+                current_step=1,
+                next_send_at=datetime.now() + timedelta(hours=first_step.delay_hours),
+                status="active",
+            )
+            # Pause lower-priority flows for this contact
+            _pause_lower_priority_enrollments(contact, flow)
+            enrolled += 1
+        except Exception:
+            pass  # Already enrolled — unique constraint
+
+        trigger.status = "processed"
+        trigger.save()
+
+    if enrolled or skipped:
+        app.logger.info("Consume triggers: enrolled=%d, skipped=%d (of %d pending)" % (enrolled, skipped, len(pending)))
+
 
 def _detect_behavioural_triggers(_start_time=None, _max_runtime=300, _batch_size=100, _batch_sleep=0.1):
     """
