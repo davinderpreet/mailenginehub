@@ -989,14 +989,14 @@ def preview_blocks_template(template_id):
     if getattr(template, 'template_format', 'html') != 'blocks':
         return "Not a blocks-format template (template_format='%s')" % getattr(template, 'template_format', 'html'), 400
 
-    from block_registry import render_template_blocks, validate_template
+    from block_registry import render_template_blocks, validate_template, BRAND_URL as _BRAND_URL
 
-    # Sample products for preview
+    # Sample products for preview (uses BRAND_URL from block_registry / email_shell)
     sample_products = [
         {"title": "Bluetooth Speaker Pro", "image_url": "", "price": "49.99",
-         "product_url": "https://ldas-electronics.com", "compare_price": "69.99"},
+         "product_url": _BRAND_URL, "compare_price": "69.99"},
         {"title": "HD Dash Camera", "image_url": "", "price": "89.99",
-         "product_url": "https://ldas-electronics.com", "compare_price": ""},
+         "product_url": _BRAND_URL, "compare_price": ""},
     ]
 
     html = render_template_blocks(template, contact=None, products=sample_products, discount=None)

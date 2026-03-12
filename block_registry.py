@@ -17,20 +17,16 @@ Usage:
 
 import json
 import html as html_mod
-from email_shell import wrap_email
+from email_shell import (
+    wrap_email,
+    BRAND_NAME, BRAND_URL, BRAND_COLOR, BRAND_COLOR_DARK,
+    TEXT_DARK, TEXT_MID, TEXT_LIGHT,
+)
 
+# -- Brand Constants (imported from email_shell.py — single source of truth) --
 
-# -- Brand Constants (match email_templates.py / email_shell.py) ----------
-
-BRAND_NAME       = "LDAS Electronics"
-BRAND_URL        = "https://ldas-electronics.com"
-BRAND_COLOR      = "#063cff"
-BRAND_COLOR_DARK = "#0532d4"
 BRAND_COLOR_LIGHT = "#e8f0ff"
-ACCENT_COLOR     = "#0428aa"
-TEXT_DARK        = "#1a1a2e"
-TEXT_MID         = "#4a5568"
-TEXT_LIGHT       = "#718096"
+ACCENT_COLOR      = "#0428aa"
 
 
 # =========================================================================
@@ -422,13 +418,31 @@ def validate_template(blocks_json_str):
                     "message": "Block %d (%s): Required field '%s' is empty" % (block_num, type_def["label"], field)
                 })
 
-        # Block-specific validations
+        # ── Block-specific validation contracts ──
+
         if block_type == "cta":
             url = content.get("url", "")
-            if url and not url.startswith(("http://", "https://")):
+            text = content.get("text", "")
+            if url and not url.startswith(("http://", "https://", "{{", "mailto:")):
+                warnings.append({
+                    "level": "error",
+                    "message": "Block %d (CTA): URL '%s' is not a valid link (must start with http(s)://, mailto:, or a template variable)" % (block_num, url[:60])
+                })
+            if url and "javascript:" in url.lower():
+                warnings.append({
+                    "level": "error",
+                    "message": "Block %d (CTA): URL contains javascript: which is unsafe and will be blocked by email clients" % block_num
+                })
+            if text and len(text) > 50:
                 warnings.append({
                     "level": "warning",
-                    "message": "Block %d (CTA): URL does not start with http(s)://" % block_num
+                    "message": "Block %d (CTA): Button text is %d chars -- keep under 50 for readability" % (block_num, len(text))
+                })
+            color = content.get("color", "")
+            if color and not color.startswith("#") and color not in ("", BRAND_COLOR):
+                warnings.append({
+                    "level": "warning",
+                    "message": "Block %d (CTA): Color '%s' should be a hex value (#rrggbb)" % (block_num, color)
                 })
 
         if block_type == "product_grid":
@@ -436,7 +450,65 @@ def validate_template(blocks_json_str):
             if not section_title:
                 warnings.append({
                     "level": "warning",
-                    "message": "Block %d (Product Grid): No section title set -- products will render without a header" % block_num
+                    "message": "Block %d (Product Grid): No section title -- products will render without a header" % block_num
+                })
+            columns = content.get("columns", 2)
+            try:
+                columns = int(columns)
+            except (ValueError, TypeError):
+                columns = 0
+            if columns not in (1, 2, 3):
+                warnings.append({
+                    "level": "error",
+                    "message": "Block %d (Product Grid): columns must be 1, 2, or 3 (got %s)" % (block_num, content.get("columns", ""))
+                })
+
+        if block_type == "hero":
+            headline = content.get("headline", "")
+            if headline and len(headline) > 120:
+                warnings.append({
+                    "level": "warning",
+                    "message": "Block %d (Hero): Headline is %d chars -- keep under 120 for mobile readability" % (block_num, len(headline))
+                })
+            subheadline = content.get("subheadline", "")
+            if subheadline and len(subheadline) > 200:
+                warnings.append({
+                    "level": "warning",
+                    "message": "Block %d (Hero): Subheadline is %d chars -- keep under 200" % (block_num, len(subheadline))
+                })
+
+        if block_type == "text":
+            paragraphs = content.get("paragraphs", [])
+            if not isinstance(paragraphs, list):
+                warnings.append({
+                    "level": "error",
+                    "message": "Block %d (Text): 'paragraphs' must be a list of strings" % block_num
+                })
+            elif len(paragraphs) > 8:
+                warnings.append({
+                    "level": "warning",
+                    "message": "Block %d (Text): %d paragraphs is long -- consider splitting into multiple text blocks" % (block_num, len(paragraphs))
+                })
+
+        if block_type == "discount":
+            code = content.get("code", "")
+            if code and len(code) > 30:
+                warnings.append({
+                    "level": "warning",
+                    "message": "Block %d (Discount): Code '%s' is %d chars -- long codes are hard to type manually" % (block_num, code[:30], len(code))
+                })
+            if code and " " in code:
+                warnings.append({
+                    "level": "error",
+                    "message": "Block %d (Discount): Code '%s' contains spaces -- discount codes should not have spaces" % (block_num, code)
+                })
+
+        if block_type == "urgency":
+            message = content.get("message", "")
+            if message and len(message) > 120:
+                warnings.append({
+                    "level": "warning",
+                    "message": "Block %d (Urgency): Message is %d chars -- keep under 120 for impact" % (block_num, len(message))
                 })
 
     return warnings
@@ -489,7 +561,7 @@ def make_example_blocks():
             "block_type": "cta",
             "content": {
                 "text": "Start Shopping",
-                "url": "https://ldas-electronics.com",
+                "url": BRAND_URL,
                 "color": "#0428aa",
             },
         },
