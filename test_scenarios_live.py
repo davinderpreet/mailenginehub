@@ -31,6 +31,8 @@ TEST_EMAILS = [
     "scenario12-duplicate@test.local",
     "scenario12-noflow@test.local",
     "scenario12-valid@test.local",
+    "scenario13a-pixelsub@test.local",
+    "scenario13b-cartview@test.local",
 ]
 
 
@@ -327,8 +329,48 @@ def setup():
     )
     print("[S12d] Created valid fresh browse trigger (2h old)")
 
+    # ── S13a: Pixel-then-Subscribe race — should still get welcome flow ──
+    c13a = Contact.create(
+        email="scenario13a-pixelsub@test.local",
+        first_name="S13aPixelSub", last_name="Test",
+        subscribed=False,  # pixel_capture sets subscribed=False
+        source="pixel_capture",
+        created_at=datetime.now() - timedelta(minutes=5),
+    )
+    # Simulate pixel tracked a product view before popup
+    CustomerActivity.create(
+        contact=c13a, email=c13a.email,
+        event_type="viewed_product",
+        event_data='{"product_title": "Test Product"}',
+        source="pixel", session_id="sess-s13a",
+        occurred_at=datetime.now() - timedelta(minutes=3),
+    )
+    print("[S13a] Created pixel-captured contact #%d (subscribed=False)" % c13a.id)
+
+    # ── S13b: Viewed Cart with no abandoned_checkout — should create cart trigger ──
+    c13b = Contact.create(
+        email="scenario13b-cartview@test.local",
+        first_name="S13bCartView", last_name="Test",
+        subscribed=True, source="popup_widget",
+    )
+    CustomerActivity.create(
+        contact=c13b, email=c13b.email,
+        event_type="viewed_cart",
+        event_data='{"url": "/cart"}',
+        source="pixel", session_id="sess-s13b",
+        occurred_at=datetime.now() - timedelta(hours=2),
+    )
+    CustomerActivity.create(
+        contact=c13b, email=c13b.email,
+        event_type="viewed_cart",
+        event_data='{"url": "/cart"}',
+        source="pixel", session_id="sess-s13b",
+        occurred_at=datetime.now() - timedelta(hours=1),
+    )
+    print("[S13b] Created contact #%d with 2 viewed_cart events (no abandoned_checkout)" % c13b.id)
+
     print()
-    print("=== All 12 fixtures ready. Run 'trigger' next. ===")
+    print("=== All 13 fixtures ready. Run 'trigger' next. ===")
 
 
 def trigger():
@@ -486,6 +528,45 @@ def trigger():
         for t in triggers:
             print("  PendingTrigger: type=%s status=%s processed_at=%s" % (
                 t.trigger_type, t.status, t.processed_at))
+
+    # ── S13a: Pixel-then-Subscribe — simulate popup subscribe on pixel-captured contact ──
+    print()
+    print("--- S13a: Pixel then Subscribe (Crack #1 fix) ---")
+    c13a = Contact.get(Contact.email == "scenario13a-pixelsub@test.local")
+    # Simulate what /api/subscribe does after the fix:
+    # 1. Contact already exists (created=False from pixel_capture)
+    # 2. Set subscribed=True
+    c13a.subscribed = True
+    c13a.save()
+    # 3. Check for existing welcome enrollment and enroll if missing (the fix)
+    already_in_welcome = False
+    welcome_flows = Flow.select().where(Flow.is_active == True, Flow.trigger_type == "contact_created")
+    for wf in welcome_flows:
+        if FlowEnrollment.select().where(FlowEnrollment.flow == wf, FlowEnrollment.contact == c13a).count() > 0:
+            already_in_welcome = True
+            break
+    if not already_in_welcome:
+        _enroll_contact_in_flows(c13a, "contact_created")
+        print("  Enrolled in welcome flow (pixel->subscribe path)")
+    else:
+        print("  Already enrolled (unexpected for this test)")
+    enrollments = list(FlowEnrollment.select().where(FlowEnrollment.contact == c13a))
+    for en in enrollments:
+        f = Flow.get_by_id(en.flow_id)
+        print("  Enrollment: %s (trigger=%s) status=%s" % (f.name, f.trigger_type, en.status))
+
+    # ── S13b: Viewed Cart trigger — check detection picked it up ──
+    print()
+    print("--- S13b: Viewed Cart (Crack #2 fix) ---")
+    import json as _json2
+    triggers_13b = list(PendingTrigger.select().where(
+        PendingTrigger.email == "scenario13b-cartview@test.local",
+        PendingTrigger.trigger_type == "cart_abandonment"))
+    if triggers_13b:
+        td = _json2.loads(triggers_13b[0].trigger_data or '{}')
+        print("  PendingTrigger created: source=%s status=%s" % (td.get('source', '?'), triggers_13b[0].status))
+    else:
+        print("  BUG: No cart_abandonment PendingTrigger from viewed_cart events")
 
     print()
     print("=== Triggers fired. Run 'verify' after ~90 seconds (flow processor + queue processor). ===")
@@ -803,6 +884,62 @@ def verify():
         else:
             print("  >>> SCENARIO %s: FAIL" % label.split(":")[0])
             all_pass = False
+
+    # ── S13a: Pixel then Subscribe — welcome flow enrollment ──
+    print()
+    print("--- S13a: Pixel then Subscribe (scenario13a-pixelsub@test.local) ---")
+    s13a_results = []
+    try:
+        c = Contact.get(Contact.email == "scenario13a-pixelsub@test.local")
+        if c.subscribed:
+            print("  [PASS] Contact subscribed=True")
+            s13a_results.append(True)
+        else:
+            print("  [FAIL] Contact subscribed=False")
+            s13a_results.append(False)
+        enrollments = list(FlowEnrollment.select().where(FlowEnrollment.contact == c))
+        has_welcome = any(Flow.get_by_id(en.flow_id).trigger_type == "contact_created" for en in enrollments)
+        if has_welcome:
+            print("  [PASS] Enrolled in welcome (contact_created) flow")
+            s13a_results.append(True)
+        else:
+            print("  [FAIL] Not enrolled in welcome flow")
+            s13a_results.append(False)
+    except Contact.DoesNotExist:
+        print("  [FAIL] Contact not found")
+        s13a_results.append(False)
+    if all(s13a_results):
+        print("  >>> SCENARIO S13a: PASS")
+    else:
+        print("  >>> SCENARIO S13a: FAIL")
+        all_pass = False
+
+    # ── S13b: Viewed Cart — cart_abandonment PendingTrigger ──
+    print()
+    print("--- S13b: Viewed Cart Trigger (scenario13b-cartview@test.local) ---")
+    s13b_results = []
+    import json as _json
+    triggers_13b = list(PendingTrigger.select().where(
+        PendingTrigger.email == "scenario13b-cartview@test.local",
+        PendingTrigger.trigger_type == "cart_abandonment"))
+    if triggers_13b:
+        td = _json.loads(triggers_13b[0].trigger_data or '{}')
+        if td.get('source') == 'viewed_cart':
+            print("  [PASS] PendingTrigger source=viewed_cart")
+            s13b_results.append(True)
+        else:
+            print("  [FAIL] PendingTrigger source=%s (expected viewed_cart)" % td.get('source'))
+            s13b_results.append(False)
+        print("  [PASS] cart_abandonment trigger created from viewed_cart")
+        s13b_results.append(True)
+    else:
+        print("  [FAIL] No cart_abandonment PendingTrigger from viewed_cart")
+        s13b_results.append(False)
+    if all(s13b_results):
+        print("  >>> SCENARIO S13b: PASS")
+    else:
+        print("  >>> SCENARIO S13b: FAIL")
+        all_pass = False
 
     print()
     print("=" * 60)

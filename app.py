@@ -2599,6 +2599,85 @@ def _detect_behavioural_triggers(_start_time=None, _max_runtime=300, _batch_size
         app.logger.warning("Passive triggers: timed out after browse abandonment, skipping remaining")
         return
 
+    # -- 1b. Cart Page Viewed: viewed_cart in last 48h with no purchase and no abandoned_checkout --
+    try:
+        cart_view_candidates = list(
+            CustomerActivity.select(CustomerActivity.email, fn.COUNT(CustomerActivity.id).alias('view_count'))
+            .where(CustomerActivity.event_type == 'viewed_cart')
+            .where(CustomerActivity.occurred_at >= cutoff_48h)
+            .where(CustomerActivity.email != '')
+            .group_by(CustomerActivity.email)
+            .having(fn.COUNT(CustomerActivity.id) >= 1)
+            .tuples()
+        )
+        app.logger.info("Passive triggers: %d viewed_cart candidates to check" % len(cart_view_candidates))
+
+        for offset in range(0, len(cart_view_candidates), _batch_size):
+            if _timed_out():
+                app.logger.warning("Passive triggers: timed out during viewed_cart at offset %d" % offset)
+                break
+            batch = cart_view_candidates[offset:offset + _batch_size]
+            for row_tuple in batch:
+                try:
+                    email = row_tuple[0]
+
+                    # Skip if already has a cart_abandonment trigger in last 7 days
+                    existing = PendingTrigger.select().where(
+                        PendingTrigger.email == email,
+                        PendingTrigger.trigger_type == 'cart_abandonment',
+                        PendingTrigger.detected_at >= (now - timedelta(days=7))
+                    ).count()
+                    if existing > 0:
+                        continue
+
+                    # Skip if they have an abandoned_checkout event (section 2 handles those with richer data)
+                    has_checkout_event = CustomerActivity.select().where(
+                        CustomerActivity.email == email,
+                        CustomerActivity.event_type == 'abandoned_checkout',
+                        CustomerActivity.occurred_at >= cutoff_48h
+                    ).count()
+                    if has_checkout_event > 0:
+                        continue
+
+                    # Skip if they completed a purchase since viewing cart
+                    latest_cart_view = (CustomerActivity.select()
+                        .where(CustomerActivity.email == email,
+                               CustomerActivity.event_type == 'viewed_cart',
+                               CustomerActivity.occurred_at >= cutoff_48h)
+                        .order_by(CustomerActivity.occurred_at.desc())
+                        .first())
+                    if latest_cart_view:
+                        completed = CustomerActivity.select().where(
+                            CustomerActivity.email == email,
+                            CustomerActivity.event_type.in_(['completed_checkout', 'placed_order']),
+                            CustomerActivity.occurred_at >= latest_cart_view.occurred_at
+                        ).count()
+                        if completed > 0:
+                            continue
+
+                    PendingTrigger.create(
+                        email=email,
+                        trigger_type='cart_abandonment',
+                        trigger_data=_json.dumps({
+                            'source': 'viewed_cart',
+                            'checkout_id': '',
+                            'products': [],
+                            'total': '',
+                            'item_count': 0,
+                        }),
+                        detected_at=now,
+                        status='pending'
+                    )
+                except Exception as _e:
+                    app.logger.warning("Viewed cart abandonment error for record: %s" % _e)
+            _time.sleep(_batch_sleep)
+    except Exception as _e:
+        app.logger.warning("Viewed cart abandonment detection error: %s" % _e)
+
+    if _timed_out():
+        app.logger.warning("Passive triggers: timed out after viewed_cart detection, skipping remaining")
+        return
+
     # -- 2. Cart Abandonment: abandoned_checkout with no completed order (batched) --
     cutoff_4h = now - timedelta(hours=4)
     cutoff_7d = now - timedelta(days=7)
@@ -4484,6 +4563,20 @@ def identify_visitor():
             )
             is_new_contact = True
             app.logger.info(f"New contact created from pixel capture: {email}")
+
+            # Hardening: if popup subscribe raced ahead, contact may already
+            # have a popup_subscribe event. Check and enroll if so.
+            try:
+                popup_exists = CustomerActivity.select().where(
+                    CustomerActivity.email == email,
+                    CustomerActivity.event_type == "popup_subscribe"
+                ).count()
+                if popup_exists > 0 and contact.subscribed:
+                    _enroll_contact_in_flows(contact, "contact_created")
+                    app.logger.info(f"Identify: late-enrolled {email} (popup_subscribe found)")
+            except Exception as _race_e:
+                app.logger.warning(f"Identify race-check failed for {email}: {_race_e}")
+
         except Exception as _ce:
             app.logger.warning(f"Pixel contact create failed ({email}): {_ce}")
 
@@ -4674,13 +4767,24 @@ def api_subscribe():
         except Exception as e:
             app.logger.warning(f"Popup cascade trigger failed for {email}: {e}")
 
-        # ── Enroll new subscribers in welcome flow ──
-        if created:
-            try:
+        # ── Enroll in welcome flow (handles pixel-captured contacts too) ──
+        try:
+            already_in_welcome = False
+            if not created:
+                # Contact existed (likely from pixel identify) — check if already enrolled
+                welcome_flows = Flow.select().where(
+                    Flow.is_active == True, Flow.trigger_type == "contact_created")
+                for wf in welcome_flows:
+                    if FlowEnrollment.select().where(
+                            FlowEnrollment.flow == wf,
+                            FlowEnrollment.contact == contact).count() > 0:
+                        already_in_welcome = True
+                        break
+            if not already_in_welcome:
                 _enroll_contact_in_flows(contact, "contact_created")
-                app.logger.info(f"Popup enrolled {email} in welcome flow")
-            except Exception as e:
-                app.logger.warning(f"Popup flow enrollment failed for {email}: {e}")
+                app.logger.info(f"Popup enrolled {email} in welcome flow (new={created})")
+        except Exception as e:
+            app.logger.warning(f"Popup flow enrollment failed for {email}: {e}")
 
         app.logger.info(f"Popup subscribe: {email} (new={created}, code={discount_code})")
 
