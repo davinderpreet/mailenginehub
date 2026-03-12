@@ -453,6 +453,9 @@ class CustomerActivity(BaseModel):
     source      = CharField(default="")   # shopify_checkout|shopify_order|omnisend|pixel|email_campaign
     source_ref  = CharField(default="", index=True)  # external ID for dedup
     session_id  = CharField(default="")   # group events in a browsing session
+    checkout_token      = CharField(default="", index=True)   # first-class token for stitch queries
+    cart_token          = CharField(default="", index=True)   # first-class token for stitch queries
+    shopify_customer_id = CharField(default="", index=True)   # Shopify customer ID for direct stitch
     occurred_at = DateTimeField(default=datetime.now, index=True)
     created_at  = DateTimeField(default=datetime.now)
     stitched_at = DateTimeField(null=True)   # when anonymous row was linked to a contact
@@ -645,6 +648,38 @@ def _migrate_identity_jobs():
         pass
 
 
+def _migrate_identity_job_dedupe():
+    """Add dedupe_key column to identity_jobs for duplicate prevention."""
+    try:
+        cursor = db.execute_sql("PRAGMA table_info(identity_jobs)")
+        existing = {row[1] for row in cursor.fetchall()}
+        if "dedupe_key" not in existing:
+            db.execute_sql("ALTER TABLE identity_jobs ADD COLUMN dedupe_key VARCHAR(255) DEFAULT ''")
+            db.execute_sql("CREATE INDEX IF NOT EXISTS identityjob_dedupe_key ON identity_jobs(dedupe_key)")
+            print("  [migrate] Added dedupe_key to identity_jobs")
+    except Exception:
+        pass
+
+
+def _migrate_activity_tokens():
+    """Add checkout_token, cart_token, shopify_customer_id to customer_activity for direct stitch queries."""
+    try:
+        cursor = db.execute_sql("PRAGMA table_info(customer_activity)")
+        existing = {row[1] for row in cursor.fetchall()}
+        new_cols = [
+            ("checkout_token",      "VARCHAR(255) DEFAULT ''"),
+            ("cart_token",          "VARCHAR(255) DEFAULT ''"),
+            ("shopify_customer_id", "VARCHAR(100) DEFAULT ''"),
+        ]
+        for col_name, col_def in new_cols:
+            if col_name not in existing:
+                db.execute_sql("ALTER TABLE customer_activity ADD COLUMN %s %s" % (col_name, col_def))
+                db.execute_sql("CREATE INDEX IF NOT EXISTS customeractivity_%s ON customer_activity(%s)" % (col_name, col_name))
+                print("  [migrate] Added %s to customer_activity" % col_name)
+    except Exception:
+        pass
+
+
 def init_db():
     db.connect(reuse_if_open=True)
     # Enable WAL mode for concurrent reads/writes (real-time pipeline)
@@ -681,6 +716,8 @@ def init_db():
     _migrate_pending_trigger_fields()
     _migrate_identity_resolution_fields()
     _migrate_identity_jobs()
+    _migrate_identity_job_dedupe()
+    _migrate_activity_tokens()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")
@@ -1296,6 +1333,7 @@ class IdentityJob(BaseModel):
     contact_id   = IntegerField(index=True)
     email        = CharField(index=True, default="")
     source       = CharField(default="")            # identity source that triggered this
+    dedupe_key   = CharField(default="", index=True) # "{contact_id}:{job_type}" for dedup guard
     job_type     = CharField(index=True, default="") # trigger_replay | enrichment | cascade
     job_data     = TextField(default="{}")           # JSON: extra context
     status       = CharField(default="pending", index=True)  # pending | processing | completed | failed

@@ -34,6 +34,7 @@ from action_ledger import (
     RC_IDENTITY_RESOLVED, RC_IDENTITY_STITCHED, RC_IDENTITY_NEW_CONTACT,
     RC_IDENTITY_NO_OP, RC_IDENTITY_REPLAY, RC_WELCOME_POST_RESOLVE,
     RC_IDENTITY_REPLAY_SKIP, RC_IDENTITY_PROBABLE, RC_IDENTITY_MULTI_STITCH,
+    RC_IDENTITY_JOB_DEDUPED,
 )
 
 logger = logging.getLogger("identity_resolution")
@@ -95,6 +96,8 @@ def resolve_identity(
         "welcome_enrolled": False,
         "triggers_replayed": [],
         "confidence": "anonymous_only",
+        "contact_resolution_confidence": "anonymous_only",
+        "activity_stitch_confidence": "none",
         "identifiers_matched": [],
     }
 
@@ -107,6 +110,7 @@ def resolve_identity(
 
     result["identifiers_matched"].append("email")
     result["confidence"] = "exact"
+    result["contact_resolution_confidence"] = "exact"
 
     if session_id:
         result["identifiers_matched"].append("session_id")
@@ -138,7 +142,9 @@ def resolve_identity(
         _log_identity_event(None, email, source, "identity_no_op",
                             RC_IDENTITY_NO_OP,
                             "Contact not found and create_if_missing=False",
-                            0, {}, result["confidence"], result["identifiers_matched"])
+                            0, {}, result["confidence"], result["identifiers_matched"],
+                            result["contact_resolution_confidence"],
+                            result["activity_stitch_confidence"])
         return result
 
     # ── 3. Multi-identifier stitching cascade ──
@@ -154,11 +160,25 @@ def resolve_identity(
     result["stitched"] = total_stitched
     result["stitch_breakdown"] = breakdown
 
-    # ── 3b. Confidence: downgrade to probable if stitched via token without session ──
+    # ── 3b. Confidence: compute split confidence levels ──
     if total_stitched > 0:
+        email_stitched = breakdown.get("email", 0)
+        session_stitched = breakdown.get("session_id", 0)
+        shopify_stitched = breakdown.get("shopify_id", 0)
         token_stitched = breakdown.get("checkout_token", 0) + breakdown.get("cart_token", 0)
-        session_stitched = breakdown.get("session_id", 0) + breakdown.get("email", 0)
-        if token_stitched > 0 and session_stitched == 0:
+
+        # Activity stitch confidence (how sure we are the anonymous rows belong to this contact)
+        if email_stitched > 0 or session_stitched > 0:
+            result["activity_stitch_confidence"] = "high"
+        elif shopify_stitched > 0:
+            result["activity_stitch_confidence"] = "medium"
+        elif token_stitched > 0:
+            result["activity_stitch_confidence"] = "medium"
+        else:
+            result["activity_stitch_confidence"] = "low"
+
+        # Backward-compat: downgrade top-level confidence to probable if only token-stitched
+        if token_stitched > 0 and (email_stitched + session_stitched) == 0:
             result["confidence"] = "probable"
 
     # ── 4. Audit log ──
@@ -168,7 +188,9 @@ def resolve_identity(
                             RC_IDENTITY_NEW_CONTACT,
                             "New contact created via %s (stitched %d events)" % (source, total_stitched),
                             total_stitched, breakdown, result["confidence"],
-                            result["identifiers_matched"])
+                            result["identifiers_matched"],
+                            result["contact_resolution_confidence"],
+                            result["activity_stitch_confidence"])
     elif total_stitched > 0:
         rc = RC_IDENTITY_MULTI_STITCH if len([v for v in breakdown.values() if v > 0]) > 1 else RC_IDENTITY_STITCHED
         _log_identity_event(contact, email, source, "identity_stitched",
@@ -176,7 +198,9 @@ def resolve_identity(
                             "Stitched %d anonymous events via %s | breakdown: %s" % (
                                 total_stitched, source, breakdown_str or "none"),
                             total_stitched, breakdown, result["confidence"],
-                            result["identifiers_matched"])
+                            result["identifiers_matched"],
+                            result["contact_resolution_confidence"],
+                            result["activity_stitch_confidence"])
     else:
         result["already_resolved"] = True
         # Only log no-op for explicit identity calls, not every track call
@@ -184,7 +208,9 @@ def resolve_identity(
             _log_identity_event(contact, email, source, "identity_no_op",
                                 RC_IDENTITY_NO_OP,
                                 "No anonymous events to stitch",
-                                0, {}, result["confidence"], result["identifiers_matched"])
+                                0, {}, result["confidence"], result["identifiers_matched"],
+                                result["contact_resolution_confidence"],
+                                result["activity_stitch_confidence"])
 
     # ── 5. Welcome flow eligibility ──
     welcome_enrolled = _evaluate_welcome_eligibility(
@@ -195,30 +221,24 @@ def resolve_identity(
     )
     result["welcome_enrolled"] = welcome_enrolled
 
-    # ── 6. Enqueue durable jobs (replaces daemon threads) ──
+    # ── 6. Enqueue durable jobs with dedupe protection ──
     if total_stitched > 0 or created:
-        try:
-            IdentityJob.create(
-                contact_id=contact.id, email=email, source=source,
-                job_type="trigger_replay", status="pending",
-            )
-            IdentityJob.create(
-                contact_id=contact.id, email=email, source=source,
-                job_type="enrichment", status="pending",
-            )
-            IdentityJob.create(
-                contact_id=contact.id, email=email, source=source,
-                job_type="cascade", status="pending",
-            )
-            logger.debug("Enqueued 3 identity jobs for %s via %s" % (email, source))
-        except Exception as e:
-            logger.warning("Failed to enqueue identity jobs for %s: %s" % (email, e))
+        _enqueued = 0
+        for _jt in ("trigger_replay", "enrichment", "cascade"):
+            _created, _skip = _create_job_if_needed(contact.id, email, source, _jt)
+            if _created:
+                _enqueued += 1
+            elif _skip:
+                logger.debug("IdentityJob deduped: %s for %s (%s)" % (_jt, email, _skip))
+        if _enqueued > 0:
+            logger.debug("Enqueued %d identity jobs for %s via %s" % (_enqueued, email, source))
 
     logger.info(
         "resolve_identity: %s via %s (created=%s, stitched=%d, breakdown=%s, "
-        "confidence=%s, welcome=%s)"
+        "confidence=%s, contact_conf=%s, stitch_conf=%s, welcome=%s)"
         % (email, source, created, total_stitched, breakdown_str or "none",
-           result["confidence"], welcome_enrolled)
+           result["confidence"], result["contact_resolution_confidence"],
+           result["activity_stitch_confidence"], welcome_enrolled)
     )
 
     return result
@@ -352,12 +372,59 @@ def _stitch_by_identifiers(email, contact_id, session_id="", shopify_id="",
         except Exception as e:
             logger.warning("Stitch by session_id failed for %s: %s" % (email, e))
 
-    # ── Priority 3: shopify_id — rows belonging to other contacts with same shopify_id ──
-    # (This catches cases where Shopify customer ID was known before email.)
-    # Skipped for now — shopify_id is on Contact, not CustomerActivity.
-    # The email-based stitch (Priority 1) already handles this indirectly.
+    # ── Priority 3: shopify_id — cross-reference via Contact + direct shopify_customer_id field ──
+    if shopify_id:
+        _sid = str(shopify_id)
 
-    # ── Priority 4: checkout_token — anonymous rows whose event_data contains the token ──
+        # Strategy A: Cross-reference — find Contact by shopify_id, stitch orphaned activity for that contact
+        try:
+            shopify_contact = Contact.get_or_none(Contact.shopify_id == _sid)
+            if shopify_contact and shopify_contact.id != contact_id:
+                # Different contact shares this shopify_id — stitch their unlinked activity
+                count = (
+                    CustomerActivity.update(
+                        contact_id=contact_id,
+                        stitched_at=now,
+                        stitched_by="shopify_id_xref:%s" % source,
+                    )
+                    .where(
+                        CustomerActivity.email == shopify_contact.email,
+                        CustomerActivity.contact_id.is_null(),
+                        CustomerActivity.stitched_at.is_null(),
+                    )
+                    .execute()
+                )
+                if count > 0:
+                    breakdown["shopify_id"] = breakdown.get("shopify_id", 0) + count
+                    total += count
+                    logger.info("Stitched %d events by shopify_id xref for %s" % (count, email))
+        except Exception as e:
+            logger.warning("Stitch by shopify_id (xref) failed for %s: %s" % (email, e))
+
+        # Strategy B: Direct field match on shopify_customer_id column
+        try:
+            count = (
+                CustomerActivity.update(
+                    email=email,
+                    contact_id=contact_id,
+                    stitched_at=now,
+                    stitched_by="shopify_customer_id:%s" % source,
+                )
+                .where(
+                    CustomerActivity.shopify_customer_id == _sid,
+                    CustomerActivity.email.in_(_PLACEHOLDER_EMAILS),
+                    CustomerActivity.stitched_at.is_null(),
+                )
+                .execute()
+            )
+            if count > 0:
+                breakdown["shopify_id"] = breakdown.get("shopify_id", 0) + count
+                total += count
+                logger.info("Stitched %d events by shopify_customer_id for %s" % (count, email))
+        except Exception as e:
+            logger.warning("Stitch by shopify_customer_id failed for %s: %s" % (email, e))
+
+    # ── Priority 4: checkout_token — first-class field with event_data fallback ──
     if checkout_token:
         try:
             count = (
@@ -368,7 +435,13 @@ def _stitch_by_identifiers(email, contact_id, session_id="", shopify_id="",
                     stitched_by="checkout_token:%s" % source,
                 )
                 .where(
-                    CustomerActivity.event_data.contains(checkout_token),
+                    (
+                        (CustomerActivity.checkout_token == checkout_token) |
+                        (
+                            (CustomerActivity.checkout_token == "") &
+                            CustomerActivity.event_data.contains(checkout_token)
+                        )
+                    ),
                     CustomerActivity.email.in_(_PLACEHOLDER_EMAILS),
                     CustomerActivity.stitched_at.is_null(),
                     CustomerActivity.event_type.in_(
@@ -384,7 +457,7 @@ def _stitch_by_identifiers(email, contact_id, session_id="", shopify_id="",
         except Exception as e:
             logger.warning("Stitch by checkout_token failed for %s: %s" % (email, e))
 
-    # ── Priority 5: cart_token — anonymous rows whose event_data contains the token ──
+    # ── Priority 5: cart_token — first-class field with event_data fallback ──
     if cart_token:
         try:
             count = (
@@ -395,7 +468,13 @@ def _stitch_by_identifiers(email, contact_id, session_id="", shopify_id="",
                     stitched_by="cart_token:%s" % source,
                 )
                 .where(
-                    CustomerActivity.event_data.contains(cart_token),
+                    (
+                        (CustomerActivity.cart_token == cart_token) |
+                        (
+                            (CustomerActivity.cart_token == "") &
+                            CustomerActivity.event_data.contains(cart_token)
+                        )
+                    ),
                     CustomerActivity.email.in_(_PLACEHOLDER_EMAILS),
                     CustomerActivity.stitched_at.is_null(),
                     CustomerActivity.event_type.in_(
@@ -740,10 +819,17 @@ def _replay_behavioral_triggers(contact_id, email, source):
 
 def _log_identity_event(contact, email, source, status, reason_code,
                          reason_detail, stitched_count, breakdown,
-                         confidence, identifiers):
+                         confidence, identifiers,
+                         contact_confidence="", stitch_confidence=""):
     """Log an identity resolution event to ActionLedger."""
     try:
         breakdown_str = ", ".join("%s=%d" % (k, v) for k, v in breakdown.items() if v > 0)
+        detail = "%s | confidence=%s | contact_confidence=%s | stitch_confidence=%s | identifiers=%s | stitched=%d | breakdown=%s" % (
+            reason_detail, confidence,
+            contact_confidence or confidence,
+            stitch_confidence or "none",
+            ",".join(identifiers),
+            stitched_count, breakdown_str or "none")
         log_action(
             contact=contact,
             trigger_type="identity",
@@ -751,12 +837,55 @@ def _log_identity_event(contact, email, source, status, reason_code,
             status=status,
             reason_code=reason_code,
             source_type="identity_resolution",
-            reason_detail="%s | confidence=%s | identifiers=%s | stitched=%d | breakdown=%s" % (
-                reason_detail, confidence, ",".join(identifiers),
-                stitched_count, breakdown_str or "none"),
+            reason_detail=detail,
         )
     except Exception as e:
         logger.warning("Identity audit log failed: %s" % e)
+
+
+def _create_job_if_needed(contact_id, email, source, job_type):
+    """
+    Create an IdentityJob only if no pending/processing job with the same
+    dedupe_key exists within the last 5 minutes.
+
+    Returns:
+        (created_bool, skip_reason_or_None)
+    """
+    dedupe_key = "%d:%s" % (contact_id, job_type)
+    cutoff = datetime.now() - timedelta(minutes=5)
+    try:
+        existing = IdentityJob.select().where(
+            IdentityJob.dedupe_key == dedupe_key,
+            IdentityJob.status.in_(["pending", "processing"]),
+            IdentityJob.created_at >= cutoff,
+        ).count()
+        if existing > 0:
+            # Log dedupe skip to ActionLedger
+            try:
+                contact = Contact.get_or_none(Contact.id == contact_id)
+                log_action(
+                    contact=contact,
+                    trigger_type="identity",
+                    source_id=0,
+                    status="suppressed",
+                    reason_code=RC_IDENTITY_JOB_DEDUPED,
+                    source_type="identity_resolution",
+                    reason_detail="IdentityJob dedupe: %s skipped for %s (dedupe_key=%s, active_count=%d)"
+                                  % (job_type, email, dedupe_key, existing),
+                )
+            except Exception:
+                pass
+            return False, "active_job_exists"
+
+        IdentityJob.create(
+            contact_id=contact_id, email=email, source=source,
+            job_type=job_type, status="pending",
+            dedupe_key=dedupe_key,
+        )
+        return True, None
+    except Exception as e:
+        logger.warning("Failed to create identity job %s for %s: %s" % (job_type, email, e))
+        return False, "error:%s" % str(e)[:100]
 
 
 # ── Durable Job Processor ──────────────────────────────────────────

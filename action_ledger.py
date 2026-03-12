@@ -43,6 +43,7 @@ RC_WELCOME_POST_RESOLVE = "welcome_enrolled_after_resolution"  # welcome flow af
 RC_IDENTITY_REPLAY_SKIP = "identity_replay_skip"              # trigger evaluated but skipped (dedup/purchase)
 RC_IDENTITY_PROBABLE    = "identity_probable_match"            # non-email identifier matched (cart/checkout token)
 RC_IDENTITY_MULTI_STITCH = "identity_multi_stitch"             # multiple identifier types stitched in one call
+RC_IDENTITY_JOB_DEDUPED  = "identity_job_deduped"              # duplicate IdentityJob skipped (dedupe_key match)
 
 
 # ── Core logging function ────────────────────────────────────────────

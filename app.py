@@ -4572,6 +4572,9 @@ def track_event():
             source_ref  = "",
             session_id  = session_id,
             occurred_at = datetime.now(),
+            checkout_token      = str(event_data.get("checkout_token", "") or event_data.get("checkout_id", "") or ""),
+            cart_token          = str(event_data.get("cart_token", "") or ""),
+            shopify_customer_id = str(event_data.get("shopify_customer_id", "") or ""),
         )
         # Real-time last_active_at for known profiles (lightweight — no full re-analysis)
         if email:

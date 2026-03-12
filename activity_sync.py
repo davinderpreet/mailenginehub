@@ -148,6 +148,14 @@ def sync_shopify_abandoned_checkouts():
             skipped += 1
             continue
 
+        # Extract tokens for first-class fields
+        _checkout_token = str(ch.get('token', ''))
+        _cart_token = str(ch.get('cart_token', ''))
+        _shopify_cid = ''
+        _cust = ch.get('customer')
+        if isinstance(_cust, dict) and _cust.get('id'):
+            _shopify_cid = str(_cust['id'])
+
         CustomerActivity.create(
             contact_id  = contact_id,
             email       = email,
@@ -156,6 +164,9 @@ def sync_shopify_abandoned_checkouts():
             source      = 'shopify_checkout',
             source_ref  = checkout_id,
             occurred_at = occurred_at or datetime.now(),
+            checkout_token      = _checkout_token,
+            cart_token          = _cart_token,
+            shopify_customer_id = _shopify_cid,
         )
         new_count += 1
 
