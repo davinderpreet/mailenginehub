@@ -33,6 +33,14 @@ RC_EXIT_CHECKOUT_STARTED   = "flow_exit_checkout_started"    # customer started 
 RC_EXIT_ORDER_COMPLETED    = "flow_exit_order_completed"     # order confirmed / fulfilled
 RC_EXIT_MANUAL             = "flow_exit_manual"              # admin manually cancelled
 
+# Identity resolution reason codes
+RC_IDENTITY_RESOLVED    = "identity_resolved"                  # successful resolution
+RC_IDENTITY_STITCHED    = "identity_stitched"                  # anonymous events linked
+RC_IDENTITY_NEW_CONTACT = "identity_new_contact"               # new contact created from resolution
+RC_IDENTITY_NO_OP       = "identity_no_op"                     # already resolved, no work needed
+RC_IDENTITY_REPLAY      = "identity_trigger_replay"            # behavioral triggers replayed post-stitch
+RC_WELCOME_POST_RESOLVE = "welcome_enrolled_after_resolution"  # welcome flow after identity resolution
+
 
 # ── Core logging function ────────────────────────────────────────────
 

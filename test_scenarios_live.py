@@ -33,6 +33,11 @@ TEST_EMAILS = [
     "scenario12-valid@test.local",
     "scenario13a-pixelsub@test.local",
     "scenario13b-cartview@test.local",
+    "scenario14a-anon-popup@test.local",
+    "scenario14b-anon-webhook@test.local",
+    "scenario14c-anon-emailclick@test.local",
+    "scenario14d-double-identify@test.local",
+    "scenario14e-welcome-idempotent@test.local",
 ]
 
 
@@ -369,8 +374,81 @@ def setup():
     )
     print("[S13b] Created contact #%d with 2 viewed_cart events (no abandoned_checkout)" % c13b.id)
 
+    # ── S14a: Anonymous browse -> popup subscribe -> stitched + welcome + browse ──
+    # Create 3 ANONYMOUS activity rows (no email, no contact) with a shared session
+    for i in range(3):
+        CustomerActivity.create(
+            contact=None, email="",
+            event_type="viewed_product",
+            event_data='{"product_title": "S14a Widget %d", "url": "/products/s14a-%d"}' % (i+1, i+1),
+            source="pixel", session_id="sess-s14a",
+            occurred_at=datetime.now() - timedelta(hours=6-i),
+        )
+    print("[S14a] Created 3 anonymous viewed_product events (session=sess-s14a)")
+
+    # ── S14b: Anonymous browse -> webhook identity -> stitched ──
+    # Pre-create the contact (simulates Shopify customer webhook arriving first)
+    c14b = Contact.create(email="scenario14b-anon-webhook@test.local",
+                          source="shopify", subscribed=True, created_at=datetime.now())
+    CustomerProfile.get_or_create(contact=c14b, defaults={"email": c14b.email, "last_computed_at": datetime.now()})
+    # Create 2 anonymous activity rows
+    for i in range(2):
+        CustomerActivity.create(
+            contact=None, email="",
+            event_type="viewed_product",
+            event_data='{"product_title": "S14b Item %d", "url": "/products/s14b-%d"}' % (i+1, i+1),
+            source="pixel", session_id="sess-s14b",
+            occurred_at=datetime.now() - timedelta(hours=4-i),
+        )
+    print("[S14b] Created contact #%d + 2 anonymous viewed_product events (session=sess-s14b)" % c14b.id)
+
+    # ── S14c: Anonymous browse -> email click identity -> stitched ──
+    c14c = Contact.create(email="scenario14c-anon-emailclick@test.local",
+                          source="popup_widget", subscribed=True, created_at=datetime.now())
+    CustomerProfile.get_or_create(contact=c14c, defaults={"email": c14c.email, "last_computed_at": datetime.now()})
+    for i in range(2):
+        CustomerActivity.create(
+            contact=None, email="",
+            event_type="viewed_product",
+            event_data='{"product_title": "S14c Product %d", "url": "/products/s14c-%d"}' % (i+1, i+1),
+            source="pixel", session_id="sess-s14c",
+            occurred_at=datetime.now() - timedelta(hours=3-i),
+        )
+    print("[S14c] Created contact #%d + 2 anonymous events (session=sess-s14c)" % c14c.id)
+
+    # ── S14d: Double identify -> no double-stitch ──
+    c14d = Contact.create(email="scenario14d-double-identify@test.local",
+                          source="pixel_capture", subscribed=False, created_at=datetime.now())
+    CustomerProfile.get_or_create(contact=c14d, defaults={"email": c14d.email, "last_computed_at": datetime.now()})
+    for i in range(2):
+        CustomerActivity.create(
+            contact=None, email="",
+            event_type="viewed_page",
+            event_data='{"url": "/page-%d"}' % (i+1),
+            source="pixel", session_id="sess-s14d",
+            occurred_at=datetime.now() - timedelta(hours=2-i),
+        )
+    print("[S14d] Created contact #%d + 2 anonymous events (session=sess-s14d)" % c14d.id)
+
+    # ── S14e: Welcome idempotency — contact already enrolled ──
+    c14e = Contact.create(email="scenario14e-welcome-idempotent@test.local",
+                          source="popup_widget", subscribed=True, created_at=datetime.now())
+    CustomerProfile.get_or_create(contact=c14e, defaults={"email": c14e.email, "last_computed_at": datetime.now()})
+    # Pre-enroll in welcome flow
+    welcome_flows = list(Flow.select().where(Flow.is_active == True, Flow.trigger_type == "contact_created"))
+    for wf in welcome_flows:
+        first_step = FlowStep.select().where(FlowStep.flow == wf).order_by(FlowStep.step_order).first()
+        if first_step:
+            try:
+                FlowEnrollment.create(flow=wf, contact=c14e, current_step=1,
+                                      next_send_at=datetime.now() + timedelta(hours=first_step.delay_hours),
+                                      status="active")
+            except Exception:
+                pass
+    print("[S14e] Created contact #%d and pre-enrolled in welcome flow" % c14e.id)
+
     print()
-    print("=== All 13 fixtures ready. Run 'trigger' next. ===")
+    print("=== All 14 fixtures ready. Run 'trigger' next. ===")
 
 
 def trigger():
@@ -567,6 +645,74 @@ def trigger():
         print("  PendingTrigger created: source=%s status=%s" % (td.get('source', '?'), triggers_13b[0].status))
     else:
         print("  BUG: No cart_abandonment PendingTrigger from viewed_cart events")
+
+    # ── S14a: Anonymous -> Popup Subscribe via identity resolution ──
+    print()
+    print("--- S14a: Anonymous Browse -> Popup Subscribe (identity resolution) ---")
+    from identity_resolution import resolve_identity
+    result_14a = resolve_identity(
+        email="scenario14a-anon-popup@test.local",
+        session_id="sess-s14a",
+        source="popup_subscribe",
+        subscribe=True,
+        create_if_missing=True,
+    )
+    print("  resolve_identity: created=%s stitched=%d welcome=%s" % (
+        result_14a["created"], result_14a["stitched"], result_14a["welcome_enrolled"]))
+
+    # ── S14b: Anonymous -> Shopify Order webhook with session ──
+    print()
+    print("--- S14b: Anonymous Browse -> Webhook Identity (with session_id) ---")
+    result_14b = resolve_identity(
+        email="scenario14b-anon-webhook@test.local",
+        session_id="sess-s14b",
+        source="shopify_order",
+        create_if_missing=False,
+    )
+    print("  resolve_identity: created=%s stitched=%d welcome=%s" % (
+        result_14b["created"], result_14b["stitched"], result_14b["welcome_enrolled"]))
+
+    # ── S14c: Anonymous -> Email Click Identity ──
+    print()
+    print("--- S14c: Anonymous Browse -> Email Click Identity ---")
+    result_14c = resolve_identity(
+        email="scenario14c-anon-emailclick@test.local",
+        session_id="sess-s14c",
+        source="email_click",
+        create_if_missing=False,
+    )
+    print("  resolve_identity: created=%s stitched=%d welcome=%s" % (
+        result_14c["created"], result_14c["stitched"], result_14c["welcome_enrolled"]))
+
+    # ── S14d: Double Identify (call twice) ──
+    print()
+    print("--- S14d: Double Identify (idempotency) ---")
+    result_14d_1 = resolve_identity(
+        email="scenario14d-double-identify@test.local",
+        session_id="sess-s14d",
+        source="pixel_identify",
+        create_if_missing=False,
+    )
+    print("  1st call: stitched=%d already_resolved=%s" % (result_14d_1["stitched"], result_14d_1["already_resolved"]))
+    result_14d_2 = resolve_identity(
+        email="scenario14d-double-identify@test.local",
+        session_id="sess-s14d",
+        source="pixel_identify",
+        create_if_missing=False,
+    )
+    print("  2nd call: stitched=%d already_resolved=%s" % (result_14d_2["stitched"], result_14d_2["already_resolved"]))
+
+    # ── S14e: Welcome Idempotency (already enrolled) ──
+    print()
+    print("--- S14e: Welcome Idempotency (already enrolled in welcome) ---")
+    result_14e = resolve_identity(
+        email="scenario14e-welcome-idempotent@test.local",
+        session_id="",
+        source="popup_subscribe",
+        subscribe=True,
+        create_if_missing=False,
+    )
+    print("  resolve_identity: welcome_enrolled=%s (should be False — already enrolled)" % result_14e["welcome_enrolled"])
 
     print()
     print("=== Triggers fired. Run 'verify' after ~90 seconds (flow processor + queue processor). ===")
@@ -939,6 +1085,208 @@ def verify():
         print("  >>> SCENARIO S13b: PASS")
     else:
         print("  >>> SCENARIO S13b: FAIL")
+        all_pass = False
+
+    # ── S14a: Anonymous -> Popup -> Stitched + Welcome + Browse ──
+    print()
+    print("--- S14a: Anonymous -> Popup Subscribe (identity resolution) ---")
+    s14a_results = []
+    try:
+        c = Contact.get(Contact.email == "scenario14a-anon-popup@test.local")
+        # Check subscribed
+        if c.subscribed:
+            print("  [PASS] subscribed=True")
+            s14a_results.append(True)
+        else:
+            print("  [FAIL] subscribed=False")
+            s14a_results.append(False)
+
+        # Check stitching: all 3 anonymous events should now have email + stitched_at set
+        stitched = CustomerActivity.select().where(
+            CustomerActivity.session_id == "sess-s14a",
+            CustomerActivity.email == "scenario14a-anon-popup@test.local",
+            CustomerActivity.stitched_at.is_null(False),
+        ).count()
+        if stitched == 3:
+            print("  [PASS] %d events stitched (stitched_at set)" % stitched)
+            s14a_results.append(True)
+        else:
+            print("  [FAIL] %d events stitched (expected 3)" % stitched)
+            s14a_results.append(False)
+
+        # Check stitched_by
+        stitched_by = CustomerActivity.select().where(
+            CustomerActivity.session_id == "sess-s14a",
+            CustomerActivity.stitched_by == "popup_subscribe",
+        ).count()
+        if stitched_by == 3:
+            print("  [PASS] stitched_by='popup_subscribe' on all 3")
+            s14a_results.append(True)
+        else:
+            print("  [FAIL] stitched_by='popup_subscribe' on %d (expected 3)" % stitched_by)
+            s14a_results.append(False)
+
+        # Check welcome enrollment
+        enrollments = list(FlowEnrollment.select().where(FlowEnrollment.contact == c))
+        has_welcome = any(Flow.get_by_id(en.flow_id).trigger_type == "contact_created" for en in enrollments)
+        if has_welcome:
+            print("  [PASS] Enrolled in welcome flow")
+            s14a_results.append(True)
+        else:
+            print("  [FAIL] Not enrolled in welcome flow")
+            s14a_results.append(False)
+
+        # Check ActionLedger for identity entries
+        identity_ledger = ActionLedger.select().where(
+            ActionLedger.email == "scenario14a-anon-popup@test.local",
+            ActionLedger.trigger_type == "identity",
+        ).count()
+        if identity_ledger > 0:
+            print("  [PASS] %d identity ActionLedger entries" % identity_ledger)
+            s14a_results.append(True)
+        else:
+            print("  [FAIL] No identity ActionLedger entries")
+            s14a_results.append(False)
+
+    except Contact.DoesNotExist:
+        print("  [FAIL] Contact not found")
+        s14a_results.append(False)
+    if all(s14a_results):
+        print("  >>> SCENARIO S14a: PASS")
+    else:
+        print("  >>> SCENARIO S14a: FAIL")
+        all_pass = False
+
+    # ── S14b: Anonymous -> Webhook with session -> stitched, no welcome ──
+    print()
+    print("--- S14b: Anonymous -> Webhook Identity (session stitching) ---")
+    s14b_results = []
+    stitched_14b = CustomerActivity.select().where(
+        CustomerActivity.session_id == "sess-s14b",
+        CustomerActivity.email == "scenario14b-anon-webhook@test.local",
+        CustomerActivity.stitched_at.is_null(False),
+    ).count()
+    if stitched_14b == 2:
+        print("  [PASS] %d events stitched" % stitched_14b)
+        s14b_results.append(True)
+    else:
+        print("  [FAIL] %d events stitched (expected 2)" % stitched_14b)
+        s14b_results.append(False)
+
+    # Should NOT have welcome enrollment (shopify_order is not a subscribe source)
+    try:
+        c14b = Contact.get(Contact.email == "scenario14b-anon-webhook@test.local")
+        welcome_14b = [en for en in FlowEnrollment.select().where(FlowEnrollment.contact == c14b)
+                       if Flow.get_by_id(en.flow_id).trigger_type == "contact_created"]
+        if not welcome_14b:
+            print("  [PASS] No welcome enrollment (correct — webhook source)")
+            s14b_results.append(True)
+        else:
+            print("  [FAIL] Unexpected welcome enrollment from webhook")
+            s14b_results.append(False)
+    except Contact.DoesNotExist:
+        print("  [FAIL] Contact not found")
+        s14b_results.append(False)
+    if all(s14b_results):
+        print("  >>> SCENARIO S14b: PASS")
+    else:
+        print("  >>> SCENARIO S14b: FAIL")
+        all_pass = False
+
+    # ── S14c: Anonymous -> Email Click -> stitched, no welcome ──
+    print()
+    print("--- S14c: Anonymous -> Email Click Identity ---")
+    s14c_results = []
+    stitched_14c = CustomerActivity.select().where(
+        CustomerActivity.session_id == "sess-s14c",
+        CustomerActivity.email == "scenario14c-anon-emailclick@test.local",
+        CustomerActivity.stitched_at.is_null(False),
+    ).count()
+    if stitched_14c == 2:
+        print("  [PASS] %d events stitched" % stitched_14c)
+        s14c_results.append(True)
+    else:
+        print("  [FAIL] %d events stitched (expected 2)" % stitched_14c)
+        s14c_results.append(False)
+
+    stitched_by_14c = CustomerActivity.select().where(
+        CustomerActivity.session_id == "sess-s14c",
+        CustomerActivity.stitched_by == "email_click",
+    ).count()
+    if stitched_by_14c == 2:
+        print("  [PASS] stitched_by='email_click' on all 2")
+        s14c_results.append(True)
+    else:
+        print("  [FAIL] stitched_by='email_click' on %d (expected 2)" % stitched_by_14c)
+        s14c_results.append(False)
+    if all(s14c_results):
+        print("  >>> SCENARIO S14c: PASS")
+    else:
+        print("  >>> SCENARIO S14c: FAIL")
+        all_pass = False
+
+    # ── S14d: Double Identify -> no double-stitch ──
+    print()
+    print("--- S14d: Double Identify (no re-stitch) ---")
+    s14d_results = []
+    stitched_14d = CustomerActivity.select().where(
+        CustomerActivity.session_id == "sess-s14d",
+        CustomerActivity.email == "scenario14d-double-identify@test.local",
+        CustomerActivity.stitched_at.is_null(False),
+    ).count()
+    if stitched_14d == 2:
+        print("  [PASS] Exactly 2 events stitched (not duplicated)")
+        s14d_results.append(True)
+    else:
+        print("  [FAIL] %d events stitched (expected exactly 2)" % stitched_14d)
+        s14d_results.append(False)
+
+    # Count identity ActionLedger entries — should have exactly 1 stitched + 1 no-op
+    id_ledger_14d = list(ActionLedger.select().where(
+        ActionLedger.email == "scenario14d-double-identify@test.local",
+        ActionLedger.trigger_type == "identity",
+    ))
+    stitched_entries = [e for e in id_ledger_14d if e.reason_code == "identity_stitched"]
+    noop_entries = [e for e in id_ledger_14d if e.reason_code == "identity_no_op"]
+    if len(stitched_entries) == 1:
+        print("  [PASS] 1 identity_stitched entry")
+        s14d_results.append(True)
+    else:
+        print("  [FAIL] %d identity_stitched entries (expected 1)" % len(stitched_entries))
+        s14d_results.append(False)
+    if len(noop_entries) == 1:
+        print("  [PASS] 1 identity_no_op entry")
+        s14d_results.append(True)
+    else:
+        print("  [FAIL] %d identity_no_op entries (expected 1)" % len(noop_entries))
+        s14d_results.append(False)
+    if all(s14d_results):
+        print("  >>> SCENARIO S14d: PASS")
+    else:
+        print("  >>> SCENARIO S14d: FAIL")
+        all_pass = False
+
+    # ── S14e: Welcome Idempotency ──
+    print()
+    print("--- S14e: Welcome Idempotency ---")
+    s14e_results = []
+    try:
+        c14e = Contact.get(Contact.email == "scenario14e-welcome-idempotent@test.local")
+        welcome_enrollments = [en for en in FlowEnrollment.select().where(FlowEnrollment.contact == c14e)
+                               if Flow.get_by_id(en.flow_id).trigger_type == "contact_created"]
+        if len(welcome_enrollments) == 1:
+            print("  [PASS] Exactly 1 welcome enrollment (no duplicate)")
+            s14e_results.append(True)
+        else:
+            print("  [FAIL] %d welcome enrollments (expected exactly 1)" % len(welcome_enrollments))
+            s14e_results.append(False)
+    except Contact.DoesNotExist:
+        print("  [FAIL] Contact not found")
+        s14e_results.append(False)
+    if all(s14e_results):
+        print("  >>> SCENARIO S14e: PASS")
+    else:
+        print("  >>> SCENARIO S14e: FAIL")
         all_pass = False
 
     print()

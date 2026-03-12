@@ -367,7 +367,7 @@
   </div>
   <div style="position:relative;">
     <div class="code-block" id="pixel-code">
-&lt;!-- MailEngineHub Tracking Pixel v2 --&gt;
+&lt;!-- MailEngineHub Tracking Pixel v3 --&gt;
 &lt;!-- Step 1: Add this ABOVE the pixel in theme.liquid (identifies logged-in customers): --&gt;
 &lt;!-- {% if customer %}&lt;script&gt;window.meh_email='{{ customer.email }}';&lt;/script&gt;{% endif %} --&gt;
 &lt;script&gt;
@@ -383,6 +383,14 @@
     if (urlEmail) { email = urlEmail; localStorage.setItem('meh_email', decodeURIComponent(urlEmail)); }
   }
   if (!email) email = localStorage.getItem('meh_email') || '';
+
+  // Auto-identify: stitch anonymous session when email is first discovered
+  if (email &amp;&amp; localStorage.getItem('meh_email') !== email) {
+    localStorage.setItem('meh_email', email);
+    var ID_EP = ENDPOINT.replace('/api/track', '/api/identify');
+    fetch(ID_EP, { method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({session_id:sid, email:email}) }).catch(function(){});
+  }
 
   function track(type, data) {
     var payload = { event_type: type, event_data: data, session_id: sid };
@@ -407,7 +415,7 @@
   </div>
   <p style="font-size:11.5px; color:var(--text3); margin-top:10px;">
     <i class="fas fa-info-circle" style="color:var(--cyan);"></i>
-    Tracks: product views, blog reads, searches, cart visits, page views. Customers are auto-identified when logged in (via Liquid) or when clicking from an email link (via <code style="color:var(--cyan);">?meh_e=EMAIL</code>).
+    Tracks: product views, blog reads, searches, cart visits, page views. Customers are auto-identified when logged in (via Liquid) or when clicking from an email link (via <code style="color:var(--cyan);">?meh_e=EMAIL</code>). Anonymous browsing is automatically stitched to the contact when identity is discovered.
   </p>
 </div>
 <!-- ── Popup Subscription Widget Setup ───────────────────── -->

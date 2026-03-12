@@ -707,40 +707,26 @@ def webhook_shopify_customer_create():
         contact, created = handle_shopify_customer_webhook(customer)
 
         if contact:
-            # Create CustomerProfile stub if missing
-            from database import CustomerProfile
-            CustomerProfile.get_or_create(
-                contact=contact,
-                defaults={"email": contact.email, "last_computed_at": datetime.now()}
-            )
-
-            # Trigger background enrichment to pull in any activity data
-            _email_copy = contact.email
-            def _enrich_bg():
-                import sys as _s; _s.path.insert(0, APP_DIR)
-                from activity_sync import enrich_single_profile
-                enrich_single_profile(_email_copy)
+            # Canonical identity resolution: profile, enrichment, cascade, welcome enrollment
+            from identity_resolution import resolve_identity
             import threading as _th
-            _th.Thread(target=_enrich_bg, daemon=True).start()
+            _shopify_email = contact.email
+            _shopify_id = str(customer.get("id", ""))
+            _shopify_fn = customer.get("first_name", "")
+            _shopify_ln = customer.get("last_name", "")
+            _was_created = created
+            def _resolve_shopify_create():
+                resolve_identity(
+                    email=_shopify_email,
+                    shopify_id=_shopify_id,
+                    source="shopify_customer",
+                    first_name=_shopify_fn,
+                    last_name=_shopify_ln,
+                    create_if_missing=False,
+                )
+            _th.Thread(target=_resolve_shopify_create, daemon=True).start()
 
-            # Cascade: score + intelligence + decision for new Shopify contact
-            import time as _t2
-            def _cascade_shopify_create():
-                _t2.sleep(3)
-                try:
-                    from cascade import cascade_contact
-                    cascade_contact(contact.id, trigger='shopify_create')
-                except Exception:
-                    pass
-            _th.Thread(target=_cascade_shopify_create, daemon=True).start()
-
-            # Auto-enroll new contacts in flows
-            if created:
-                _enroll_contact_in_flows(contact, "contact_created")
-                app.logger.info(f"Shopify customer webhook: new contact {contact.email}")
-            else:
-                app.logger.info(f"Shopify customer webhook: updated contact {contact.email}")
-
+            app.logger.info(f"Shopify customer webhook: {'new' if created else 'updated'} contact {contact.email}")
             return jsonify({"success": True, "contact_id": contact.id, "created": created}), 200
         else:
             return jsonify({"error": "No valid email in webhook"}), 400
@@ -770,22 +756,19 @@ def webhook_shopify_customer_update():
         contact, created = handle_shopify_customer_webhook(customer)
 
         if contact:
-            # Ensure CustomerProfile exists
-            from database import CustomerProfile
-            CustomerProfile.get_or_create(
-                contact=contact,
-                defaults={"email": contact.email, "last_computed_at": datetime.now()}
-            )
-            # Real-time pipeline: refresh after Shopify customer update
+            # Canonical identity resolution: ensures profile, enrichment, cascade
+            from identity_resolution import resolve_identity
             import threading as _th_upd
-            def _cascade_shopify_update():
-                import time as _t_upd; _t_upd.sleep(2)
-                try:
-                    from cascade import cascade_contact
-                    cascade_contact(contact.id, trigger="shopify_update")
-                except Exception:
-                    pass
-            _th_upd.Thread(target=_cascade_shopify_update, daemon=True).start()
+            _upd_email = contact.email
+            _upd_sid = str(customer.get("id", ""))
+            def _resolve_shopify_update():
+                resolve_identity(
+                    email=_upd_email,
+                    shopify_id=_upd_sid,
+                    source="shopify_customer",
+                    create_if_missing=False,
+                )
+            _th_upd.Thread(target=_resolve_shopify_update, daemon=True).start()
 
             app.logger.info(f"Shopify customer update webhook: {contact.email} (subscribed={contact.subscribed})")
             return jsonify({"success": True, "contact_id": contact.id, "updated": True}), 200
@@ -861,6 +844,15 @@ def webhook_shopify_checkout_create():
                 reason_code="flow_exit_checkout_started",
             )
 
+        # Identity resolution: stitch session if email discovered via checkout
+        if email:
+            import threading as _th_co
+            _co_email = email
+            def _resolve_checkout():
+                from identity_resolution import resolve_identity
+                resolve_identity(email=_co_email, source="shopify_checkout", create_if_missing=False)
+            _th_co.Thread(target=_resolve_checkout, daemon=True).start()
+
         return jsonify({"success": True}), 200
 
     except Exception as e:
@@ -888,7 +880,10 @@ def webhook_shopify_order_create():
         if not email:
             return jsonify({"error": "No email in order"}), 400
 
-        contact = Contact.get_or_none(Contact.email == email)
+        # Identity resolution: ensure contact exists and stitch any anonymous activity
+        from identity_resolution import resolve_identity
+        id_result = resolve_identity(email=email, source="shopify_order", create_if_missing=False)
+        contact = id_result["contact"]
 
         # 1. Mark abandoned checkouts as recovered
         (AbandonedCheckout.update(recovered=True, recovered_at=datetime.now())
@@ -4532,65 +4527,16 @@ def identify_visitor():
         resp.headers["Access-Control-Allow-Origin"] = "*"
         return resp, 400
 
-    # Link to known contact if they exist
-    contact = Contact.get_or_none(Contact.email == email)
-    contact_id = contact.id if contact else None
-
-    # Retroactively stitch: update all anonymous events in this session
-    updated = (
-        CustomerActivity.update(email=email, contact_id=contact_id)
-        .where(CustomerActivity.session_id == session_id)
-        .where(CustomerActivity.email == "")
-        .execute()
+    # Canonical identity resolution
+    from identity_resolution import resolve_identity
+    result = resolve_identity(
+        email=email,
+        session_id=session_id,
+        source="pixel_identify",
+        create_if_missing=True,
     )
 
-    app.logger.info(f"Identified session {session_id[:8]}… → {email} ({updated} events stitched)")
-
-    # Create Contact + CustomerProfile stub for first-time emails
-    is_new_contact = False
-    if not contact:
-        try:
-            from database import CustomerProfile
-            contact = Contact.create(
-                email=email,
-                source="pixel_capture",
-                subscribed=False,
-                created_at=datetime.now()
-            )
-            CustomerProfile.get_or_create(
-                contact=contact,
-                defaults={"email": email, "last_computed_at": datetime.now()}
-            )
-            is_new_contact = True
-            app.logger.info(f"New contact created from pixel capture: {email}")
-
-            # Hardening: if popup subscribe raced ahead, contact may already
-            # have a popup_subscribe event. Check and enroll if so.
-            try:
-                popup_exists = CustomerActivity.select().where(
-                    CustomerActivity.email == email,
-                    CustomerActivity.event_type == "popup_subscribe"
-                ).count()
-                if popup_exists > 0 and contact.subscribed:
-                    _enroll_contact_in_flows(contact, "contact_created")
-                    app.logger.info(f"Identify: late-enrolled {email} (popup_subscribe found)")
-            except Exception as _race_e:
-                app.logger.warning(f"Identify race-check failed for {email}: {_race_e}")
-
-        except Exception as _ce:
-            app.logger.warning(f"Pixel contact create failed ({email}): {_ce}")
-
-    # Trigger async single-profile enrichment in background
-    if updated > 0 or is_new_contact:
-        import threading as _th
-        _email_copy = email
-        def _enrich_bg():
-            import sys as _s; _s.path.insert(0, APP_DIR)
-            from activity_sync import enrich_single_profile
-            enrich_single_profile(_email_copy)
-        _th.Thread(target=_enrich_bg, daemon=True).start()
-
-    resp = jsonify({"ok": True, "updated": updated, "new_contact": is_new_contact})
+    resp = jsonify({"ok": True, "updated": result["stitched"], "new_contact": result["created"]})
     resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
 
@@ -4645,6 +4591,15 @@ def track_event():
             except Exception:
                 pass
 
+        # Identity resolution: stitch session when email is discovered via pixel
+        if email and session_id:
+            import threading as _th_track
+            _e_copy, _s_copy = email, session_id
+            def _resolve_track():
+                from identity_resolution import resolve_identity
+                resolve_identity(email=_e_copy, session_id=_s_copy, source="api_track", create_if_missing=False)
+            _th_track.Thread(target=_resolve_track, daemon=True).start()
+
         return jsonify({"ok": True}), 200, cors_headers
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400, cors_headers
@@ -4698,45 +4653,20 @@ def api_subscribe():
         if recent_subs >= 5:
             return jsonify({"ok": False, "error": "Too many requests. Please try again later."}), 429, cors_headers
 
-        # ── Create or find contact ──
-        contact, created = Contact.get_or_create(
+        # ── Canonical identity resolution (contact + stitching + welcome) ──
+        from identity_resolution import resolve_identity
+        _id_result = resolve_identity(
             email=email,
-            defaults={
-                "source": "popup_widget",
-                "subscribed": True,
-                "created_at": datetime.now(),
-            }
+            session_id=session_id,
+            source="popup_subscribe",
+            subscribe=True,
+            create_if_missing=True,
         )
+        contact = _id_result["contact"]
+        created = _id_result["created"]
 
-        # If existing contact, ensure they're subscribed
-        if not created and not contact.subscribed:
-            contact.subscribed = True
-            contact.save()
-            app.logger.info(f"Popup re-subscribed existing contact: {email}")
-
-        # Create CustomerProfile stub if new
-        if created:
-            try:
-                CustomerProfile.get_or_create(
-                    contact=contact,
-                    defaults={"email": email, "last_computed_at": datetime.now()}
-                )
-            except Exception:
-                pass
-
-        # ── Session stitching (same as /api/identify) ──
-        if session_id:
-            try:
-                stitched = (
-                    CustomerActivity.update(email=email, contact_id=contact.id)
-                    .where(CustomerActivity.session_id == session_id)
-                    .where(CustomerActivity.email == "")
-                    .execute()
-                )
-                if stitched:
-                    app.logger.info(f"Popup stitched {stitched} events for {email}")
-            except Exception:
-                pass
+        if not contact:
+            return jsonify({"ok": False, "error": "Contact creation failed."}), 500, cors_headers
 
         # ── Log the subscribe event ──
         from normalize_activity import normalize_event_data as _norm
@@ -4760,31 +4690,8 @@ def api_subscribe():
         except Exception as e:
             app.logger.error(f"Popup discount generation failed for {email}: {e}")
 
-        # ── Trigger intelligence cascade ──
-        try:
-            from cascade import cascade_contact
-            cascade_contact(contact.id, trigger="popup_subscribe")
-        except Exception as e:
-            app.logger.warning(f"Popup cascade trigger failed for {email}: {e}")
-
-        # ── Enroll in welcome flow (handles pixel-captured contacts too) ──
-        try:
-            already_in_welcome = False
-            if not created:
-                # Contact existed (likely from pixel identify) — check if already enrolled
-                welcome_flows = Flow.select().where(
-                    Flow.is_active == True, Flow.trigger_type == "contact_created")
-                for wf in welcome_flows:
-                    if FlowEnrollment.select().where(
-                            FlowEnrollment.flow == wf,
-                            FlowEnrollment.contact == contact).count() > 0:
-                        already_in_welcome = True
-                        break
-            if not already_in_welcome:
-                _enroll_contact_in_flows(contact, "contact_created")
-                app.logger.info(f"Popup enrolled {email} in welcome flow (new={created})")
-        except Exception as e:
-            app.logger.warning(f"Popup flow enrollment failed for {email}: {e}")
+        # Note: intelligence cascade + welcome flow enrollment are handled
+        # by resolve_identity() above (runs in background thread).
 
         # ── Push consent to Shopify so both systems stay in sync ──
         try:

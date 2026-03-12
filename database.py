@@ -455,6 +455,8 @@ class CustomerActivity(BaseModel):
     session_id  = CharField(default="")   # group events in a browsing session
     occurred_at = DateTimeField(default=datetime.now, index=True)
     created_at  = DateTimeField(default=datetime.now)
+    stitched_at = DateTimeField(null=True)   # when anonymous row was linked to a contact
+    stitched_by = CharField(default="")      # which source stitched it (popup_subscribe, pixel_identify, etc.)
 
     class Meta:
         table_name = "customer_activity"
@@ -616,6 +618,20 @@ def _migrate_pending_trigger_fields():
         db.execute_sql("ALTER TABLE pending_triggers ADD COLUMN processed_at DATETIME")
 
 
+def _migrate_identity_resolution_fields():
+    """Add stitched_at/stitched_by columns to customer_activity for identity resolution."""
+    cursor = db.execute_sql("PRAGMA table_info(customer_activity)")
+    existing = {row[1] for row in cursor.fetchall()}
+    new_cols = [
+        ("stitched_at", "DATETIME"),
+        ("stitched_by", "VARCHAR(50) DEFAULT ''"),
+    ]
+    for col_name, col_def in new_cols:
+        if col_name not in existing:
+            db.execute_sql("ALTER TABLE customer_activity ADD COLUMN %s %s" % (col_name, col_def))
+            print("  [migrate] Added %s to customer_activity" % col_name)
+
+
 def init_db():
     db.connect(reuse_if_open=True)
     # Enable WAL mode for concurrent reads/writes (real-time pipeline)
@@ -650,6 +666,7 @@ def init_db():
     _migrate_total_spent_to_float()
     _migrate_system_config()
     _migrate_pending_trigger_fields()
+    _migrate_identity_resolution_fields()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")
