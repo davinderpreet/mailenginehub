@@ -24,7 +24,7 @@ BRAND_DARK  = "#0532d4"
 TEXT_DARK    = "#1a1a2e"
 TEXT_MID     = "#4a5568"
 TEXT_LIGHT   = "#718096"
-BRAND_URL    = "https://ldas-electronics.com"
+BRAND_URL    = "https://ldas.ca"
 
 
 # ═══════════════════════════════════════════════════════════════

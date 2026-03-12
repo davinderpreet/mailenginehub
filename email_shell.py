@@ -16,7 +16,7 @@ import html as html_mod
 
 # ── Brand Constants (LDAS Electronics) ───────────────────────
 BRAND_NAME = "LDAS Electronics"
-BRAND_URL = "https://ldas-electronics.com"
+BRAND_URL = "https://ldas.ca"
 BRAND_COLOR = "#063cff"           # LDAS primary blue
 BRAND_COLOR_DARK = "#0532d4"      # Darker blue
 HEADER_BG = "#0a0a0a"            # Dark header (matches ldas.ca)

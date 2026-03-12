@@ -19,7 +19,7 @@ from email_shell import wrap_email
 
 # ── Brand Constants ──────────────────────────────────────────
 BRAND_NAME = "LDAS Electronics"
-BRAND_URL = "https://ldas-electronics.com"
+BRAND_URL = "https://ldas.ca"
 BRAND_COLOR = "#063cff"
 BRAND_COLOR_DARK = "#0532d4"
 BRAND_COLOR_LIGHT = "#e8f0ff"
