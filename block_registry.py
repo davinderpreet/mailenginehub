@@ -351,30 +351,26 @@ def render_template_blocks(template, contact=None, products=None, discount=None,
         # Phase 2: Resolve variants if present and contact context available
         has_variants = bool(block.get("variants"))
         if has_variants and contact_context:
-            from condition_engine import resolve_block_variants
+            from condition_engine import resolve_block_variants, _make_explain
             content, block_explain = resolve_block_variants(block, contact_context)
             if explain:
-                block_explain["block_index"] = i
+                block_explain["block_index"] = i  # override the placeholder index
         elif has_variants and not contact_context:
             # No contact context -- use default content (no variant resolution)
             if explain:
-                block_explain = {
-                    "block_index": i,
-                    "block_type": block_type,
-                    "matched_variant_index": None,
-                    "matched_conditions": None,
-                    "resolved_content_summary": "default (no contact context)",
-                }
+                from condition_engine import _make_explain
+                block_explain = _make_explain(
+                    block_index=i, block_type=block_type,
+                    summary="default (no contact context)",
+                )
         else:
             # No variants on this block
             if explain:
-                block_explain = {
-                    "block_index": i,
-                    "block_type": block_type,
-                    "matched_variant_index": None,
-                    "matched_conditions": None,
-                    "resolved_content_summary": "no variants",
-                }
+                from condition_engine import _make_explain
+                block_explain = _make_explain(
+                    block_index=i, block_type=block_type,
+                    summary="no variants",
+                )
 
         if explain and block_explain:
             explain_list.append(block_explain)
@@ -563,7 +559,7 @@ def validate_template(blocks_json_str, family=None):
                     "message": "Block %d (Urgency): Message is %d chars -- keep under 120 for impact" % (block_num, len(message))
                 })
 
-        # ── Variant validation (Phase 2) ──
+        # ── Variant validation (Phase 2) — uses condition_engine schema ──
         variants = block.get("variants", [])
         if variants:
             if not isinstance(variants, list):
@@ -572,16 +568,21 @@ def validate_template(blocks_json_str, family=None):
                     "message": "Block %d (%s): 'variants' must be a list" % (block_num, block_type)
                 })
             else:
+                try:
+                    from condition_engine import validate_condition
+                except ImportError:
+                    validate_condition = None
+
                 seen_unconditional = False
                 for vi, variant in enumerate(variants):
                     conditions = variant.get("conditions", [])
-                    v_content = variant.get("content", {})
 
                     if not isinstance(conditions, list):
                         warnings.append({
                             "level": "error",
                             "message": "Block %d variant %d: 'conditions' must be a list" % (block_num, vi + 1)
                         })
+                        continue
 
                     if not conditions:
                         if seen_unconditional:
@@ -596,23 +597,16 @@ def validate_template(blocks_json_str, family=None):
                                 "message": "Block %d variant %d: Unconditional variant is not last -- subsequent variants are unreachable" % (block_num, vi + 1)
                             })
 
-                    # Validate condition fields
-                    valid_fields = {"lifecycle_stage", "customer_type", "total_orders", "total_spent",
-                                    "days_since_last_order", "has_used_discount", "tags"}
-                    valid_ops = {"eq", "neq", "gt", "lt", "in", "contains", "not_contains"}
-                    for ci, cond in enumerate(conditions):
-                        field = cond.get("field", "")
-                        op = cond.get("op", "")
-                        if field and field not in valid_fields:
-                            warnings.append({
-                                "level": "error",
-                                "message": "Block %d variant %d condition %d: Unknown field '%s'" % (block_num, vi + 1, ci + 1, field)
-                            })
-                        if op and op not in valid_ops:
-                            warnings.append({
-                                "level": "error",
-                                "message": "Block %d variant %d condition %d: Unknown operator '%s'" % (block_num, vi + 1, ci + 1, op)
-                            })
+                    # Validate each condition against the authoritative schema
+                    if validate_condition:
+                        for ci, cond in enumerate(conditions):
+                            cond_warnings = validate_condition(
+                                cond,
+                                block_num=block_num,
+                                variant_num=vi + 1,
+                                cond_num=ci + 1,
+                            )
+                            warnings.extend(cond_warnings)
 
     # ── Duplicate CTA warning ──
     cta_count = block_types_present.count("cta")

@@ -4,32 +4,198 @@ condition_engine.py — Conditional Logic for Journey-Aware Email Templates
 Phase 2 of the unified template system. Evaluates block-level conditions
 against a contact's profile to determine which block variant to render.
 
-Supported fields (from Contact + CustomerProfile):
-  - lifecycle_stage: prospect|new_customer|active_buyer|loyal|vip|at_risk|churned|reactivated
-  - customer_type:   browser|one_time|repeat|loyal|vip|discount_seeker|dormant
-  - total_orders:    integer
-  - total_spent:     float
-  - days_since_last_order: integer
-  - has_used_discount: boolean
-  - tags:            comma-separated string on Contact
+CONDITION SCHEMA CONTRACT (frozen — builder/storage/preview all use this):
+─────────────────────────────────────────────────────────────────────────
 
-Supported operators:
-  - eq:  equals (string or numeric)
-  - neq: not equals
-  - gt:  greater than (numeric)
-  - lt:  less than (numeric)
-  - in:  value is one of a list
-  - contains: string contains substring (for tags)
-  - not_contains: string does not contain substring
+Each condition is a dict with exactly 3 keys:
+    {"field": "<field_key>", "op": "<operator>", "value": <value>}
+
+FIELDS (CONDITION_FIELDS):
+    Field                  | Type    | Source           | Allowed values
+    ───────────────────────┼─────────┼──────────────────┼─────────────────────────────
+    lifecycle_stage        | str     | CustomerProfile  | prospect, new_customer, active_buyer, loyal, vip, at_risk, churned, reactivated, unknown
+    customer_type          | str     | CustomerProfile  | browser, one_time, repeat, loyal, vip, discount_seeker, dormant, unknown
+    total_orders           | int     | Contact/Profile  | >= 0
+    total_spent            | float   | Contact/Profile  | >= 0.0
+    days_since_last_order  | int     | CustomerProfile  | >= 0 (999 = never ordered)
+    has_used_discount      | bool    | CustomerProfile  | true / false
+    tags                   | str     | Contact          | comma-separated tag string
+
+OPERATORS (CONDITION_OPERATORS):
+    Operator       | Accepts types         | Value format         | Behaviour
+    ───────────────┼───────────────────────┼──────────────────────┼───────────────────
+    eq             | str, int, float, bool | single value         | Equals (case-insensitive for strings)
+    neq            | str, int, float, bool | single value         | Not equals
+    gt             | int, float            | numeric              | Greater than
+    lt             | int, float            | numeric              | Less than
+    in             | str                   | list or csv string   | Value is one of the set
+    contains       | str                   | substring            | Field contains substring (for tags)
+    not_contains   | str                   | substring            | Field does not contain substring
+
+VARIANT SCHEMA:
+    Each block may have an optional "variants" list:
+    {
+        "block_type": "hero",
+        "content": { ... default content ... },
+        "variants": [
+            {
+                "conditions": [ {"field": "...", "op": "...", "value": ...} ],
+                "content": { ... override fields ... }
+            }
+        ]
+    }
+
+    Resolution: first-match-wins. Variant content merges over default content.
+    Empty conditions list = unconditional match (use as last fallback only).
+
+EXPLAINABILITY PAYLOAD (frozen — preview/debug output):
+    Each block produces an explain dict with this exact shape:
+    {
+        "block_index":              int,     # 0-based position in blocks array
+        "block_type":               str,     # e.g. "hero", "text", "cta"
+        "matched_variant_index":    int|None,# index into variants[] or None if default
+        "matched_conditions":       list|None,# conditions list that matched, or None
+        "resolved_content_summary": str      # human-readable: "default", "no variants",
+                                             #   "lifecycle_stage = vip AND total_orders > 5",
+                                             #   "default (no contact context)", etc.
+    }
+
+    The preview route (?explain=1) wraps these in:
+    {
+        "html":            str,
+        "explain":         [explain_dict, ...],
+        "contact_context": dict|absent,   # only if contact_id provided
+        "contact_info":    dict|absent,   # only if contact_id provided
+        "warnings":        [warn_dict, ...]|absent  # only if validate=1
+    }
 
 Usage:
     from condition_engine import evaluate_conditions, get_contact_context
+    from condition_engine import CONDITION_FIELDS, CONDITION_OPERATORS
 
     ctx = get_contact_context(contact)
     matched = evaluate_conditions(variant["conditions"], ctx)
 """
 
 from database import Contact, CustomerProfile
+
+
+# =========================================================================
+#  AUTHORITATIVE SCHEMA — single source of truth for conditions
+#  Builder, validator, evaluator, and preview all reference these dicts.
+# =========================================================================
+
+CONDITION_FIELDS = {
+    "lifecycle_stage": {
+        "type": "str",
+        "label": "Lifecycle Stage",
+        "source": "CustomerProfile",
+        "allowed_values": [
+            "prospect", "new_customer", "active_buyer", "loyal",
+            "vip", "at_risk", "churned", "reactivated", "unknown",
+        ],
+        "allowed_ops": ["eq", "neq", "in"],
+        "default": "unknown",
+    },
+    "customer_type": {
+        "type": "str",
+        "label": "Customer Type",
+        "source": "CustomerProfile",
+        "allowed_values": [
+            "browser", "one_time", "repeat", "loyal",
+            "vip", "discount_seeker", "dormant", "unknown",
+        ],
+        "allowed_ops": ["eq", "neq", "in"],
+        "default": "unknown",
+    },
+    "total_orders": {
+        "type": "int",
+        "label": "Total Orders",
+        "source": "Contact + CustomerProfile",
+        "allowed_values": None,  # any int >= 0
+        "allowed_ops": ["eq", "neq", "gt", "lt"],
+        "default": 0,
+    },
+    "total_spent": {
+        "type": "float",
+        "label": "Total Spent ($)",
+        "source": "Contact + CustomerProfile",
+        "allowed_values": None,  # any float >= 0
+        "allowed_ops": ["eq", "neq", "gt", "lt"],
+        "default": 0.0,
+    },
+    "days_since_last_order": {
+        "type": "int",
+        "label": "Days Since Last Order",
+        "source": "CustomerProfile",
+        "allowed_values": None,  # any int >= 0; 999 = never ordered
+        "allowed_ops": ["eq", "neq", "gt", "lt"],
+        "default": 999,
+    },
+    "has_used_discount": {
+        "type": "bool",
+        "label": "Has Used Discount",
+        "source": "CustomerProfile",
+        "allowed_values": [True, False],
+        "allowed_ops": ["eq", "neq"],
+        "default": False,
+    },
+    "tags": {
+        "type": "str",
+        "label": "Contact Tags",
+        "source": "Contact",
+        "allowed_values": None,  # free-form comma-separated string
+        "allowed_ops": ["contains", "not_contains", "eq"],
+        "default": "",
+    },
+}
+
+CONDITION_OPERATORS = {
+    "eq": {
+        "label": "equals",
+        "accepts_types": ["str", "int", "float", "bool"],
+        "value_format": "single",
+    },
+    "neq": {
+        "label": "not equals",
+        "accepts_types": ["str", "int", "float", "bool"],
+        "value_format": "single",
+    },
+    "gt": {
+        "label": "greater than",
+        "accepts_types": ["int", "float"],
+        "value_format": "numeric",
+    },
+    "lt": {
+        "label": "less than",
+        "accepts_types": ["int", "float"],
+        "value_format": "numeric",
+    },
+    "in": {
+        "label": "is one of",
+        "accepts_types": ["str"],
+        "value_format": "list_or_csv",
+    },
+    "contains": {
+        "label": "contains",
+        "accepts_types": ["str"],
+        "value_format": "substring",
+    },
+    "not_contains": {
+        "label": "does not contain",
+        "accepts_types": ["str"],
+        "value_format": "substring",
+    },
+}
+
+# Frozen explain payload keys — must always be present in every explain dict
+EXPLAIN_PAYLOAD_KEYS = frozenset([
+    "block_index",
+    "block_type",
+    "matched_variant_index",
+    "matched_conditions",
+    "resolved_content_summary",
+])
 
 
 def get_contact_context(contact):
@@ -193,6 +359,20 @@ def _to_bool(value):
 #  VARIANT RESOLUTION
 # =========================================================================
 
+def _make_explain(block_index, block_type, variant_index=None, conditions=None, summary="default"):
+    """
+    Build a frozen-shape explain dict. All explain payloads MUST go through this
+    function to guarantee the contract defined by EXPLAIN_PAYLOAD_KEYS.
+    """
+    return {
+        "block_index": block_index,
+        "block_type": block_type,
+        "matched_variant_index": variant_index,
+        "matched_conditions": conditions,
+        "resolved_content_summary": summary,
+    }
+
+
 def resolve_block_variants(block, context):
     """
     Given a block with optional variants, resolve which content to render.
@@ -205,23 +385,16 @@ def resolve_block_variants(block, context):
 
     Returns:
         tuple: (resolved_content_dict, explain_dict)
-            explain_dict has: block_type, matched_variant_index (int or None),
-                              matched_conditions (list or None),
-                              resolved_content_summary (str)
+            explain_dict always has exactly the keys in EXPLAIN_PAYLOAD_KEYS.
     """
     block_type = block.get("block_type", "")
     default_content = block.get("content", {})
     variants = block.get("variants", [])
 
-    explain = {
-        "block_type": block_type,
-        "matched_variant_index": None,
-        "matched_conditions": None,
-        "resolved_content_summary": "default",
-    }
-
     if not variants:
-        return default_content, explain
+        return default_content, _make_explain(
+            block_index=0, block_type=block_type, summary="default"
+        )
 
     for i, variant in enumerate(variants):
         conditions = variant.get("conditions", [])
@@ -231,14 +404,18 @@ def resolve_block_variants(block, context):
             merged = dict(default_content)
             merged.update(variant_content)
 
-            explain["matched_variant_index"] = i
-            explain["matched_conditions"] = conditions
-            explain["resolved_content_summary"] = _summarize_conditions(conditions)
-
-            return merged, explain
+            return merged, _make_explain(
+                block_index=0,
+                block_type=block_type,
+                variant_index=i,
+                conditions=conditions,
+                summary=_summarize_conditions(conditions),
+            )
 
     # No variant matched → use default
-    return default_content, explain
+    return default_content, _make_explain(
+        block_index=0, block_type=block_type, summary="default"
+    )
 
 
 def _summarize_conditions(conditions):
@@ -339,9 +516,122 @@ TEMPLATE_FAMILIES = {
 }
 
 
+def validate_condition(condition, block_num=0, variant_num=0, cond_num=0):
+    """
+    Validate a single condition dict against the authoritative schema.
+    Returns list of warning dicts. Uses CONDITION_FIELDS and CONDITION_OPERATORS
+    as the single source of truth.
+
+    Args:
+        condition: dict with {"field", "op", "value"}
+        block_num, variant_num, cond_num: for error message context (1-based)
+
+    Returns:
+        list of dicts: [{"level": "error"|"warning", "message": "..."}]
+    """
+    warnings = []
+    prefix = "Block %d variant %d condition %d" % (block_num, variant_num, cond_num)
+
+    field = condition.get("field", "")
+    op = condition.get("op", "")
+    value = condition.get("value")
+
+    # Missing keys
+    if not field:
+        warnings.append({"level": "error", "message": "%s: missing 'field'" % prefix})
+        return warnings
+    if not op:
+        warnings.append({"level": "error", "message": "%s: missing 'op'" % prefix})
+        return warnings
+
+    # Unknown field
+    field_def = CONDITION_FIELDS.get(field)
+    if not field_def:
+        warnings.append({
+            "level": "error",
+            "message": "%s: unknown field '%s' (valid: %s)" % (
+                prefix, field, ", ".join(sorted(CONDITION_FIELDS.keys())))
+        })
+        return warnings
+
+    # Unknown operator
+    op_def = CONDITION_OPERATORS.get(op)
+    if not op_def:
+        warnings.append({
+            "level": "error",
+            "message": "%s: unknown operator '%s' (valid: %s)" % (
+                prefix, op, ", ".join(sorted(CONDITION_OPERATORS.keys())))
+        })
+        return warnings
+
+    # Operator not allowed for this field
+    if op not in field_def["allowed_ops"]:
+        warnings.append({
+            "level": "error",
+            "message": "%s: operator '%s' is not valid for field '%s' (allowed: %s)" % (
+                prefix, op, field, ", ".join(field_def["allowed_ops"]))
+        })
+
+    # Value type checks
+    field_type = field_def["type"]
+    op_accepts = op_def["accepts_types"]
+    if field_type not in op_accepts:
+        warnings.append({
+            "level": "error",
+            "message": "%s: field '%s' (type %s) is incompatible with operator '%s' (accepts %s)" % (
+                prefix, field, field_type, op, ", ".join(op_accepts))
+        })
+
+    # Value format checks
+    if value is None and op not in ("eq", "neq"):
+        warnings.append({
+            "level": "error",
+            "message": "%s: 'value' is required for operator '%s'" % (prefix, op)
+        })
+
+    if op in ("gt", "lt"):
+        try:
+            float(value)
+        except (ValueError, TypeError):
+            warnings.append({
+                "level": "error",
+                "message": "%s: operator '%s' requires a numeric value (got %r)" % (prefix, op, value)
+            })
+
+    if op == "in" and not isinstance(value, (list, str)):
+        warnings.append({
+            "level": "error",
+            "message": "%s: operator 'in' requires a list or comma-separated string (got %s)" % (
+                prefix, type(value).__name__)
+        })
+
+    # Enum value check for fields with allowed_values
+    if field_def["allowed_values"] is not None and op == "eq":
+        if value not in field_def["allowed_values"] and str(value).lower() not in [str(v).lower() for v in field_def["allowed_values"]]:
+            warnings.append({
+                "level": "warning",
+                "message": "%s: value %r is not a known value for '%s' (known: %s)" % (
+                    prefix, value, field, ", ".join(str(v) for v in field_def["allowed_values"]))
+            })
+
+    if field_def["allowed_values"] is not None and op == "in":
+        check_values = value if isinstance(value, list) else [v.strip() for v in str(value).split(",")]
+        known = [str(v).lower() for v in field_def["allowed_values"]]
+        for v in check_values:
+            if str(v).lower() not in known:
+                warnings.append({
+                    "level": "warning",
+                    "message": "%s: value '%s' is not a known value for '%s'" % (prefix, v, field)
+                })
+
+    return warnings
+
+
 def validate_family(blocks_json_str, family_key):
     """
     Validate a blocks template against its template family rules.
+    STRICT enforcement — disallowed blocks are errors, not warnings.
+    Phase 3 AI authoring cannot bypass these constraints.
 
     Args:
         blocks_json_str: JSON string of block definitions
@@ -355,7 +645,8 @@ def validate_family(blocks_json_str, family_key):
 
     family = TEMPLATE_FAMILIES.get(family_key)
     if not family:
-        return [{"level": "warning", "message": "Unknown template family '%s' -- skipping family validation" % family_key}]
+        return [{"level": "error", "message": "Unknown template family '%s' -- cannot validate (valid: %s)" % (
+            family_key, ", ".join(sorted(TEMPLATE_FAMILIES.keys())))}]
 
     try:
         blocks = json.loads(blocks_json_str or "[]")
@@ -367,7 +658,7 @@ def validate_family(blocks_json_str, family_key):
 
     block_types_present = [b.get("block_type", "") for b in blocks]
 
-    # Check required blocks
+    # Check required blocks — ERROR level
     for required in family["required_blocks"]:
         if required not in block_types_present:
             warnings.append({
@@ -375,20 +666,22 @@ def validate_family(blocks_json_str, family_key):
                 "message": "%s family requires a '%s' block" % (family["label"], required)
             })
 
-    # Check allowed blocks
+    # Check allowed blocks — STRICT: disallowed = ERROR (not warning)
+    # Phase 3 AI content cannot inject blocks outside the family's allowed set
     allowed = set(family["allowed_blocks"])
     for bt in block_types_present:
         if bt not in allowed:
             warnings.append({
-                "level": "warning",
-                "message": "Block type '%s' is not typical for %s templates" % (bt, family["label"])
+                "level": "error",
+                "message": "Block type '%s' is not allowed in %s templates (allowed: %s)" % (
+                    bt, family["label"], ", ".join(sorted(allowed)))
             })
 
-    # Check max blocks
+    # Check max blocks — ERROR level (strict cap)
     if len(blocks) > family["max_blocks"]:
         warnings.append({
-            "level": "warning",
-            "message": "%s templates should have at most %d blocks (has %d)" % (
+            "level": "error",
+            "message": "%s templates cannot exceed %d blocks (has %d)" % (
                 family["label"], family["max_blocks"], len(blocks))
         })
 
@@ -406,15 +699,49 @@ def validate_family(blocks_json_str, family_key):
         if not variants:
             continue
 
-        has_default = False
         for vi, variant in enumerate(variants):
             conditions = variant.get("conditions", [])
-            if not conditions:
-                has_default = True
-                if vi < len(variants) - 1:
-                    warnings.append({
-                        "level": "warning",
-                        "message": "Block %d: Variant %d has no conditions (always matches) but is not the last variant -- subsequent variants are unreachable" % (i + 1, vi + 1)
-                    })
+            if not conditions and vi < len(variants) - 1:
+                warnings.append({
+                    "level": "warning",
+                    "message": "Block %d: Variant %d has no conditions (always matches) but is not the last variant -- subsequent variants are unreachable" % (i + 1, vi + 1)
+                })
 
     return warnings
+
+
+def enforce_family_constraints(blocks, family_key):
+    """
+    HARD enforcement gate for Phase 3 AI authoring.
+    Returns (is_valid, error_list). If is_valid is False, the template
+    MUST NOT be saved or sent. This function is the final guard —
+    validate_family() is advisory, this is a hard stop.
+
+    Args:
+        blocks: list of block dicts (already parsed, not JSON string)
+        family_key: template family key
+
+    Returns:
+        tuple: (bool, list_of_error_strings)
+    """
+    family = TEMPLATE_FAMILIES.get(family_key)
+    if not family:
+        return False, ["Unknown template family '%s'" % family_key]
+
+    errors = []
+    allowed = set(family["allowed_blocks"])
+
+    for i, block in enumerate(blocks):
+        bt = block.get("block_type", "")
+        if bt not in allowed:
+            errors.append("Block %d: type '%s' is not allowed in %s family" % (i + 1, bt, family_key))
+
+    if len(blocks) > family["max_blocks"]:
+        errors.append("Exceeds max blocks (%d > %d) for %s family" % (
+            len(blocks), family["max_blocks"], family_key))
+
+    for required in family["required_blocks"]:
+        if required not in [b.get("block_type", "") for b in blocks]:
+            errors.append("Missing required block '%s' for %s family" % (required, family_key))
+
+    return (len(errors) == 0, errors)
