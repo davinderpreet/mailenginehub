@@ -71,6 +71,7 @@ class EmailTemplate(BaseModel):
     shell_version   = IntegerField(default=1)
     template_format = CharField(default="html")   # "html" (legacy) | "blocks" (new block-based)
     blocks_json     = TextField(default="[]")      # JSON array of block definitions
+    template_family = CharField(default="")        # Phase 2: welcome|browse_recovery|cart_recovery|checkout_recovery|post_purchase|winback|promo
     created_at      = DateTimeField(default=datetime.now)
     updated_at      = DateTimeField(default=datetime.now)
 
@@ -678,6 +679,18 @@ def _migrate_template_format():
         pass
 
 
+def _migrate_template_family():
+    """Add template_family column to email_templates for Phase 2 journey-aware templates."""
+    try:
+        cursor = db.execute_sql("PRAGMA table_info(email_templates)")
+        existing = {row[1] for row in cursor.fetchall()}
+        if "template_family" not in existing:
+            db.execute_sql("ALTER TABLE email_templates ADD COLUMN template_family VARCHAR(50) DEFAULT ''")
+            print("  [migrate] Added template_family to email_templates")
+    except Exception:
+        pass
+
+
 def _migrate_activity_tokens():
     """Add checkout_token, cart_token, shopify_customer_id to customer_activity for direct stitch queries."""
     try:
@@ -736,6 +749,7 @@ def init_db():
     _migrate_identity_job_dedupe()
     _migrate_activity_tokens()
     _migrate_template_format()
+    _migrate_template_family()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")

@@ -981,7 +981,14 @@ def delete_template(template_id):
 @app.route("/api/templates/<int:template_id>/preview-blocks")
 def preview_blocks_template(template_id):
     """Render a blocks-format template with sample data for inspection.
-    Returns complete HTML email suitable for iframe or browser viewing."""
+    Returns complete HTML email suitable for iframe or browser viewing.
+
+    Phase 2 additions:
+      ?contact_id=123  — Preview as a specific contact (resolves variants against their profile)
+      ?validate=1      — Include validation warnings in JSON response
+      ?explain=1       — Include block-level explainability (variant resolution trace)
+      ?family=welcome  — Override family for validation (defaults to template.template_family)
+    """
     template = EmailTemplate.get_or_none(EmailTemplate.id == template_id)
     if not template:
         return "Template not found", 404
@@ -999,14 +1006,57 @@ def preview_blocks_template(template_id):
          "product_url": _BRAND_URL, "compare_price": ""},
     ]
 
-    html = render_template_blocks(template, contact=None, products=sample_products, discount=None)
+    # Phase 2: Preview-as-contact — resolve variants against a real contact's profile
+    contact = None
+    contact_id = request.args.get("contact_id")
+    if contact_id:
+        try:
+            contact = Contact.get_by_id(int(contact_id))
+        except (Contact.DoesNotExist, ValueError):
+            return jsonify({"error": "Contact %s not found" % contact_id}), 404
+
+    # Phase 2: Explainability — return variant resolution trace
+    want_explain = request.args.get("explain") == "1"
+    want_validate = request.args.get("validate") == "1"
+
+    if want_explain or want_validate:
+        html, explain_list = render_template_blocks(
+            template, contact=contact, products=sample_products, discount=None, explain=True
+        )
+    else:
+        html = render_template_blocks(
+            template, contact=contact, products=sample_products, discount=None
+        )
+        explain_list = None
+
     html = html.replace("{{unsubscribe_url}}", "#")
     html = html.replace("{{discount_code}}", "PREVIEW5")
 
-    # If ?validate=1, return JSON with warnings
-    if request.args.get("validate") == "1":
-        warnings = validate_template(template.blocks_json)
-        return jsonify({"warnings": warnings, "html": html})
+    # If JSON response requested
+    if want_validate or want_explain:
+        result = {"html": html}
+
+        if want_validate:
+            family = request.args.get("family") or getattr(template, "template_family", "") or None
+            result["warnings"] = validate_template(template.blocks_json, family=family)
+
+        if want_explain:
+            result["explain"] = explain_list or []
+            # Include contact context if previewing as a contact
+            if contact:
+                try:
+                    from condition_engine import get_contact_context
+                    result["contact_context"] = get_contact_context(contact)
+                    result["contact_info"] = {
+                        "id": contact.id,
+                        "email": contact.email,
+                        "first_name": contact.first_name or "",
+                        "last_name": contact.last_name or "",
+                    }
+                except ImportError:
+                    pass
+
+        return jsonify(result)
 
     return html
 

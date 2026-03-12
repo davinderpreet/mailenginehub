@@ -301,18 +301,24 @@ _BLOCK_RENDERERS = {
 #  MASTER RENDER FUNCTION
 # =========================================================================
 
-def render_template_blocks(template, contact=None, products=None, discount=None):
+def render_template_blocks(template, contact=None, products=None, discount=None, explain=False):
     """
     Render a blocks-format EmailTemplate to complete HTML email.
 
+    Phase 2: If blocks contain variants, resolves them against the contact's
+    profile using condition_engine before rendering. First-match-wins.
+
     Args:
         template: EmailTemplate instance with template_format="blocks"
-        contact:  Contact instance (for personalization tokens)
+        contact:  Contact instance (for personalization tokens + variant resolution)
         products: list of product dicts [{title, image_url, price, product_url, compare_price}]
         discount: discount dict {code, value_display, display_text, expires_text}
+        explain:  if True, return (html, explain_list) tuple for preview explainability
 
     Returns:
         str: Complete HTML email document ready to send
+        -- OR if explain=True --
+        tuple: (html_string, list_of_explain_dicts)
     """
     try:
         blocks = json.loads(template.blocks_json or "[]")
@@ -321,15 +327,57 @@ def render_template_blocks(template, contact=None, products=None, discount=None)
 
     if not blocks:
         # Empty blocks -- fall back to html_body if available
-        if template.html_body:
-            return template.html_body
-        return ""
+        result = template.html_body if template.html_body else ""
+        return (result, []) if explain else result
 
-    # Render each block
+    # Build contact context for variant resolution (Phase 2)
+    contact_context = None
+    if contact:
+        try:
+            from condition_engine import get_contact_context, resolve_block_variants
+            contact_context = get_contact_context(contact)
+        except ImportError:
+            contact_context = None
+
+    # Render each block (with variant resolution)
     body_parts = []
-    for block in blocks:
+    explain_list = []
+
+    for i, block in enumerate(blocks):
         block_type = block.get("block_type", "")
         content = block.get("content", {})
+        block_explain = None
+
+        # Phase 2: Resolve variants if present and contact context available
+        has_variants = bool(block.get("variants"))
+        if has_variants and contact_context:
+            from condition_engine import resolve_block_variants
+            content, block_explain = resolve_block_variants(block, contact_context)
+            if explain:
+                block_explain["block_index"] = i
+        elif has_variants and not contact_context:
+            # No contact context -- use default content (no variant resolution)
+            if explain:
+                block_explain = {
+                    "block_index": i,
+                    "block_type": block_type,
+                    "matched_variant_index": None,
+                    "matched_conditions": None,
+                    "resolved_content_summary": "default (no contact context)",
+                }
+        else:
+            # No variants on this block
+            if explain:
+                block_explain = {
+                    "block_index": i,
+                    "block_type": block_type,
+                    "matched_variant_index": None,
+                    "matched_conditions": None,
+                    "resolved_content_summary": "no variants",
+                }
+
+        if explain and block_explain:
+            explain_list.append(block_explain)
 
         renderer = _BLOCK_RENDERERS.get(block_type)
         if not renderer:
@@ -358,6 +406,8 @@ def render_template_blocks(template, contact=None, products=None, discount=None)
     preview_text = getattr(template, "preview_text", "") or ""
     full_html = wrap_email(body_html, preview_text=preview_text, unsubscribe_url="{{unsubscribe_url}}")
 
+    if explain:
+        return full_html, explain_list
     return full_html
 
 
@@ -365,12 +415,14 @@ def render_template_blocks(template, contact=None, products=None, discount=None)
 #  TEMPLATE VALIDATION
 # =========================================================================
 
-def validate_template(blocks_json_str):
+def validate_template(blocks_json_str, family=None):
     """
     Validate a blocks-format template and return warnings.
 
     Args:
         blocks_json_str: JSON string of block definitions
+        family: optional template family key (e.g. "welcome", "cart_recovery")
+                If provided, runs family-specific validation too.
 
     Returns:
         list of dicts: [{"level": "error"|"warning", "message": "..."}]
@@ -510,6 +562,74 @@ def validate_template(blocks_json_str):
                     "level": "warning",
                     "message": "Block %d (Urgency): Message is %d chars -- keep under 120 for impact" % (block_num, len(message))
                 })
+
+        # ── Variant validation (Phase 2) ──
+        variants = block.get("variants", [])
+        if variants:
+            if not isinstance(variants, list):
+                warnings.append({
+                    "level": "error",
+                    "message": "Block %d (%s): 'variants' must be a list" % (block_num, block_type)
+                })
+            else:
+                seen_unconditional = False
+                for vi, variant in enumerate(variants):
+                    conditions = variant.get("conditions", [])
+                    v_content = variant.get("content", {})
+
+                    if not isinstance(conditions, list):
+                        warnings.append({
+                            "level": "error",
+                            "message": "Block %d variant %d: 'conditions' must be a list" % (block_num, vi + 1)
+                        })
+
+                    if not conditions:
+                        if seen_unconditional:
+                            warnings.append({
+                                "level": "warning",
+                                "message": "Block %d variant %d: Multiple unconditional variants -- only the first will ever match" % (block_num, vi + 1)
+                            })
+                        seen_unconditional = True
+                        if vi < len(variants) - 1:
+                            warnings.append({
+                                "level": "warning",
+                                "message": "Block %d variant %d: Unconditional variant is not last -- subsequent variants are unreachable" % (block_num, vi + 1)
+                            })
+
+                    # Validate condition fields
+                    valid_fields = {"lifecycle_stage", "customer_type", "total_orders", "total_spent",
+                                    "days_since_last_order", "has_used_discount", "tags"}
+                    valid_ops = {"eq", "neq", "gt", "lt", "in", "contains", "not_contains"}
+                    for ci, cond in enumerate(conditions):
+                        field = cond.get("field", "")
+                        op = cond.get("op", "")
+                        if field and field not in valid_fields:
+                            warnings.append({
+                                "level": "error",
+                                "message": "Block %d variant %d condition %d: Unknown field '%s'" % (block_num, vi + 1, ci + 1, field)
+                            })
+                        if op and op not in valid_ops:
+                            warnings.append({
+                                "level": "error",
+                                "message": "Block %d variant %d condition %d: Unknown operator '%s'" % (block_num, vi + 1, ci + 1, op)
+                            })
+
+    # ── Duplicate CTA warning ──
+    cta_count = block_types_present.count("cta")
+    if cta_count > 2:
+        warnings.append({
+            "level": "warning",
+            "message": "Template has %d CTA buttons -- more than 2 can reduce click-through rates" % cta_count
+        })
+
+    # ── Family validation (Phase 2) ──
+    if family:
+        try:
+            from condition_engine import validate_family
+            family_warnings = validate_family(blocks_json_str, family)
+            warnings.extend(family_warnings)
+        except ImportError:
+            pass
 
     return warnings
 
