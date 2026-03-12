@@ -632,6 +632,19 @@ def _migrate_identity_resolution_fields():
             print("  [migrate] Added %s to customer_activity" % col_name)
 
 
+def _migrate_identity_jobs():
+    """Create identity_jobs table if it doesn't exist (handled by create_tables, this is a no-op safety net)."""
+    # Table creation is handled by create_tables() above.
+    # This function exists to keep the migration list consistent and for any future column adds.
+    try:
+        cursor = db.execute_sql("PRAGMA table_info(identity_jobs)")
+        existing = {row[1] for row in cursor.fetchall()}
+        if not existing:
+            return  # table created by create_tables
+    except Exception:
+        pass
+
+
 def init_db():
     db.connect(reuse_if_open=True)
     # Enable WAL mode for concurrent reads/writes (real-time pipeline)
@@ -652,7 +665,7 @@ def init_db():
          PreflightLog,
          MessageDecision, MessageDecisionHistory,
          SuggestedCampaign, OpportunityScanLog, ProductCommercial,
-         SystemConfig, ActionLedger, DeliveryQueue],
+         SystemConfig, ActionLedger, DeliveryQueue, IdentityJob],
         safe=True
     )
     _migrate_contact_columns()
@@ -667,6 +680,7 @@ def init_db():
     _migrate_system_config()
     _migrate_pending_trigger_fields()
     _migrate_identity_resolution_fields()
+    _migrate_identity_jobs()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")
@@ -1275,6 +1289,26 @@ class DeliveryQueue(BaseModel):
 
     class Meta:
         table_name = "delivery_queue"
+
+
+class IdentityJob(BaseModel):
+    """Durable queue for identity resolution background work (replaces daemon threads)."""
+    contact_id   = IntegerField(index=True)
+    email        = CharField(index=True, default="")
+    source       = CharField(default="")            # identity source that triggered this
+    job_type     = CharField(index=True, default="") # trigger_replay | enrichment | cascade
+    job_data     = TextField(default="{}")           # JSON: extra context
+    status       = CharField(default="pending", index=True)  # pending | processing | completed | failed
+    result       = TextField(default="")             # JSON: outcome details
+    attempts     = IntegerField(default=0)
+    max_attempts = IntegerField(default=3)
+    error_msg    = TextField(default="")
+    created_at   = DateTimeField(default=datetime.now, index=True)
+    started_at   = DateTimeField(null=True)
+    completed_at = DateTimeField(null=True)
+
+    class Meta:
+        table_name = "identity_jobs"
 
 
 def get_system_config():

@@ -40,6 +40,9 @@ RC_IDENTITY_NEW_CONTACT = "identity_new_contact"               # new contact cre
 RC_IDENTITY_NO_OP       = "identity_no_op"                     # already resolved, no work needed
 RC_IDENTITY_REPLAY      = "identity_trigger_replay"            # behavioral triggers replayed post-stitch
 RC_WELCOME_POST_RESOLVE = "welcome_enrolled_after_resolution"  # welcome flow after identity resolution
+RC_IDENTITY_REPLAY_SKIP = "identity_replay_skip"              # trigger evaluated but skipped (dedup/purchase)
+RC_IDENTITY_PROBABLE    = "identity_probable_match"            # non-email identifier matched (cart/checkout token)
+RC_IDENTITY_MULTI_STITCH = "identity_multi_stitch"             # multiple identifier types stitched in one call
 
 
 # ── Core logging function ────────────────────────────────────────────

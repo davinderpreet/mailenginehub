@@ -709,22 +709,14 @@ def webhook_shopify_customer_create():
         if contact:
             # Canonical identity resolution: profile, enrichment, cascade, welcome enrollment
             from identity_resolution import resolve_identity
-            import threading as _th
-            _shopify_email = contact.email
-            _shopify_id = str(customer.get("id", ""))
-            _shopify_fn = customer.get("first_name", "")
-            _shopify_ln = customer.get("last_name", "")
-            _was_created = created
-            def _resolve_shopify_create():
-                resolve_identity(
-                    email=_shopify_email,
-                    shopify_id=_shopify_id,
-                    source="shopify_customer",
-                    first_name=_shopify_fn,
-                    last_name=_shopify_ln,
-                    create_if_missing=False,
-                )
-            _th.Thread(target=_resolve_shopify_create, daemon=True).start()
+            resolve_identity(
+                email=contact.email,
+                shopify_id=str(customer.get("id", "")),
+                source="shopify_customer",
+                first_name=customer.get("first_name", ""),
+                last_name=customer.get("last_name", ""),
+                create_if_missing=False,
+            )
 
             app.logger.info(f"Shopify customer webhook: {'new' if created else 'updated'} contact {contact.email}")
             return jsonify({"success": True, "contact_id": contact.id, "created": created}), 200
@@ -758,17 +750,12 @@ def webhook_shopify_customer_update():
         if contact:
             # Canonical identity resolution: ensures profile, enrichment, cascade
             from identity_resolution import resolve_identity
-            import threading as _th_upd
-            _upd_email = contact.email
-            _upd_sid = str(customer.get("id", ""))
-            def _resolve_shopify_update():
-                resolve_identity(
-                    email=_upd_email,
-                    shopify_id=_upd_sid,
-                    source="shopify_customer",
-                    create_if_missing=False,
-                )
-            _th_upd.Thread(target=_resolve_shopify_update, daemon=True).start()
+            resolve_identity(
+                email=contact.email,
+                shopify_id=str(customer.get("id", "")),
+                source="shopify_customer",
+                create_if_missing=False,
+            )
 
             app.logger.info(f"Shopify customer update webhook: {contact.email} (subscribed={contact.subscribed})")
             return jsonify({"success": True, "contact_id": contact.id, "updated": True}), 200
@@ -844,14 +831,14 @@ def webhook_shopify_checkout_create():
                 reason_code="flow_exit_checkout_started",
             )
 
-        # Identity resolution: stitch session if email discovered via checkout
+        # Identity resolution: stitch session + tokens if email discovered via checkout
         if email:
-            import threading as _th_co
-            _co_email = email
-            def _resolve_checkout():
-                from identity_resolution import resolve_identity
-                resolve_identity(email=_co_email, source="shopify_checkout", create_if_missing=False)
-            _th_co.Thread(target=_resolve_checkout, daemon=True).start()
+            from identity_resolution import resolve_identity
+            resolve_identity(
+                email=email, source="shopify_checkout", create_if_missing=False,
+                checkout_token=str(data.get("token", "")),
+                cart_token=str(data.get("cart_token", "")),
+            )
 
         return jsonify({"success": True}), 200
 
@@ -882,7 +869,10 @@ def webhook_shopify_order_create():
 
         # Identity resolution: ensure contact exists and stitch any anonymous activity
         from identity_resolution import resolve_identity
-        id_result = resolve_identity(email=email, source="shopify_order", create_if_missing=False)
+        id_result = resolve_identity(
+            email=email, source="shopify_order", create_if_missing=False,
+            checkout_token=str(data.get("checkout_token", "")),
+        )
         contact = id_result["contact"]
 
         # 1. Mark abandoned checkouts as recovered
@@ -4593,12 +4583,8 @@ def track_event():
 
         # Identity resolution: stitch session when email is discovered via pixel
         if email and session_id:
-            import threading as _th_track
-            _e_copy, _s_copy = email, session_id
-            def _resolve_track():
-                from identity_resolution import resolve_identity
-                resolve_identity(email=_e_copy, session_id=_s_copy, source="api_track", create_if_missing=False)
-            _th_track.Thread(target=_resolve_track, daemon=True).start()
+            from identity_resolution import resolve_identity
+            resolve_identity(email=email, session_id=session_id, source="api_track", create_if_missing=False)
 
         return jsonify({"ok": True}), 200, cors_headers
     except Exception as e:
@@ -4838,6 +4824,18 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                        id="abandoned_checkout_checker", replace_existing=True)
     _scheduler.add_job(_recover_pending_backlog, "interval", minutes=10,
                        id="backlog_recovery", replace_existing=True)
+
+    # ── Identity job processor (durable queue for enrichment/cascade/replay) ──
+    def _process_identity_jobs_wrapper():
+        try:
+            from identity_resolution import process_identity_jobs
+            process_identity_jobs()
+        except Exception as _e:
+            app.logger.error(f"Identity job processor error: {_e}")
+
+    _scheduler.add_job(_process_identity_jobs_wrapper, "interval", seconds=30,
+                       id="identity_job_processor", replace_existing=True)
+
     # ── Nightly contact scoring at 2:30am (RFM + engagement) ──
     def _run_nightly_contact_scoring():
         try:

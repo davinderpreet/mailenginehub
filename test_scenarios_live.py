@@ -38,17 +38,36 @@ TEST_EMAILS = [
     "scenario14c-anon-emailclick@test.local",
     "scenario14d-double-identify@test.local",
     "scenario14e-welcome-idempotent@test.local",
+    "scenario15a-cart-token@test.local",
+    "scenario15b-checkout-token@test.local",
+    "scenario15c-two-sessions@test.local",
+    "scenario15d-placeholder-email@test.local",
+    "scenario15e-durable-jobs@test.local",
+    "scenario15f-probable-conf@test.local",
 ]
 
 
 def cleanup():
     """Remove all test data."""
+    # Clean anonymous events by session IDs used in tests
+    for sid in ["sess-s14a", "sess-s14b", "sess-s14c", "sess-s14d",
+                "sess-s15a-old", "sess-s15a-new", "sess-s15b-anon", "sess-s15b-different",
+                "sess-s15c-first", "sess-s15c-second", "sess-s15d",
+                "sess-s15e", "sess-s15f-unknown"]:
+        CustomerActivity.delete().where(
+            CustomerActivity.session_id == sid,
+            CustomerActivity.email.in_(["", "anonymous@placeholder.invalid"]),
+        ).execute()
     for email in TEST_EMAILS:
         ActionLedger.delete().where(ActionLedger.email == email).execute()
         DeliveryQueue.delete().where(DeliveryQueue.email == email).execute()
         PendingTrigger.delete().where(PendingTrigger.email == email).execute()
         CustomerActivity.delete().where(CustomerActivity.email == email).execute()
         AbandonedCheckout.delete().where(AbandonedCheckout.email == email).execute()
+        try:
+            IdentityJob.delete().where(IdentityJob.email == email).execute()
+        except Exception:
+            pass
         try:
             c = Contact.get(Contact.email == email)
             # Delete all FK-dependent rows first
@@ -447,8 +466,98 @@ def setup():
                 pass
     print("[S14e] Created contact #%d and pre-enrolled in welcome flow" % c14e.id)
 
+    # ── S15a: Cross-session cart-token stitch ──
+    import json as _json15
+    c15a = Contact.create(email="scenario15a-cart-token@test.local",
+                          source="shopify", subscribed=True, created_at=datetime.now())
+    CustomerProfile.get_or_create(contact=c15a, defaults={"email": c15a.email, "last_computed_at": datetime.now()})
+    for i in range(2):
+        CustomerActivity.create(
+            email="",  # anonymous
+            event_type="viewed_cart",
+            session_id="sess-s15a-old",
+            event_data=_json15.dumps({"cart_token": "CART_TOKEN_15A", "products": ["Widget %d" % (i+1)]}),
+            source="pixel", occurred_at=datetime.now() - timedelta(hours=2+i),
+        )
+    print("[S15a] Created contact + 2 anonymous viewed_cart events with cart_token CART_TOKEN_15A")
+
+    # ── S15b: Checkout-token stitch ──
+    c15b = Contact.create(email="scenario15b-checkout-token@test.local",
+                          source="shopify", subscribed=True, created_at=datetime.now())
+    CustomerProfile.get_or_create(contact=c15b, defaults={"email": c15b.email, "last_computed_at": datetime.now()})
+    CustomerActivity.create(
+        email="",  # anonymous
+        event_type="abandoned_checkout",
+        session_id="sess-s15b-anon",
+        event_data=_json15.dumps({"checkout_id": "CHECKOUT_TOKEN_15B", "total": "99.00"}),
+        source="pixel", occurred_at=datetime.now() - timedelta(hours=1),
+    )
+    print("[S15b] Created contact + 1 anonymous abandoned_checkout event with checkout_id CHECKOUT_TOKEN_15B")
+
+    # ── S15c: Same user, two identify moments (different sessions) ──
+    c15c = Contact.create(email="scenario15c-two-sessions@test.local",
+                          source="pixel_capture", subscribed=True, created_at=datetime.now())
+    CustomerProfile.get_or_create(contact=c15c, defaults={"email": c15c.email, "last_computed_at": datetime.now()})
+    for i in range(3):
+        CustomerActivity.create(
+            email="",
+            event_type="viewed_product",
+            session_id="sess-s15c-first",
+            event_data=_json15.dumps({"product_title": "S15c First Session Product %d" % (i+1)}),
+            source="pixel", occurred_at=datetime.now() - timedelta(hours=5+i),
+        )
+    for i in range(2):
+        CustomerActivity.create(
+            email="",
+            event_type="viewed_product",
+            session_id="sess-s15c-second",
+            event_data=_json15.dumps({"product_title": "S15c Second Session Product %d" % (i+1)}),
+            source="pixel", occurred_at=datetime.now() - timedelta(hours=1+i),
+        )
+    print("[S15c] Created contact + 3 anon events (session 1) + 2 anon events (session 2)")
+
+    # ── S15d: Non-empty placeholder email ──
+    c15d = Contact.create(email="scenario15d-placeholder-email@test.local",
+                          source="pixel_capture", subscribed=True, created_at=datetime.now())
+    CustomerProfile.get_or_create(contact=c15d, defaults={"email": c15d.email, "last_computed_at": datetime.now()})
+    for i in range(2):
+        CustomerActivity.create(
+            email="anonymous@placeholder.invalid",  # non-empty placeholder
+            event_type="viewed_product",
+            session_id="sess-s15d",
+            event_data=_json15.dumps({"product_title": "S15d Placeholder Product %d" % (i+1)}),
+            source="pixel", occurred_at=datetime.now() - timedelta(hours=1+i),
+        )
+    print("[S15d] Created contact + 2 events with placeholder email (anonymous@placeholder.invalid)")
+
+    # ── S15e: Durable job execution ──
+    c15e = Contact.create(email="scenario15e-durable-jobs@test.local",
+                          source="pixel_capture", subscribed=True, created_at=datetime.now())
+    CustomerProfile.get_or_create(contact=c15e, defaults={"email": c15e.email, "last_computed_at": datetime.now()})
+    CustomerActivity.create(
+        email="",
+        event_type="viewed_product",
+        session_id="sess-s15e",
+        event_data=_json15.dumps({"product_title": "S15e Job Test Product"}),
+        source="pixel", occurred_at=datetime.now() - timedelta(hours=1),
+    )
+    print("[S15e] Created contact + 1 anonymous event for durable job test")
+
+    # ── S15f: Probable confidence — checkout_token match without session match ──
+    c15f = Contact.create(email="scenario15f-probable-conf@test.local",
+                          source="shopify", subscribed=True, created_at=datetime.now())
+    CustomerProfile.get_or_create(contact=c15f, defaults={"email": c15f.email, "last_computed_at": datetime.now()})
+    CustomerActivity.create(
+        email="",
+        event_type="started_checkout",
+        session_id="sess-s15f-unknown",  # different session than what we'll pass
+        event_data=_json15.dumps({"checkout_id": "CHECKOUT_15F_PROBABLE", "total": "150.00"}),
+        source="pixel", occurred_at=datetime.now() - timedelta(hours=1),
+    )
+    print("[S15f] Created contact + 1 anonymous started_checkout with checkout token")
+
     print()
-    print("=== All 14 fixtures ready. Run 'trigger' next. ===")
+    print("=== All fixtures ready. Run 'trigger' next. ===")
 
 
 def trigger():
@@ -713,6 +822,100 @@ def trigger():
         create_if_missing=False,
     )
     print("  resolve_identity: welcome_enrolled=%s (should be False — already enrolled)" % result_14e["welcome_enrolled"])
+
+    # ── S15a: Cross-session cart-token stitch ──
+    print()
+    print("--- S15a: Cross-session Cart-Token Stitch ---")
+    result_15a = resolve_identity(
+        email="scenario15a-cart-token@test.local",
+        session_id="sess-s15a-new",  # different session than the anonymous events
+        cart_token="CART_TOKEN_15A",
+        source="shopify_checkout",
+        create_if_missing=False,
+    )
+    print("  resolve_identity: stitched=%d breakdown=%s confidence=%s" % (
+        result_15a["stitched"], result_15a["stitch_breakdown"], result_15a["confidence"]))
+
+    # ── S15b: Checkout-token stitch ──
+    print()
+    print("--- S15b: Checkout-Token Stitch ---")
+    result_15b = resolve_identity(
+        email="scenario15b-checkout-token@test.local",
+        session_id="sess-s15b-different",  # different session
+        checkout_token="CHECKOUT_TOKEN_15B",
+        source="shopify_order",
+        create_if_missing=False,
+    )
+    print("  resolve_identity: stitched=%d breakdown=%s confidence=%s" % (
+        result_15b["stitched"], result_15b["stitch_breakdown"], result_15b["confidence"]))
+
+    # ── S15c: Same user, two identify moments ──
+    print()
+    print("--- S15c: Same User, Two Identify Moments (different sessions) ---")
+    result_15c_1 = resolve_identity(
+        email="scenario15c-two-sessions@test.local",
+        session_id="sess-s15c-first",
+        source="pixel_identify",
+        create_if_missing=False,
+    )
+    print("  1st call: stitched=%d breakdown=%s" % (result_15c_1["stitched"], result_15c_1["stitch_breakdown"]))
+    result_15c_2 = resolve_identity(
+        email="scenario15c-two-sessions@test.local",
+        session_id="sess-s15c-second",
+        source="pixel_identify",
+        create_if_missing=False,
+    )
+    print("  2nd call: stitched=%d breakdown=%s" % (result_15c_2["stitched"], result_15c_2["stitch_breakdown"]))
+
+    # ── S15d: Non-empty placeholder email ──
+    print()
+    print("--- S15d: Non-empty Placeholder Email Stitch ---")
+    result_15d = resolve_identity(
+        email="scenario15d-placeholder-email@test.local",
+        session_id="sess-s15d",
+        source="popup_subscribe",
+        subscribe=True,
+        create_if_missing=False,
+    )
+    print("  resolve_identity: stitched=%d breakdown=%s" % (
+        result_15d["stitched"], result_15d["stitch_breakdown"]))
+
+    # ── S15e: Durable job execution ──
+    print()
+    print("--- S15e: Durable Job Execution ---")
+    result_15e = resolve_identity(
+        email="scenario15e-durable-jobs@test.local",
+        session_id="sess-s15e",
+        source="popup_subscribe",
+        subscribe=True,
+        create_if_missing=False,
+    )
+    print("  resolve_identity: stitched=%d created=%s" % (
+        result_15e["stitched"], result_15e["created"]))
+    # Check that jobs were enqueued
+    jobs_15e = list(IdentityJob.select().where(IdentityJob.email == "scenario15e-durable-jobs@test.local"))
+    print("  IdentityJobs created: %d (expected 3)" % len(jobs_15e))
+    for j in jobs_15e:
+        print("    job_type=%s status=%s" % (j.job_type, j.status))
+    # Now process them immediately
+    from identity_resolution import process_identity_jobs
+    process_identity_jobs()
+    jobs_15e_after = list(IdentityJob.select().where(
+        IdentityJob.email == "scenario15e-durable-jobs@test.local"))
+    for j in jobs_15e_after:
+        print("    AFTER: job_type=%s status=%s result=%s" % (j.job_type, j.status, j.result[:60] if j.result else ""))
+
+    # ── S15f: Probable confidence — checkout token without session match ──
+    print()
+    print("--- S15f: Probable Confidence (checkout_token, no session match) ---")
+    result_15f = resolve_identity(
+        email="scenario15f-probable-conf@test.local",
+        checkout_token="CHECKOUT_15F_PROBABLE",
+        source="shopify_order",
+        create_if_missing=False,
+    )
+    print("  resolve_identity: stitched=%d confidence=%s breakdown=%s" % (
+        result_15f["stitched"], result_15f["confidence"], result_15f["stitch_breakdown"]))
 
     print()
     print("=== Triggers fired. Run 'verify' after ~90 seconds (flow processor + queue processor). ===")
@@ -1287,6 +1490,173 @@ def verify():
         print("  >>> SCENARIO S14e: PASS")
     else:
         print("  >>> SCENARIO S14e: FAIL")
+        all_pass = False
+
+    # ── S15a: Cross-session cart-token stitch ──
+    print()
+    print("--- S15a: Cross-session Cart-Token Stitch ---")
+    s15a_results = []
+    try:
+        stitched_15a = list(CustomerActivity.select().where(
+            CustomerActivity.email == "scenario15a-cart-token@test.local",
+            CustomerActivity.stitched_at.is_null(False),
+        ))
+        check = len(stitched_15a) == 2
+        print("  Stitched events: %d (expected 2) %s" % (len(stitched_15a), "OK" if check else "FAIL"))
+        s15a_results.append(check)
+        # Check stitched_by contains cart_token
+        cart_token_stitched = [e for e in stitched_15a if "cart_token" in (e.stitched_by or "")]
+        check2 = len(cart_token_stitched) == 2
+        print("  Stitched by cart_token: %d (expected 2) %s" % (len(cart_token_stitched), "OK" if check2 else "FAIL"))
+        s15a_results.append(check2)
+    except Exception as e:
+        print("  ERROR: %s" % e)
+        s15a_results.append(False)
+    if all(s15a_results):
+        print("  >>> SCENARIO S15a: PASS")
+    else:
+        print("  >>> SCENARIO S15a: FAIL")
+        all_pass = False
+
+    # ── S15b: Checkout-token stitch ──
+    print()
+    print("--- S15b: Checkout-Token Stitch ---")
+    s15b_results = []
+    try:
+        stitched_15b = list(CustomerActivity.select().where(
+            CustomerActivity.email == "scenario15b-checkout-token@test.local",
+            CustomerActivity.stitched_at.is_null(False),
+        ))
+        check = len(stitched_15b) == 1
+        print("  Stitched events: %d (expected 1) %s" % (len(stitched_15b), "OK" if check else "FAIL"))
+        s15b_results.append(check)
+        checkout_stitched = [e for e in stitched_15b if "checkout_token" in (e.stitched_by or "")]
+        check2 = len(checkout_stitched) == 1
+        print("  Stitched by checkout_token: %d (expected 1) %s" % (len(checkout_stitched), "OK" if check2 else "FAIL"))
+        s15b_results.append(check2)
+        # Check ActionLedger mentions checkout_token
+        ledger_15b = ActionLedger.select().where(
+            ActionLedger.email == "scenario15b-checkout-token@test.local",
+            ActionLedger.reason_code.in_(["identity_stitched", "identity_multi_stitch"]),
+        ).first()
+        check3 = ledger_15b is not None and "checkout_token" in (ledger_15b.reason_detail or "")
+        print("  ActionLedger mentions checkout_token: %s" % ("OK" if check3 else "FAIL"))
+        s15b_results.append(check3)
+    except Exception as e:
+        print("  ERROR: %s" % e)
+        s15b_results.append(False)
+    if all(s15b_results):
+        print("  >>> SCENARIO S15b: PASS")
+    else:
+        print("  >>> SCENARIO S15b: FAIL")
+        all_pass = False
+
+    # ── S15c: Same user, two identify moments ──
+    print()
+    print("--- S15c: Same User, Two Identify Moments ---")
+    s15c_results = []
+    try:
+        all_stitched_15c = list(CustomerActivity.select().where(
+            CustomerActivity.email == "scenario15c-two-sessions@test.local",
+            CustomerActivity.stitched_at.is_null(False),
+        ))
+        check = len(all_stitched_15c) == 5
+        print("  Total stitched events: %d (expected 5) %s" % (len(all_stitched_15c), "OK" if check else "FAIL"))
+        s15c_results.append(check)
+        sess1 = [e for e in all_stitched_15c if e.session_id == "sess-s15c-first"]
+        sess2 = [e for e in all_stitched_15c if e.session_id == "sess-s15c-second"]
+        check2 = len(sess1) == 3
+        check3 = len(sess2) == 2
+        print("  Session 1 stitched: %d (expected 3) %s" % (len(sess1), "OK" if check2 else "FAIL"))
+        print("  Session 2 stitched: %d (expected 2) %s" % (len(sess2), "OK" if check3 else "FAIL"))
+        s15c_results.append(check2)
+        s15c_results.append(check3)
+    except Exception as e:
+        print("  ERROR: %s" % e)
+        s15c_results.append(False)
+    if all(s15c_results):
+        print("  >>> SCENARIO S15c: PASS")
+    else:
+        print("  >>> SCENARIO S15c: FAIL")
+        all_pass = False
+
+    # ── S15d: Non-empty placeholder email ──
+    print()
+    print("--- S15d: Non-empty Placeholder Email ---")
+    s15d_results = []
+    try:
+        stitched_15d = list(CustomerActivity.select().where(
+            CustomerActivity.email == "scenario15d-placeholder-email@test.local",
+            CustomerActivity.stitched_at.is_null(False),
+        ))
+        check = len(stitched_15d) == 2
+        print("  Stitched events: %d (expected 2) %s" % (len(stitched_15d), "OK" if check else "FAIL"))
+        s15d_results.append(check)
+    except Exception as e:
+        print("  ERROR: %s" % e)
+        s15d_results.append(False)
+    if all(s15d_results):
+        print("  >>> SCENARIO S15d: PASS")
+    else:
+        print("  >>> SCENARIO S15d: FAIL")
+        all_pass = False
+
+    # ── S15e: Durable job execution ──
+    print()
+    print("--- S15e: Durable Job Execution ---")
+    s15e_results = []
+    try:
+        jobs_15e = list(IdentityJob.select().where(
+            IdentityJob.email == "scenario15e-durable-jobs@test.local"))
+        check_count = len(jobs_15e) == 3
+        print("  IdentityJobs: %d (expected 3) %s" % (len(jobs_15e), "OK" if check_count else "FAIL"))
+        s15e_results.append(check_count)
+        job_types = sorted([j.job_type for j in jobs_15e])
+        expected_types = sorted(["trigger_replay", "enrichment", "cascade"])
+        check_types = job_types == expected_types
+        print("  Job types: %s (expected %s) %s" % (job_types, expected_types, "OK" if check_types else "FAIL"))
+        s15e_results.append(check_types)
+        completed_jobs = [j for j in jobs_15e if j.status == "completed"]
+        # At least trigger_replay and enrichment should be completed (cascade may re-queue)
+        check_completed = len(completed_jobs) >= 2
+        print("  Completed jobs: %d (expected >=2) %s" % (len(completed_jobs), "OK" if check_completed else "FAIL"))
+        s15e_results.append(check_completed)
+    except Exception as e:
+        print("  ERROR: %s" % e)
+        s15e_results.append(False)
+    if all(s15e_results):
+        print("  >>> SCENARIO S15e: PASS")
+    else:
+        print("  >>> SCENARIO S15e: FAIL")
+        all_pass = False
+
+    # ── S15f: Probable confidence ──
+    print()
+    print("--- S15f: Probable Confidence ---")
+    s15f_results = []
+    try:
+        stitched_15f = list(CustomerActivity.select().where(
+            CustomerActivity.email == "scenario15f-probable-conf@test.local",
+            CustomerActivity.stitched_at.is_null(False),
+        ))
+        check = len(stitched_15f) == 1
+        print("  Stitched events: %d (expected 1) %s" % (len(stitched_15f), "OK" if check else "FAIL"))
+        s15f_results.append(check)
+        # Check that confidence was logged as probable
+        ledger_15f = ActionLedger.select().where(
+            ActionLedger.email == "scenario15f-probable-conf@test.local",
+            ActionLedger.reason_code.in_(["identity_stitched", "identity_multi_stitch"]),
+        ).first()
+        check2 = ledger_15f is not None and "confidence=probable" in (ledger_15f.reason_detail or "")
+        print("  Confidence=probable in ActionLedger: %s" % ("OK" if check2 else "FAIL"))
+        s15f_results.append(check2)
+    except Exception as e:
+        print("  ERROR: %s" % e)
+        s15f_results.append(False)
+    if all(s15f_results):
+        print("  >>> SCENARIO S15f: PASS")
+    else:
+        print("  >>> SCENARIO S15f: FAIL")
         all_pass = False
 
     print()
