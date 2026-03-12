@@ -976,6 +976,42 @@ def delete_template(template_id):
     return redirect(url_for("templates"))
 
 # ─────────────────────────────────
+#  BLOCK TEMPLATE PREVIEW
+# ─────────────────────────────────
+@app.route("/api/templates/<int:template_id>/preview-blocks")
+def preview_blocks_template(template_id):
+    """Render a blocks-format template with sample data for inspection.
+    Returns complete HTML email suitable for iframe or browser viewing."""
+    template = EmailTemplate.get_or_none(EmailTemplate.id == template_id)
+    if not template:
+        return "Template not found", 404
+
+    if getattr(template, 'template_format', 'html') != 'blocks':
+        return "Not a blocks-format template (template_format='%s')" % getattr(template, 'template_format', 'html'), 400
+
+    from block_registry import render_template_blocks, validate_template
+
+    # Sample products for preview
+    sample_products = [
+        {"title": "Bluetooth Speaker Pro", "image_url": "", "price": "49.99",
+         "product_url": "https://ldas-electronics.com", "compare_price": "69.99"},
+        {"title": "HD Dash Camera", "image_url": "", "price": "89.99",
+         "product_url": "https://ldas-electronics.com", "compare_price": ""},
+    ]
+
+    html = render_template_blocks(template, contact=None, products=sample_products, discount=None)
+    html = html.replace("{{unsubscribe_url}}", "#")
+    html = html.replace("{{discount_code}}", "PREVIEW5")
+
+    # If ?validate=1, return JSON with warnings
+    if request.args.get("validate") == "1":
+        warnings = validate_template(template.blocks_json)
+        return jsonify({"warnings": warnings, "html": html})
+
+    return html
+
+
+# ─────────────────────────────────
 #  SENT EMAILS LOG
 # ─────────────────────────────────
 @app.route("/sent-emails")
@@ -1354,20 +1390,27 @@ def _send_campaign_async(campaign_id):
             pass
 
         # ── Personalise ─────────────────────────────────────────
-        html = template.html_body
-        html = html.replace("{{first_name}}", contact.first_name or "Friend")
-        html = html.replace("{{last_name}}",  contact.last_name  or "")
-        html = html.replace("{{email}}",      contact.email)
-
         unsub_url = _make_unsubscribe_url(contact)
+
+        if getattr(template, 'template_format', 'html') == 'blocks':
+            # Block-based template -- render via block_registry
+            from block_registry import render_template_blocks
+            html = render_template_blocks(template, contact, products=[], discount=None)
+            html = html.replace("{{unsubscribe_url}}", unsub_url)
+        else:
+            # Legacy HTML template -- existing path unchanged
+            html = template.html_body
+            html = html.replace("{{first_name}}", contact.first_name or "Friend")
+            html = html.replace("{{last_name}}",  contact.last_name  or "")
+            html = html.replace("{{email}}",      contact.email)
+            html = html.replace("{{unsubscribe_url}}", unsub_url)
+            # Wrap in email shell if template uses shell_version >= 1
+            if getattr(template, 'shell_version', 0) >= 1:
+                from email_shell import wrap_email
+                html = wrap_email(html, preview_text=template.preview_text or '', unsubscribe_url=unsub_url)
+
         pixel_url = _make_tracking_pixel_url(campaign_id, contact.id)
         html += f'<img src="{pixel_url}" width="1" height="1" />'
-        html = html.replace("{{unsubscribe_url}}", unsub_url)
-
-        # Wrap in email shell if template uses shell_version >= 1
-        if getattr(template, 'shell_version', 0) >= 1:
-            from email_shell import wrap_email
-            html = wrap_email(html, preview_text=template.preview_text or '', unsubscribe_url=unsub_url)
 
         subject = template.subject.replace("{{first_name}}", contact.first_name or "Friend")
 
@@ -2070,52 +2113,64 @@ def _process_flow_enrollments():
             continue  # Skip until tomorrow
 
         template = step.template
-        html = template.html_body
-        html = html.replace("{{first_name}}", contact.first_name or "Friend")
-        html = html.replace("{{last_name}}",  contact.last_name  or "")
-        html = html.replace("{{email}}",      contact.email)
-        html = html.replace("{{unsubscribe_url}}", _make_unsubscribe_url(contact))
-        # Generate unique discount code if template uses one
-        if "{{discount_code}}" in html:
-            _dcode = generate_discount_code(template.name, enrollment.id, contact.id)
-            if _dcode:
-                html = html.replace("{{discount_code}}", _dcode)
-                subject = subject if "subject" in dir() else (step.subject_override or template.subject)
-            else:
-                html = html.replace("{{discount_code}}", "")
+        _unsub = _make_unsubscribe_url(contact)
 
-        # Inject checkout variables for abandoned checkout flows
-        if flow.trigger_type == "checkout_abandoned" and ("{{cart_items}}" in html or "{{checkout_url}}" in html):
-            _checkout = (AbandonedCheckout.select()
-                         .where(AbandonedCheckout.contact == contact,
-                                AbandonedCheckout.recovered == False)
-                         .order_by(AbandonedCheckout.created_at.desc())
-                         .first())
-            if _checkout:
-                import json as _json
-                try:
-                    _items = _json.loads(_checkout.line_items_json)
-                    _cart_html = ""
-                    for _it in _items:
-                        _cart_html += f'<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; {_it.get("title","")} x{_it.get("quantity",1)} — ${_it.get("price","0.00")}</p>'
-                    if not _cart_html:
+        if getattr(template, 'template_format', 'html') == 'blocks':
+            # Block-based template -- render via block_registry
+            from block_registry import render_template_blocks
+            html = render_template_blocks(template, contact, products=[], discount=None)
+            html = html.replace("{{unsubscribe_url}}", _unsub)
+            # Discount code injection for blocks templates
+            if "{{discount_code}}" in html:
+                _dcode = generate_discount_code(template.name, enrollment.id, contact.id)
+                html = html.replace("{{discount_code}}", _dcode if _dcode else "")
+        else:
+            # Legacy HTML template -- existing path unchanged
+            html = template.html_body
+            html = html.replace("{{first_name}}", contact.first_name or "Friend")
+            html = html.replace("{{last_name}}",  contact.last_name  or "")
+            html = html.replace("{{email}}",      contact.email)
+            html = html.replace("{{unsubscribe_url}}", _unsub)
+            # Generate unique discount code if template uses one
+            if "{{discount_code}}" in html:
+                _dcode = generate_discount_code(template.name, enrollment.id, contact.id)
+                if _dcode:
+                    html = html.replace("{{discount_code}}", _dcode)
+                    subject = subject if "subject" in dir() else (step.subject_override or template.subject)
+                else:
+                    html = html.replace("{{discount_code}}", "")
+
+            # Inject checkout variables for abandoned checkout flows
+            if flow.trigger_type == "checkout_abandoned" and ("{{cart_items}}" in html or "{{checkout_url}}" in html):
+                _checkout = (AbandonedCheckout.select()
+                             .where(AbandonedCheckout.contact == contact,
+                                    AbandonedCheckout.recovered == False)
+                             .order_by(AbandonedCheckout.created_at.desc())
+                             .first())
+                if _checkout:
+                    import json as _json
+                    try:
+                        _items = _json.loads(_checkout.line_items_json)
+                        _cart_html = ""
+                        for _it in _items:
+                            _cart_html += f'<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; {_it.get("title","")} x{_it.get("quantity",1)} — ${_it.get("price","0.00")}</p>'
+                        if not _cart_html:
+                            _cart_html = '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>'
+                    except Exception:
                         _cart_html = '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>'
-                except Exception:
-                    _cart_html = '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>'
-                html = html.replace("{{cart_items}}", _cart_html)
-                html = html.replace("{{checkout_url}}", _checkout.checkout_url or "https://ldas.ca/checkout")
-            else:
-                html = html.replace("{{cart_items}}", '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>')
-                html = html.replace("{{checkout_url}}", "https://ldas.ca")
+                    html = html.replace("{{cart_items}}", _cart_html)
+                    html = html.replace("{{checkout_url}}", _checkout.checkout_url or "https://ldas.ca/checkout")
+                else:
+                    html = html.replace("{{cart_items}}", '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>')
+                    html = html.replace("{{checkout_url}}", "https://ldas.ca")
+
+            # Wrap in email shell if template uses shell_version >= 1
+            if getattr(template, 'shell_version', 0) >= 1:
+                from email_shell import wrap_email
+                html = wrap_email(html, preview_text=template.preview_text or '', unsubscribe_url=_unsub)
 
         flow_pixel = _make_flow_tracking_pixel_url(enrollment.id, step.id, contact.id)
         html += f'<img src="{flow_pixel}" width="1" height="1" />'
-
-        # Wrap in email shell if template uses shell_version >= 1
-        if getattr(template, 'shell_version', 0) >= 1:
-            from email_shell import wrap_email
-            _unsub = _make_unsubscribe_url(contact)
-            html = wrap_email(html, preview_text=template.preview_text or '', unsubscribe_url=_unsub)
 
         subject = step.subject_override or template.subject
         subject = subject.replace("{{first_name}}", contact.first_name or "Friend")

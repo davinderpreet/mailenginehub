@@ -64,13 +64,15 @@ class Contact(BaseModel):
 
 
 class EmailTemplate(BaseModel):
-    name         = CharField()
-    subject      = CharField()
-    preview_text = CharField(default="")
-    html_body    = TextField()
-    shell_version = IntegerField(default=1)
-    created_at   = DateTimeField(default=datetime.now)
-    updated_at   = DateTimeField(default=datetime.now)
+    name            = CharField()
+    subject         = CharField()
+    preview_text    = CharField(default="")
+    html_body       = TextField()
+    shell_version   = IntegerField(default=1)
+    template_format = CharField(default="html")   # "html" (legacy) | "blocks" (new block-based)
+    blocks_json     = TextField(default="[]")      # JSON array of block definitions
+    created_at      = DateTimeField(default=datetime.now)
+    updated_at      = DateTimeField(default=datetime.now)
 
     class Meta:
         table_name = "email_templates"
@@ -661,6 +663,21 @@ def _migrate_identity_job_dedupe():
         pass
 
 
+def _migrate_template_format():
+    """Add template_format and blocks_json columns to email_templates for block-based templates."""
+    try:
+        cursor = db.execute_sql("PRAGMA table_info(email_templates)")
+        existing = {row[1] for row in cursor.fetchall()}
+        if "template_format" not in existing:
+            db.execute_sql("ALTER TABLE email_templates ADD COLUMN template_format VARCHAR(20) DEFAULT 'html'")
+            print("  [migrate] Added template_format to email_templates")
+        if "blocks_json" not in existing:
+            db.execute_sql("ALTER TABLE email_templates ADD COLUMN blocks_json TEXT DEFAULT '[]'")
+            print("  [migrate] Added blocks_json to email_templates")
+    except Exception:
+        pass
+
+
 def _migrate_activity_tokens():
     """Add checkout_token, cart_token, shopify_customer_id to customer_activity for direct stitch queries."""
     try:
@@ -718,6 +735,7 @@ def init_db():
     _migrate_identity_jobs()
     _migrate_identity_job_dedupe()
     _migrate_activity_tokens()
+    _migrate_template_format()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")
