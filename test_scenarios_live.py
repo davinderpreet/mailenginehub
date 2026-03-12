@@ -27,6 +27,10 @@ TEST_EMAILS = [
     "scenario9-alt-browse@test.local",
     "scenario10-alt-cart@test.local",
     "scenario11-url-browse@test.local",
+    "scenario12-stale@test.local",
+    "scenario12-duplicate@test.local",
+    "scenario12-noflow@test.local",
+    "scenario12-valid@test.local",
 ]
 
 
@@ -252,8 +256,79 @@ def setup():
         )
     print("[S11] Created contact #%d with 2 product views from URL only" % c11.id)
 
+    # ── S12: Backlog Recovery — stale, duplicate, no-flow, valid ──
+    # S12a: Stale browse trigger (5 days old, no recent activity)
+    c12a = Contact.create(
+        email="scenario12-stale@test.local",
+        first_name="S12Stale", last_name="Test",
+        subscribed=True, source="shopify",
+    )
+    PendingTrigger.create(
+        email=c12a.email, contact=c12a,
+        trigger_type="browse_abandonment",
+        trigger_data='{"product": "Old Widget", "view_count": 2}',
+        detected_at=datetime.now() - timedelta(days=5),
+        status="pending",
+    )
+    print("[S12a] Created stale browse trigger (5 days old)")
+
+    # S12b: Duplicate — contact already enrolled in Cart Abandonment flow
+    c12b = Contact.create(
+        email="scenario12-duplicate@test.local",
+        first_name="S12Dup", last_name="Test",
+        subscribed=True, source="shopify",
+    )
+    cart_flow = Flow.get_or_none(Flow.trigger_type == "cart_abandonment", Flow.is_active == True)
+    if cart_flow:
+        first_step = FlowStep.select().where(FlowStep.flow == cart_flow).order_by(FlowStep.step_order).first()
+        if first_step:
+            FlowEnrollment.create(
+                flow=cart_flow, contact=c12b, current_step=1,
+                next_send_at=datetime.now() + timedelta(hours=1), status="active",
+            )
+        PendingTrigger.create(
+            email=c12b.email, contact=c12b,
+            trigger_type="cart_abandonment",
+            trigger_data='{"checkout_id": "dup-123", "products": ["Dup Item"], "total": "50.00"}',
+            detected_at=datetime.now() - timedelta(hours=1),
+            status="pending",
+        )
+        print("[S12b] Created duplicate cart trigger (already enrolled)")
+    else:
+        print("[S12b] WARN: No active cart_abandonment flow")
+
+    # S12c: No-flow — churn_risk_high trigger with no matching flow
+    c12c = Contact.create(
+        email="scenario12-noflow@test.local",
+        first_name="S12NoFlow", last_name="Test",
+        subscribed=True, source="shopify",
+    )
+    PendingTrigger.create(
+        email=c12c.email, contact=c12c,
+        trigger_type="churn_risk_high",
+        trigger_data='{"churn_risk": 1.8, "days_since_last_order": 120}',
+        detected_at=datetime.now() - timedelta(hours=2),
+        status="pending",
+    )
+    print("[S12c] Created churn_risk_high trigger (no active flow)")
+
+    # S12d: Valid fresh browse trigger (2h old)
+    c12d = Contact.create(
+        email="scenario12-valid@test.local",
+        first_name="S12Valid", last_name="Test",
+        subscribed=True, source="shopify",
+    )
+    PendingTrigger.create(
+        email=c12d.email, contact=c12d,
+        trigger_type="browse_abandonment",
+        trigger_data='{"product": "Fresh Widget", "view_count": 3}',
+        detected_at=datetime.now() - timedelta(hours=2),
+        status="pending",
+    )
+    print("[S12d] Created valid fresh browse trigger (2h old)")
+
     print()
-    print("=== All 11 fixtures ready. Run 'trigger' next. ===")
+    print("=== All 12 fixtures ready. Run 'trigger' next. ===")
 
 
 def trigger():
@@ -382,6 +457,35 @@ def trigger():
                     t.trigger_type, t.status, (t.trigger_data or "")[:100]))
         else:
             print("  WARNING: No PendingTrigger created")
+
+    # ── S12: Backlog Recovery ──
+    from app import _recover_pending_backlog
+
+    # Clear non-test pending triggers so recovery focuses on S12 test data
+    # (production DB may have thousands of pending triggers that fill the 500-row batch)
+    non_test_cleared = PendingTrigger.update(
+        status="skipped", processed_at=datetime.now()
+    ).where(
+        PendingTrigger.status == "pending",
+        ~(PendingTrigger.email.in_(TEST_EMAILS)),
+    ).execute()
+
+    print()
+    print("--- S12: Running backlog recovery (cleared %d non-test pending triggers) ---" % non_test_cleared)
+    _recover_pending_backlog(_start_time=_time.time(), _max_runtime=120)
+
+    for label, email in [
+        ("S12a-stale", "scenario12-stale@test.local"),
+        ("S12b-dup", "scenario12-duplicate@test.local"),
+        ("S12c-noflow", "scenario12-noflow@test.local"),
+        ("S12d-valid", "scenario12-valid@test.local"),
+    ]:
+        triggers = list(PendingTrigger.select().where(PendingTrigger.email == email))
+        print()
+        print("--- %s: %s ---" % (label, email))
+        for t in triggers:
+            print("  PendingTrigger: type=%s status=%s processed_at=%s" % (
+                t.trigger_type, t.status, t.processed_at))
 
     print()
     print("=== Triggers fired. Run 'verify' after ~90 seconds (flow processor + queue processor). ===")
@@ -648,6 +752,57 @@ def verify():
     else:
         print("  >>> SCENARIO S11: FAIL")
         all_pass = False
+
+    # ── S12: Backlog Recovery Verification ──
+    for label, email, expected_status in [
+        ("S12a: Stale Browse Trigger", "scenario12-stale@test.local", "skipped_stale"),
+        ("S12b: Duplicate Cart Trigger", "scenario12-duplicate@test.local", "skipped_duplicate"),
+        ("S12c: No-Flow Churn Trigger", "scenario12-noflow@test.local", "skipped_no_flow"),
+        ("S12d: Valid Fresh Browse", "scenario12-valid@test.local", "processed"),
+    ]:
+        print()
+        print("--- %s (%s) ---" % (label, email))
+        results = []
+
+        triggers = list(PendingTrigger.select().where(PendingTrigger.email == email))
+        if triggers:
+            for t in triggers:
+                if t.status == expected_status:
+                    print("  [PASS] status='%s' (expected '%s')" % (t.status, expected_status))
+                    results.append(True)
+                else:
+                    print("  [FAIL] status='%s' (expected '%s')" % (t.status, expected_status))
+                    results.append(False)
+                if t.processed_at:
+                    print("  [PASS] processed_at set: %s" % t.processed_at)
+                    results.append(True)
+                else:
+                    print("  [FAIL] processed_at not set")
+                    results.append(False)
+        else:
+            print("  [FAIL] No PendingTrigger found")
+            results.append(False)
+
+        # S12d should also have a FlowEnrollment
+        if expected_status == "processed":
+            try:
+                c = Contact.get(Contact.email == email)
+                enrollments = list(FlowEnrollment.select().where(FlowEnrollment.contact == c))
+                if enrollments:
+                    print("  [PASS] FlowEnrollment created")
+                    results.append(True)
+                else:
+                    print("  [FAIL] No FlowEnrollment created")
+                    results.append(False)
+            except Contact.DoesNotExist:
+                print("  [FAIL] Contact not found")
+                results.append(False)
+
+        if all(results):
+            print("  >>> SCENARIO %s: PASS" % label.split(":")[0])
+        else:
+            print("  >>> SCENARIO %s: FAIL" % label.split(":")[0])
+            all_pass = False
 
     print()
     print("=" * 60)

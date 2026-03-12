@@ -9,7 +9,7 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify, f
 from database import (db, Contact, EmailTemplate, Campaign, CampaignEmail, init_db,
                       WarmupConfig, WarmupLog, get_warmup_config,
                       Flow, FlowStep, FlowEnrollment, FlowEmail, AbandonedCheckout, AgentMessage,
-                      SuppressionEntry, BounceLog, PreflightLog,
+                      SuppressionEntry, BounceLog, PreflightLog, PendingTrigger,
                       get_bounce_stats_by_domain)
 from email_sender import send_campaign_email, test_ses_connection
 from discount_codes import generate_discount_code
@@ -443,6 +443,20 @@ def dashboard():
     elif warmup_health >= 50: warmup_color = "#f97316"
     else:                     warmup_color = "#ef4444"
 
+    # Trigger backlog stats
+    from peewee import fn as _fn
+    trigger_backlog = {"pending": 0, "processed": 0, "skipped_stale": 0,
+                       "skipped_duplicate": 0, "skipped_no_flow": 0, "skipped": 0, "failed": 0}
+    try:
+        rows = list(PendingTrigger
+                    .select(PendingTrigger.status, _fn.COUNT(PendingTrigger.id).alias("cnt"))
+                    .group_by(PendingTrigger.status)
+                    .dicts())
+        for r in rows:
+            trigger_backlog[r["status"]] = trigger_backlog.get(r["status"], 0) + r["cnt"]
+    except Exception:
+        pass
+
     return render_template("dashboard.html",
         total_contacts=total_contacts,
         total_campaigns=total_campaigns,
@@ -453,6 +467,7 @@ def dashboard():
         warmup_health=warmup_health,
         warmup_color=warmup_color,
         warmup_phases=WARMUP_PHASES,
+        trigger_backlog=trigger_backlog,
     )
 
 # ─────────────────────────────────
@@ -2321,19 +2336,21 @@ def _check_passive_triggers():
     if _timed_out():
         return
 
-    # -- Phase H: Consume PendingTriggers into FlowEnrollments (batched) --
-    _consume_pending_triggers(_start_time, MAX_RUNTIME, BATCH_SIZE, BATCH_SLEEP)
+    # -- Phase H: Recover pending trigger backlog (batched) --
+    _recover_pending_backlog(_start_time, MAX_RUNTIME, BATCH_SIZE, BATCH_SLEEP)
 
 
-def _consume_pending_triggers(_start_time=None, _max_runtime=300, _batch_size=50, _batch_sleep=0.1):
-    """Convert pending PendingTrigger rows into FlowEnrollments.
+def _recover_pending_backlog(_start_time=None, _max_runtime=300, _batch_size=50, _batch_sleep=0.1):
+    """Safe backlog recovery: convert pending PendingTrigger rows into FlowEnrollments.
 
-    For each pending trigger with a matching active flow (by trigger_type),
-    find the contact, create a FlowEnrollment, and mark the trigger as processed.
-    Skips triggers where no active flow exists or contact is unsubscribed.
+    Processes triggers in batches with:
+    - Staleness check: skip triggers older than per-type threshold (unless refreshed)
+    - Deduplication: skip if contact already enrolled or has ActionLedger history
+    - Granular status tracking: processed, skipped_stale, skipped_duplicate,
+      skipped_no_flow, skipped, failed
     """
     import time as _time
-    from database import PendingTrigger, Contact, FlowStep, FlowEnrollment
+    from database import PendingTrigger, Contact, FlowStep, FlowEnrollment, CustomerActivity, ActionLedger
 
     if _start_time is None:
         _start_time = _time.time()
@@ -2341,76 +2358,145 @@ def _consume_pending_triggers(_start_time=None, _max_runtime=300, _batch_size=50
     def _timed_out():
         return (_time.time() - _start_time) >= _max_runtime
 
-    # Trigger types that map to flows
-    CONSUMABLE_TYPES = ["browse_abandonment", "cart_abandonment"]
+    now = datetime.now()
 
-    # Build map: trigger_type → active Flow
+    # Per-type staleness thresholds
+    STALE_THRESHOLDS = {
+        "browse_abandonment": timedelta(days=3),
+        "cart_abandonment": timedelta(days=10),
+        "churn_risk_high": timedelta(days=30),
+        "high_engagement_no_purchase": timedelta(days=7),
+    }
+    DEFAULT_STALE_THRESHOLD = timedelta(days=7)
+
+    # Freshness window — if contact has recent activity, stale trigger is still relevant
+    FRESHNESS_WINDOW = timedelta(hours=24)
+
+    # All trigger types that can map to flows
+    CONSUMABLE_TYPES = ["browse_abandonment", "cart_abandonment", "churn_risk_high", "high_engagement_no_purchase"]
+
+    # Build map: trigger_type → (flow, first_step) for all active flows
     flow_map = {}
-    for flow in Flow.select().where(Flow.is_active == True, Flow.trigger_type.in_(CONSUMABLE_TYPES)):
-        first_step = FlowStep.select().where(FlowStep.flow == flow).order_by(FlowStep.step_order).first()
-        if first_step:
-            flow_map[flow.trigger_type] = (flow, first_step)
+    for flow in Flow.select().where(Flow.is_active == True):
+        if flow.trigger_type in CONSUMABLE_TYPES:
+            first_step = FlowStep.select().where(FlowStep.flow == flow).order_by(FlowStep.step_order).first()
+            if first_step:
+                flow_map[flow.trigger_type] = (flow, first_step)
 
-    if not flow_map:
-        return
-
-    # Fetch pending triggers in batches
+    # Fetch pending triggers (oldest first)
     pending = list(
         PendingTrigger.select()
-        .where(PendingTrigger.status == "pending",
-               PendingTrigger.trigger_type.in_(list(flow_map.keys())))
+        .where(PendingTrigger.status == "pending")
         .order_by(PendingTrigger.detected_at.asc())
         .limit(500)
     )
 
-    enrolled = 0
-    skipped = 0
-    for trigger in pending:
-        if _timed_out():
-            break
+    if not pending:
+        return
 
-        flow, first_step = flow_map.get(trigger.trigger_type, (None, None))
-        if not flow:
-            trigger.status = "skipped"
-            trigger.save()
-            skipped += 1
-            continue
+    # Counters
+    counts = {"processed": 0, "skipped_stale": 0, "skipped_duplicate": 0,
+              "skipped_no_flow": 0, "skipped": 0, "failed": 0}
 
-        # Find the contact
-        try:
-            contact = Contact.get(Contact.email == trigger.email)
-        except Contact.DoesNotExist:
-            trigger.status = "skipped"
-            trigger.save()
-            skipped += 1
-            continue
-
-        if not contact.subscribed:
-            trigger.status = "skipped"
-            trigger.save()
-            skipped += 1
-            continue
-
-        # Create enrollment (unique constraint prevents duplicates)
-        try:
-            FlowEnrollment.create(
-                flow=flow,
-                contact=contact,
-                current_step=1,
-                next_send_at=datetime.now() + timedelta(hours=first_step.delay_hours),
-                status="active",
-            )
-            # Pause lower-priority flows for this contact
-            _pause_lower_priority_enrollments(contact, flow)
-            enrolled += 1
-        except Exception:
-            pass  # Already enrolled — unique constraint
-
-        trigger.status = "processed"
+    def _set_status(trigger, status):
+        trigger.status = status
+        trigger.processed_at = now
         trigger.save()
+        counts[status] = counts.get(status, 0) + 1
 
-    if enrolled or skipped:
-        app.logger.info("Consume triggers: enrolled=%d, skipped=%d (of %d pending)" % (enrolled, skipped, len(pending)))
+    for offset in range(0, len(pending), _batch_size):
+        if _timed_out():
+            app.logger.warning("Backlog recovery: timed out at offset %d" % offset)
+            break
+        batch = pending[offset:offset + _batch_size]
+
+        for trigger in batch:
+            if _timed_out():
+                break
+
+            try:
+                # 1. No matching active flow?
+                flow_entry = flow_map.get(trigger.trigger_type)
+                if not flow_entry:
+                    _set_status(trigger, "skipped_no_flow")
+                    continue
+                flow, first_step = flow_entry
+
+                # 2. Staleness check
+                threshold = STALE_THRESHOLDS.get(trigger.trigger_type, DEFAULT_STALE_THRESHOLD)
+                if trigger.detected_at and trigger.detected_at < (now - threshold):
+                    # Check if contact has fresh activity (still relevant)
+                    has_fresh = (CustomerActivity.select()
+                                 .where(CustomerActivity.email == trigger.email,
+                                        CustomerActivity.occurred_at >= (now - FRESHNESS_WINDOW))
+                                 .limit(1).count()) > 0
+                    if not has_fresh:
+                        _set_status(trigger, "skipped_stale")
+                        continue
+
+                # 3. Find contact
+                try:
+                    contact = Contact.get(Contact.email == trigger.email)
+                except Contact.DoesNotExist:
+                    _set_status(trigger, "skipped")
+                    continue
+
+                if not contact.subscribed:
+                    _set_status(trigger, "skipped")
+                    continue
+
+                # 4. Dedup: already enrolled in this flow?
+                existing_enrollment = FlowEnrollment.select().where(
+                    FlowEnrollment.flow == flow,
+                    FlowEnrollment.contact == contact,
+                ).count()
+                if existing_enrollment > 0:
+                    _set_status(trigger, "skipped_duplicate")
+                    continue
+
+                # 5. Dedup: ActionLedger already has a processed entry for this contact+flow?
+                ledger_exists = (ActionLedger.select()
+                                 .where(ActionLedger.email == trigger.email,
+                                        ActionLedger.trigger_type == "flow",
+                                        ActionLedger.source_id == flow.id,
+                                        ActionLedger.status.in_(["qualified", "queued", "rendered", "sent", "shadowed"]),
+                                        ActionLedger.created_at >= trigger.detected_at)
+                                 .limit(1).count()) > 0
+                if ledger_exists:
+                    _set_status(trigger, "skipped_duplicate")
+                    continue
+
+                # 6. Enroll
+                FlowEnrollment.create(
+                    flow=flow,
+                    contact=contact,
+                    current_step=1,
+                    next_send_at=now + timedelta(hours=first_step.delay_hours),
+                    status="active",
+                )
+                _pause_lower_priority_enrollments(contact, flow)
+                trigger.enrolled_at = now
+                _set_status(trigger, "processed")
+
+            except Exception as e:
+                try:
+                    trigger.status = "failed"
+                    trigger.processed_at = now
+                    trigger.save()
+                    counts["failed"] += 1
+                    app.logger.warning("Backlog recovery failed for trigger #%s: %s" % (trigger.id, e))
+                except Exception:
+                    pass
+
+        _time.sleep(_batch_sleep)
+
+    total = sum(counts.values())
+    if total > 0:
+        app.logger.info(
+            "Backlog recovery: processed=%d, stale=%d, duplicate=%d, no_flow=%d, skipped=%d, failed=%d (of %d pending)"
+            % (counts["processed"], counts["skipped_stale"], counts["skipped_duplicate"],
+               counts["skipped_no_flow"], counts["skipped"], counts["failed"], len(pending))
+        )
 
 
 def _detect_behavioural_triggers(_start_time=None, _max_runtime=300, _batch_size=100, _batch_sleep=0.1):
@@ -3019,6 +3105,32 @@ def api_audit_details():
                                 trigger_type=trigger_type,
                                 status=status)
     return jsonify(result)
+
+
+# ─────────────────────────────────
+#  TRIGGER BACKLOG API
+# ─────────────────────────────────
+@app.route("/api/triggers/backlog")
+def api_trigger_backlog():
+    """Return PendingTrigger backlog counts grouped by status and trigger_type."""
+    from peewee import fn
+    from database import PendingTrigger
+
+    rows = list(PendingTrigger
+                .select(PendingTrigger.status, PendingTrigger.trigger_type,
+                        fn.COUNT(PendingTrigger.id).alias("cnt"))
+                .group_by(PendingTrigger.status, PendingTrigger.trigger_type)
+                .dicts())
+
+    summary = {"pending": 0, "processed": 0, "skipped_stale": 0,
+               "skipped_duplicate": 0, "skipped_no_flow": 0, "skipped": 0, "failed": 0}
+    by_type = {}
+    for r in rows:
+        s = r["status"]
+        summary[s] = summary.get(s, 0) + r["cnt"]
+        by_type.setdefault(r["trigger_type"], {})[s] = r["cnt"]
+
+    return jsonify({"summary": summary, "by_type": by_type})
 
 
 # ─────────────────────────────────
@@ -4702,6 +4814,8 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                        id="passive_triggers", replace_existing=True)
     _scheduler.add_job(_check_abandoned_checkouts, "interval", minutes=15,
                        id="abandoned_checkout_checker", replace_existing=True)
+    _scheduler.add_job(_recover_pending_backlog, "interval", minutes=10,
+                       id="backlog_recovery", replace_existing=True)
     # ── Nightly contact scoring at 2:30am (RFM + engagement) ──
     def _run_nightly_contact_scoring():
         try:

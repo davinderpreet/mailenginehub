@@ -608,6 +608,14 @@ def _migrate_system_config():
         pass
 
 
+def _migrate_pending_trigger_fields():
+    """Add processed_at column to pending_triggers table."""
+    cursor = db.execute_sql("PRAGMA table_info(pending_triggers)")
+    existing = {row[1] for row in cursor.fetchall()}
+    if "processed_at" not in existing:
+        db.execute_sql("ALTER TABLE pending_triggers ADD COLUMN processed_at DATETIME")
+
+
 def init_db():
     db.connect(reuse_if_open=True)
     # Enable WAL mode for concurrent reads/writes (real-time pipeline)
@@ -641,6 +649,7 @@ def init_db():
     _migrate_flow_enrollment_pause()
     _migrate_total_spent_to_float()
     _migrate_system_config()
+    _migrate_pending_trigger_fields()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")
@@ -967,8 +976,9 @@ class PendingTrigger(BaseModel):
     trigger_type    = CharField()  # browse_abandonment, cart_abandonment, churn_risk_high, etc.
     trigger_data    = TextField(default="{}")  # JSON: product details, checkout items, risk score
     detected_at     = DateTimeField()
-    status          = CharField(default="pending")  # pending, enrolled, dismissed
+    status          = CharField(default="pending")  # pending | processed | skipped | skipped_stale | skipped_duplicate | skipped_no_flow | failed
     enrolled_at     = DateTimeField(null=True)
+    processed_at    = DateTimeField(null=True)  # When status changed from pending
 
     class Meta:
         table_name = "pending_triggers"
