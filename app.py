@@ -1341,9 +1341,14 @@ def api_template_test_send(template_id):
 
         # Send via SES
         from email_sender import send_campaign_email
+        subject = "[TEST] %s" % template.subject
+        if contact:
+            subject = subject.replace("{{first_name}}", contact.first_name or "Friend")
+
         success, error, msg_id = send_campaign_email(
             to_email=test_email,
-            subject="[TEST] %s" % template.subject,
+            to_name=contact.first_name if contact else "",
+            subject=subject,
             html_body=html,
             from_email=os.environ.get("DEFAULT_FROM_EMAIL", "noreply@mailenginehub.com"),
             from_name="LDAS Test",
