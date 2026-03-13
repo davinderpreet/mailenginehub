@@ -20,7 +20,7 @@ init_db()
 STORE_URL = os.getenv("SHOPIFY_STORE_URL", "").strip().rstrip("/")
 ACCESS_TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
 API_VERSION = "2024-01"
-STOREFRONT_DOMAIN = "ldas-electronics.com"
+STOREFRONT_DOMAIN = "ldas.ca"
 
 
 def _shopify_get(endpoint):
