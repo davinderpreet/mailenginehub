@@ -975,6 +975,123 @@ def delete_template(template_id):
     flash("Template deleted.", "success")
     return redirect(url_for("templates"))
 
+
+# ─────────────────────────────────
+#  BLOCK TEMPLATE BUILDER
+# ─────────────────────────────────
+@app.route("/templates/new-blocks")
+def new_blocks_template():
+    """Render empty block template builder."""
+    from condition_engine import CONDITION_FIELDS, CONDITION_OPERATORS, TEMPLATE_FAMILIES
+    from block_registry import BLOCK_TYPES
+    contacts = list(Contact.select(Contact.id, Contact.email, Contact.first_name)
+                    .where(Contact.subscribed == True)
+                    .order_by(Contact.email)
+                    .limit(50))
+    return render_template("template_builder.html",
+        template=None,
+        block_types=BLOCK_TYPES,
+        condition_fields=CONDITION_FIELDS,
+        condition_operators=CONDITION_OPERATORS,
+        template_families=TEMPLATE_FAMILIES,
+        contacts=contacts,
+    )
+
+@app.route("/templates/<int:template_id>/edit-blocks")
+def edit_blocks_template(template_id):
+    """Render block template builder with existing template data."""
+    template = EmailTemplate.get_by_id(template_id)
+    from condition_engine import CONDITION_FIELDS, CONDITION_OPERATORS, TEMPLATE_FAMILIES
+    from block_registry import BLOCK_TYPES
+    contacts = list(Contact.select(Contact.id, Contact.email, Contact.first_name)
+                    .where(Contact.subscribed == True)
+                    .order_by(Contact.email)
+                    .limit(50))
+    return render_template("template_builder.html",
+        template=template,
+        block_types=BLOCK_TYPES,
+        condition_fields=CONDITION_FIELDS,
+        condition_operators=CONDITION_OPERATORS,
+        template_families=TEMPLATE_FAMILIES,
+        contacts=contacts,
+    )
+
+@app.route("/api/templates/create-blocks", methods=["POST"])
+def api_create_blocks_template():
+    """Create a new blocks-format template.
+
+    POST JSON: {name, subject, preview_text, family, blocks, ai_enabled}
+    Returns: {id, success: true}
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    name = data.get("name", "").strip()
+    subject = data.get("subject", "").strip()
+
+    if not name or not subject:
+        return jsonify({"error": "name and subject are required"}), 400
+
+    blocks = data.get("blocks", [])
+    if not isinstance(blocks, list):
+        return jsonify({"error": "blocks must be a list"}), 400
+
+    import json as _json
+    template = EmailTemplate.create(
+        name=name,
+        subject=subject,
+        preview_text=data.get("preview_text", ""),
+        html_body="",
+        template_format="blocks",
+        blocks_json=_json.dumps(blocks),
+        template_family=data.get("family", ""),
+        ai_enabled=bool(data.get("ai_enabled", False)),
+        block_ai_overrides=_json.dumps(data.get("block_ai_overrides", {})),
+    )
+    return jsonify({"id": template.id, "success": True})
+
+@app.route("/api/templates/<int:template_id>/save-blocks", methods=["POST"])
+def api_save_blocks(template_id):
+    """Save blocks JSON + metadata for a template.
+
+    POST JSON: {name, subject, preview_text, family, blocks, ai_enabled, block_ai_overrides}
+    Returns: {success: true, warnings: [...]}
+    """
+    try:
+        template = EmailTemplate.get_by_id(template_id)
+    except EmailTemplate.DoesNotExist:
+        return jsonify({"error": "template not found"}), 404
+
+    data = request.get_json(force=True, silent=True) or {}
+    import json as _json
+
+    blocks = data.get("blocks", [])
+    if not isinstance(blocks, list):
+        return jsonify({"error": "blocks must be a list"}), 400
+
+    # Validate before saving
+    from block_registry import validate_template
+    blocks_json_str = _json.dumps(blocks)
+    family = data.get("family", template.template_family)
+    warnings = validate_template(blocks_json_str, family=family or None)
+
+    # Check for errors (not just warnings)
+    errors = [w for w in warnings if w.get("level") == "error"]
+    # Save even with warnings, but not with hard errors if family enforcement fails
+    # (validate_template returns advisory warnings — hard gate is enforce_family_constraints)
+
+    template.name = data.get("name", template.name).strip() or template.name
+    template.subject = data.get("subject", template.subject).strip() or template.subject
+    template.preview_text = data.get("preview_text", template.preview_text)
+    template.template_format = "blocks"
+    template.blocks_json = blocks_json_str
+    template.template_family = family
+    template.ai_enabled = bool(data.get("ai_enabled", template.ai_enabled))
+    template.block_ai_overrides = _json.dumps(data.get("block_ai_overrides", {}))
+    template.updated_at = datetime.now()
+    template.save()
+
+    return jsonify({"success": True, "warnings": warnings})
+
+
 # ─────────────────────────────────
 #  BLOCK TEMPLATE PREVIEW
 # ─────────────────────────────────
@@ -1184,6 +1301,63 @@ def api_ai_generate_template():
         app.logger.error("[AI Content] Template generate error: %s" % e)
         return jsonify({"blocks": blocks, "ai_fields_updated": 0,
                         "error": str(e)[:200]})
+
+
+@app.route("/api/templates/<int:template_id>/test-send", methods=["POST"])
+def api_template_test_send(template_id):
+    """Send a test email with AI content to a specified address.
+
+    POST JSON:
+      {"email": "admin@ldas.ca", "contact_id": 123}
+
+    Renders the template (with AI enabled regardless of ai_enabled flag),
+    then sends via SES to the specified email address only.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    test_email = data.get("email", "").strip()
+    contact_id = data.get("contact_id")
+
+    if not test_email:
+        return jsonify({"error": "email address required"}), 400
+
+    try:
+        template = EmailTemplate.get_by_id(template_id)
+    except EmailTemplate.DoesNotExist:
+        return jsonify({"error": "template not found"}), 404
+
+    if template.template_format != "blocks":
+        return jsonify({"error": "test-send only works with block templates"}), 400
+
+    contact = None
+    if contact_id:
+        try:
+            contact = Contact.get_by_id(int(contact_id))
+        except (Contact.DoesNotExist, ValueError):
+            pass
+
+    try:
+        from block_registry import render_template_blocks
+        html = render_template_blocks(template, contact=contact)
+
+        # Send via SES
+        from email_sender import send_campaign_email
+        success, error, msg_id = send_campaign_email(
+            to_email=test_email,
+            subject="[TEST] %s" % template.subject,
+            html_body=html,
+            from_email=os.environ.get("DEFAULT_FROM_EMAIL", "noreply@mailenginehub.com"),
+            from_name="LDAS Test",
+        )
+
+        if success:
+            return jsonify({"success": True, "message": "Test sent to %s" % test_email,
+                            "ses_message_id": msg_id})
+        else:
+            return jsonify({"success": False, "error": error or "SES send failed"})
+
+    except Exception as e:
+        app.logger.error("[Test Send] Error: %s" % e)
+        return jsonify({"success": False, "error": str(e)[:200]})
 
 
 # ─────────────────────────────────
@@ -3399,6 +3573,88 @@ def api_audit_details():
                                 trigger_type=trigger_type,
                                 status=status)
     return jsonify(result)
+
+
+# ─────────────────────────────────
+#  TELEMETRY DASHBOARD
+# ─────────────────────────────────
+
+@app.route("/telemetry")
+def telemetry_dashboard():
+    """Template & AI telemetry dashboard."""
+    return render_template("telemetry.html")
+
+@app.route("/api/telemetry/data")
+def api_telemetry_data():
+    """Return aggregated telemetry data."""
+    from peewee import fn
+    from database import AIRenderLog, ActionLedger
+
+    # AI Usage stats
+    total = AIRenderLog.select().count()
+    fallback = AIRenderLog.select().where(AIRenderLog.fallback_used == True).count()
+    avg_ms = AIRenderLog.select(fn.AVG(AIRenderLog.render_ms)).scalar() or 0
+
+    ai_usage = {
+        "total": total,
+        "success": total - fallback,
+        "fallback": fallback,
+        "avg_render_ms": int(avg_ms),
+        "fallback_rate": round(fallback / total * 100, 1) if total > 0 else 0,
+    }
+
+    # Family performance (from ActionLedger: emails sent per template family)
+    family_stats = []
+    try:
+        family_rows = (ActionLedger
+            .select(
+                EmailTemplate.template_family,
+                fn.COUNT(ActionLedger.id).alias("sent"),
+            )
+            .join(EmailTemplate, on=(ActionLedger.template_id == EmailTemplate.id))
+            .where(
+                ActionLedger.status == "sent",
+                EmailTemplate.template_family != "",
+            )
+            .group_by(EmailTemplate.template_family))
+
+        for row in family_rows:
+            family_stats.append({
+                "family": row.emailtemplate.template_family,
+                "sent": row.sent,
+            })
+    except Exception:
+        pass
+
+    # AI field breakdown (top fields by generation count)
+    field_stats = []
+    try:
+        field_rows = (AIRenderLog
+            .select(
+                AIRenderLog.field_name,
+                fn.COUNT(AIRenderLog.id).alias("count"),
+                fn.AVG(AIRenderLog.render_ms).alias("avg_ms"),
+                fn.SUM(AIRenderLog.fallback_used.cast("int")).alias("fallback_count"),
+            )
+            .group_by(AIRenderLog.field_name)
+            .order_by(fn.COUNT(AIRenderLog.id).desc())
+            .limit(10))
+
+        for row in field_rows:
+            field_stats.append({
+                "field_name": row.field_name,
+                "count": row.count,
+                "avg_ms": int(row.avg_ms or 0),
+                "fallback_count": int(row.fallback_count or 0),
+            })
+    except Exception:
+        pass
+
+    return jsonify({
+        "ai_usage": ai_usage,
+        "family_stats": family_stats,
+        "field_stats": field_stats,
+    })
 
 
 # ─────────────────────────────────

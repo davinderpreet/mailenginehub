@@ -3,8 +3,11 @@
 {% block page_title %}Email Templates{% endblock %}
 
 {% block topbar_actions %}
-  <a href="/templates/new" class="btn btn-primary">
-    <i class="fas fa-plus"></i> New Template
+  <a href="/templates/new" class="btn btn-outline" style="margin-right:6px;">
+    <i class="fas fa-plus"></i> New HTML Template
+  </a>
+  <a href="/templates/new-blocks" class="btn btn-primary">
+    <i class="fas fa-cubes"></i> New Block Template
   </a>
 {% endblock %}
 
@@ -17,8 +20,10 @@
     <div style="border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface);">
       <div style="background:rgba(255,255,255,0.03);border-bottom:1px solid var(--border);padding:10px 14px;font-size:12px;color:var(--text2);display:flex;align-items:center;gap:8px;">
         <strong style="color:var(--text3);">Subject:</strong> {{ t.subject }}
-        {% if t.shell_version is defined and t.shell_version >= 1 %}
-        <span style="margin-left:auto;background:rgba(16,185,129,0.1);color:#10b981;font-size:10px;padding:2px 8px;border-radius:999px;font-weight:600;">SHELL</span>
+        {% if t.template_format == 'blocks' %}
+        <span style="margin-left:auto;background:rgba(124,58,237,0.12);color:var(--purple2);font-size:10px;padding:2px 8px;border-radius:999px;font-weight:600;">BLOCKS</span>
+        {% elif t.shell_version is defined and t.shell_version >= 1 %}
+        <span style="margin-left:auto;background:rgba(16,185,129,0.1);color:#10b981;font-size:10px;padding:2px 8px;border-radius:999px;font-weight:600;">HTML</span>
         {% elif t.shell_version is defined and t.shell_version == 0 %}
         <span style="margin-left:auto;background:rgba(245,158,11,0.1);color:#f59e0b;font-size:10px;padding:2px 8px;border-radius:999px;font-weight:600;">LEGACY</span>
         {% endif %}
@@ -33,9 +38,15 @@
           Updated {{ t.updated_at.strftime('%b %d, %Y') }}
         </div>
         <div style="display:flex;gap:8px;">
+          {% if t.template_format == 'blocks' %}
+          <a href="/templates/{{ t.id }}/edit-blocks" class="btn btn-primary btn-sm" style="flex:1;justify-content:center;">
+            <i class="fas fa-cubes"></i> Edit Blocks
+          </a>
+          {% else %}
           <a href="/templates/{{ t.id }}/edit" class="btn btn-primary btn-sm" style="flex:1;justify-content:center;">
             <i class="fas fa-pen"></i> Edit
           </a>
+          {% endif %}
           <form method="post" action="/templates/{{ t.id }}/delete"
                 onsubmit="return confirm('Delete this template?')" style="display:inline;">
             <button type="submit" class="btn btn-outline btn-sm">

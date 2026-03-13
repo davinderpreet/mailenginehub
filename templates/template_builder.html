@@ -1,0 +1,799 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit" if template else "New" }} Block Template{% endblock %}
+{% block content %}
+<style>
+.builder-layout{display:grid;grid-template-columns:55% 45%;gap:0;height:calc(100vh - 100px);border:1px solid var(--border);border-radius:16px;overflow:hidden;background:var(--bg)}
+.editor-panel{overflow-y:auto;padding:24px;border-right:1px solid var(--border)}
+.preview-panel{display:flex;flex-direction:column;background:var(--bg2)}
+.preview-toolbar{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.preview-iframe{flex:1;border:none;background:#fff}
+.explain-panel{max-height:200px;overflow-y:auto;padding:12px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--text2);display:none}
+.explain-panel.show{display:block}
+
+/* Header form */
+.builder-header{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.builder-header .full-row{grid-column:1/-1}
+
+/* Block cards */
+.block-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px;transition:border-color .2s}
+.block-card:hover{border-color:rgba(255,255,255,0.12)}
+.block-card.selected{border-color:var(--purple);box-shadow:0 0 0 3px rgba(124,58,237,0.15)}
+.block-header{display:flex;align-items:center;gap:10px;cursor:pointer}
+.block-badge{display:inline-block;padding:3px 10px;border-radius:8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.block-badge.hero{background:rgba(124,58,237,0.15);color:var(--purple2)}
+.block-badge.text{background:rgba(6,182,212,0.15);color:var(--cyan)}
+.block-badge.cta{background:rgba(16,185,129,0.15);color:var(--green)}
+.block-badge.discount{background:rgba(236,72,153,0.15);color:var(--pink)}
+.block-badge.urgency{background:rgba(245,158,11,0.15);color:var(--amber)}
+.block-badge.product_grid{background:rgba(99,102,241,0.15);color:#818cf8}
+.block-badge.divider{background:rgba(255,255,255,0.05);color:var(--text3)}
+.block-title{flex:1;font-size:13px;color:var(--text2)}
+.block-actions{display:flex;gap:4px}
+.block-actions button{background:none;border:1px solid var(--border);color:var(--text2);width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center}
+.block-actions button:hover{background:var(--surface);color:var(--text)}
+.block-actions button.danger:hover{background:rgba(239,68,68,0.1);color:var(--red);border-color:var(--red)}
+.block-body{margin-top:14px;display:none}
+.block-card.expanded .block-body{display:block}
+
+/* Block forms */
+.field-row{margin-bottom:12px}
+.field-row label{display:block;font-size:12px;color:var(--text2);margin-bottom:4px;font-weight:500}
+.field-row input,.field-row textarea,.field-row select{width:100%;padding:8px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit}
+.field-row textarea{min-height:60px;resize:vertical}
+.field-row input:focus,.field-row textarea:focus,.field-row select:focus{outline:none;border-color:var(--purple)}
+.color-input-wrap{display:flex;gap:8px;align-items:center}
+.color-input-wrap input[type=color]{width:36px;height:36px;padding:2px;border-radius:8px;cursor:pointer}
+.color-input-wrap input[type=text]{flex:1}
+
+/* Paragraphs */
+.para-list{display:flex;flex-direction:column;gap:8px}
+.para-row{display:flex;gap:6px}
+.para-row textarea{flex:1}
+.para-row button{flex-shrink:0}
+
+/* Variants */
+.variants-section{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.variant-card{background:rgba(124,58,237,0.04);border:1px solid rgba(124,58,237,0.12);border-radius:10px;padding:12px;margin-bottom:8px}
+.variant-header{font-size:12px;color:var(--purple2);font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between}
+.condition-row{display:grid;grid-template-columns:1fr 1fr 1fr 30px;gap:6px;margin-bottom:6px}
+.condition-row select,.condition-row input{padding:6px 8px;font-size:12px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:6px;color:var(--text)}
+
+/* Add block */
+.add-block-bar{display:flex;gap:10px;padding:16px;background:var(--surface);border-radius:14px;margin-top:12px;align-items:center}
+.add-block-bar select{flex:1}
+
+/* Validation */
+.validation-panel{margin-top:12px}
+.validation-item{padding:8px 12px;border-radius:8px;font-size:12px;margin-bottom:4px}
+.validation-item.error{background:rgba(239,68,68,0.08);color:var(--red);border:1px solid rgba(239,68,68,0.2)}
+.validation-item.warning{background:rgba(245,158,11,0.08);color:var(--amber);border:1px solid rgba(245,158,11,0.2)}
+
+/* AI suggest button */
+.btn-ai{background:linear-gradient(135deg,var(--purple),var(--purple2));color:#fff;border:none;padding:6px 14px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500}
+.btn-ai:hover{opacity:0.9}
+.btn-ai:disabled{opacity:0.5;cursor:not-allowed}
+
+/* Toggle */
+.toggle-wrap{display:flex;align-items:center;gap:8px;font-size:13px}
+.toggle{position:relative;width:40px;height:22px;display:inline-block}
+.toggle input{opacity:0;width:0;height:0}
+.toggle .slider{position:absolute;inset:0;background:var(--border);border-radius:22px;cursor:pointer;transition:.2s}
+.toggle .slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}
+.toggle input:checked+.slider{background:var(--purple)}
+.toggle input:checked+.slider:before{transform:translateX(18px)}
+
+/* Save bar */
+.save-bar{display:flex;gap:10px;justify-content:flex-end;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
+
+@media(max-width:900px){
+.builder-layout{grid-template-columns:1fr;height:auto}
+.preview-panel{min-height:400px}
+}
+</style>
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <h2 style="margin:0">
+        <a href="/templates" style="color:var(--text2);text-decoration:none">&larr; Templates</a>
+        &nbsp;/ {{ "Edit" if template else "New" }} Block Template
+    </h2>
+    <div style="display:flex;gap:8px">
+        <button class="btn btn-outline" onclick="validateAndShow()">Validate</button>
+        <button class="btn btn-primary" onclick="saveTemplate()" id="saveBtn">Save Template</button>
+    </div>
+</div>
+
+<div class="builder-layout">
+    <!-- LEFT: Editor -->
+    <div class="editor-panel" id="editorPanel">
+
+        <!-- Header fields -->
+        <div class="builder-header">
+            <div class="field-row">
+                <label>Template Name <span style="color:var(--red)">*</span></label>
+                <input type="text" id="tplName" placeholder="e.g. Welcome — Intro Email"
+                       value="{{ template.name if template else '' }}">
+            </div>
+            <div class="field-row">
+                <label>Family</label>
+                <select id="tplFamily">
+                    <option value="">— No family —</option>
+                    {% for key, fam in template_families.items() %}
+                    <option value="{{ key }}" {{ 'selected' if template and template.template_family == key }}>{{ fam.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field-row full-row">
+                <label>Subject Line <span style="color:var(--red)">*</span></label>
+                <input type="text" id="tplSubject" placeholder="e.g. Welcome to LDAS Electronics, {{first_name}}!"
+                       value="{{ template.subject if template else '' }}">
+            </div>
+            <div class="field-row">
+                <label>Preview Text</label>
+                <input type="text" id="tplPreviewText" placeholder="Inbox preview text (optional)"
+                       value="{{ template.preview_text if template else '' }}">
+            </div>
+            <div class="field-row" style="display:flex;align-items:flex-end">
+                <div class="toggle-wrap">
+                    <label class="toggle">
+                        <input type="checkbox" id="tplAiEnabled" {{ 'checked' if template and template.ai_enabled }}>
+                        <span class="slider"></span>
+                    </label>
+                    <span>AI Enabled</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Block list -->
+        <div id="blockList"></div>
+
+        <!-- Add block -->
+        <div class="add-block-bar">
+            <select id="addBlockType">
+                {% for key, bt in block_types.items() %}
+                <option value="{{ key }}">{{ bt.label }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-outline" onclick="addBlock()">+ Add Block</button>
+        </div>
+
+        <!-- Validation panel -->
+        <div class="validation-panel" id="validationPanel"></div>
+
+        <!-- Save bar (bottom) -->
+        <div class="save-bar">
+            <button class="btn btn-outline" onclick="validateAndShow()">Validate</button>
+            <button class="btn btn-primary" onclick="saveTemplate()">Save Template</button>
+        </div>
+    </div>
+
+    <!-- RIGHT: Preview -->
+    <div class="preview-panel">
+        <div class="preview-toolbar">
+            <button class="btn btn-outline" onclick="refreshPreview()" style="font-size:12px;padding:6px 14px">Refresh Preview</button>
+            <select id="previewContact" style="flex:1;padding:6px 10px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px">
+                <option value="">Default preview</option>
+                {% for c in contacts %}
+                <option value="{{ c.id }}">{{ c.first_name or c.email }} ({{ c.email }})</option>
+                {% endfor %}
+            </select>
+            <div class="toggle-wrap" style="font-size:12px">
+                <label class="toggle">
+                    <input type="checkbox" id="showExplain" onchange="refreshPreview()">
+                    <span class="slider"></span>
+                </label>
+                <span>Explain</span>
+            </div>
+        </div>
+        <iframe class="preview-iframe" id="previewFrame"></iframe>
+        <div class="explain-panel" id="explainPanel"></div>
+    </div>
+</div>
+
+<script>
+// ── Config from server ─────────────────────────────────
+var BLOCK_TYPES = {{ block_types | tojson }};
+var CONDITION_FIELDS = {{ condition_fields | tojson }};
+var CONDITION_OPERATORS = {{ condition_operators | tojson }};
+var TEMPLATE_FAMILIES = {{ template_families | tojson }};
+var TEMPLATE_ID = {{ template.id if template else 'null' }};
+
+// ── State ──────────────────────────────────────────────
+var state = {
+    blocks: [],
+    expandedBlock: null,
+    dirty: false,
+};
+
+// Init from existing template
+{% if template and template.blocks_json %}
+try { state.blocks = JSON.parse({{ template.blocks_json | tojson }}); } catch(e) {}
+{% endif %}
+
+// ── Block rendering ────────────────────────────────────
+function renderBlockList() {
+    var container = document.getElementById('blockList');
+    container.innerHTML = '';
+    state.blocks.forEach(function(block, i) {
+        container.appendChild(buildBlockCard(block, i));
+    });
+}
+
+function buildBlockCard(block, index) {
+    var card = document.createElement('div');
+    card.className = 'block-card' + (state.expandedBlock === index ? ' expanded' : '');
+    card.dataset.index = index;
+
+    var bt = block.block_type || 'text';
+    var btConfig = BLOCK_TYPES[bt] || {};
+    var content = block.content || {};
+
+    // Header
+    var header = document.createElement('div');
+    header.className = 'block-header';
+    header.onclick = function() {
+        state.expandedBlock = (state.expandedBlock === index) ? null : index;
+        renderBlockList();
+    };
+    header.innerHTML = '<span class="block-badge ' + bt + '">' + bt.replace('_', ' ') + '</span>'
+        + '<span class="block-title">' + getBlockSummary(bt, content) + '</span>';
+
+    var actions = document.createElement('div');
+    actions.className = 'block-actions';
+    if (index > 0) {
+        var upBtn = document.createElement('button');
+        upBtn.innerHTML = '&#9650;'; upBtn.title = 'Move up';
+        upBtn.onclick = function(e) { e.stopPropagation(); moveBlock(index, -1); };
+        actions.appendChild(upBtn);
+    }
+    if (index < state.blocks.length - 1) {
+        var downBtn = document.createElement('button');
+        downBtn.innerHTML = '&#9660;'; downBtn.title = 'Move down';
+        downBtn.onclick = function(e) { e.stopPropagation(); moveBlock(index, 1); };
+        actions.appendChild(downBtn);
+    }
+    var delBtn = document.createElement('button');
+    delBtn.className = 'danger'; delBtn.innerHTML = '&#10005;'; delBtn.title = 'Remove';
+    delBtn.onclick = function(e) { e.stopPropagation(); removeBlock(index); };
+    actions.appendChild(delBtn);
+
+    header.appendChild(actions);
+    card.appendChild(header);
+
+    // Body (content form)
+    var body = document.createElement('div');
+    body.className = 'block-body';
+    body.appendChild(buildBlockForm(bt, content, index));
+
+    // AI Suggest button
+    var aiBar = document.createElement('div');
+    aiBar.style.cssText = 'margin-top:12px;display:flex;gap:8px;align-items:center';
+    var aiBtn = document.createElement('button');
+    aiBtn.className = 'btn-ai';
+    aiBtn.textContent = 'AI Suggest';
+    aiBtn.onclick = function() { aiSuggestBlock(index); };
+    aiBar.appendChild(aiBtn);
+
+    var aiStatus = document.createElement('span');
+    aiStatus.id = 'aiStatus_' + index;
+    aiStatus.style.cssText = 'font-size:12px;color:var(--text3)';
+    aiBar.appendChild(aiStatus);
+    body.appendChild(aiBar);
+
+    // Variants section
+    body.appendChild(buildVariantsSection(block, index));
+
+    card.appendChild(body);
+    return card;
+}
+
+function getBlockSummary(bt, content) {
+    if (bt === 'hero') return (content.headline || 'Untitled hero').substring(0, 50);
+    if (bt === 'text') return (content.paragraphs && content.paragraphs[0] || 'Empty text').substring(0, 50);
+    if (bt === 'cta') return (content.text || 'Button') + ' → ' + (content.url || '').substring(0, 30);
+    if (bt === 'discount') return (content.value_display || '') + ' ' + (content.code || '');
+    if (bt === 'urgency') return (content.message || 'Urgency message').substring(0, 50);
+    if (bt === 'product_grid') return (content.section_title || 'Products') + ' (' + (content.columns || 2) + ' col)';
+    if (bt === 'divider') return '—';
+    return '';
+}
+
+// ── Block forms ────────────────────────────────────────
+function buildBlockForm(bt, content, blockIndex) {
+    var form = document.createElement('div');
+    var fields = getBlockFields(bt);
+    fields.forEach(function(f) {
+        form.appendChild(buildField(f, content, blockIndex));
+    });
+    return form;
+}
+
+function getBlockFields(bt) {
+    if (bt === 'hero') return [
+        {key: 'headline', label: 'Headline', type: 'text'},
+        {key: 'subheadline', label: 'Subheadline', type: 'text'},
+        {key: 'bg_color', label: 'Background', type: 'color'},
+    ];
+    if (bt === 'text') return [
+        {key: 'paragraphs', label: 'Paragraphs', type: 'paragraphs'},
+    ];
+    if (bt === 'cta') return [
+        {key: 'text', label: 'Button Text', type: 'text'},
+        {key: 'url', label: 'URL', type: 'text'},
+        {key: 'color', label: 'Button Color', type: 'color'},
+    ];
+    if (bt === 'discount') return [
+        {key: 'code', label: 'Discount Code', type: 'text'},
+        {key: 'value_display', label: 'Value Display', type: 'text'},
+        {key: 'display_text', label: 'Display Text', type: 'text'},
+        {key: 'expires_text', label: 'Expires Text', type: 'text'},
+    ];
+    if (bt === 'urgency') return [
+        {key: 'message', label: 'Urgency Message', type: 'text'},
+    ];
+    if (bt === 'product_grid') return [
+        {key: 'section_title', label: 'Section Title', type: 'text'},
+        {key: 'columns', label: 'Columns', type: 'select', options: [{v:'1',l:'1'},{v:'2',l:'2'},{v:'3',l:'3'}]},
+    ];
+    return [];
+}
+
+function buildField(f, content, blockIndex) {
+    var row = document.createElement('div');
+    row.className = 'field-row';
+
+    if (f.type === 'paragraphs') {
+        row.innerHTML = '<label>' + f.label + '</label>';
+        var list = document.createElement('div');
+        list.className = 'para-list';
+        var paras = content.paragraphs || [''];
+        paras.forEach(function(p, pi) {
+            var prow = document.createElement('div');
+            prow.className = 'para-row';
+            var ta = document.createElement('textarea');
+            ta.value = p;
+            ta.oninput = function() {
+                state.blocks[blockIndex].content.paragraphs[pi] = ta.value;
+                state.dirty = true;
+            };
+            prow.appendChild(ta);
+            if (paras.length > 1) {
+                var rmBtn = document.createElement('button');
+                rmBtn.className = 'btn btn-outline';
+                rmBtn.innerHTML = '&times;';
+                rmBtn.style.cssText = 'padding:4px 8px;font-size:14px';
+                rmBtn.onclick = function() {
+                    state.blocks[blockIndex].content.paragraphs.splice(pi, 1);
+                    state.dirty = true;
+                    renderBlockList();
+                };
+                prow.appendChild(rmBtn);
+            }
+            list.appendChild(prow);
+        });
+        var addParaBtn = document.createElement('button');
+        addParaBtn.className = 'btn btn-outline';
+        addParaBtn.style.cssText = 'font-size:12px;padding:4px 12px;align-self:flex-start';
+        addParaBtn.textContent = '+ Add Paragraph';
+        addParaBtn.onclick = function() {
+            if (!state.blocks[blockIndex].content.paragraphs) state.blocks[blockIndex].content.paragraphs = [];
+            state.blocks[blockIndex].content.paragraphs.push('');
+            state.dirty = true;
+            renderBlockList();
+        };
+        list.appendChild(addParaBtn);
+        row.appendChild(list);
+    } else if (f.type === 'color') {
+        row.innerHTML = '<label>' + f.label + '</label>';
+        var wrap = document.createElement('div');
+        wrap.className = 'color-input-wrap';
+        var colorPick = document.createElement('input');
+        colorPick.type = 'color';
+        colorPick.value = (content[f.key] || '#0428aa').replace(/linear-gradient.*/, '#0428aa');
+        var colorText = document.createElement('input');
+        colorText.type = 'text';
+        colorText.value = content[f.key] || '';
+        colorText.placeholder = '#hex or linear-gradient(...)';
+        colorPick.oninput = function() { colorText.value = colorPick.value; state.blocks[blockIndex].content[f.key] = colorPick.value; state.dirty = true; };
+        colorText.oninput = function() { state.blocks[blockIndex].content[f.key] = colorText.value; state.dirty = true; };
+        wrap.appendChild(colorPick);
+        wrap.appendChild(colorText);
+        row.appendChild(wrap);
+    } else if (f.type === 'select') {
+        row.innerHTML = '<label>' + f.label + '</label>';
+        var sel = document.createElement('select');
+        f.options.forEach(function(opt) {
+            var o = document.createElement('option');
+            o.value = opt.v; o.textContent = opt.l;
+            if (String(content[f.key]) === opt.v) o.selected = true;
+            sel.appendChild(o);
+        });
+        sel.onchange = function() {
+            state.blocks[blockIndex].content[f.key] = isNaN(sel.value) ? sel.value : parseInt(sel.value);
+            state.dirty = true;
+        };
+        row.appendChild(sel);
+    } else {
+        row.innerHTML = '<label>' + f.label + '</label>';
+        var inp = document.createElement('input');
+        inp.type = 'text';
+        inp.value = content[f.key] || '';
+        inp.placeholder = f.label;
+        inp.oninput = function() { state.blocks[blockIndex].content[f.key] = inp.value; state.dirty = true; };
+        row.appendChild(inp);
+    }
+    return row;
+}
+
+// ── Variants ───────────────────────────────────────────
+function buildVariantsSection(block, blockIndex) {
+    var section = document.createElement('div');
+    section.className = 'variants-section';
+
+    var header = document.createElement('div');
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px';
+    header.innerHTML = '<span style="font-size:12px;color:var(--text2);font-weight:600">Variants</span>';
+    var addBtn = document.createElement('button');
+    addBtn.className = 'btn btn-outline';
+    addBtn.style.cssText = 'font-size:11px;padding:3px 10px';
+    addBtn.textContent = '+ Add Variant';
+    addBtn.onclick = function() { addVariant(blockIndex); };
+    header.appendChild(addBtn);
+    section.appendChild(header);
+
+    var variants = block.variants || [];
+    variants.forEach(function(v, vi) {
+        section.appendChild(buildVariantCard(v, blockIndex, vi));
+    });
+
+    return section;
+}
+
+function buildVariantCard(variant, blockIndex, variantIndex) {
+    var card = document.createElement('div');
+    card.className = 'variant-card';
+
+    var header = document.createElement('div');
+    header.className = 'variant-header';
+    header.innerHTML = '<span>Variant ' + (variantIndex + 1) + '</span>';
+    var rmBtn = document.createElement('button');
+    rmBtn.className = 'btn btn-outline danger';
+    rmBtn.style.cssText = 'font-size:10px;padding:2px 8px';
+    rmBtn.textContent = 'Remove';
+    rmBtn.onclick = function() { removeVariant(blockIndex, variantIndex); };
+    header.appendChild(rmBtn);
+    card.appendChild(header);
+
+    // Conditions
+    var conditions = variant.conditions || [];
+    conditions.forEach(function(cond, ci) {
+        card.appendChild(buildConditionRow(cond, blockIndex, variantIndex, ci));
+    });
+    var addCondBtn = document.createElement('button');
+    addCondBtn.className = 'btn btn-outline';
+    addCondBtn.style.cssText = 'font-size:11px;padding:3px 10px;margin-bottom:8px';
+    addCondBtn.textContent = '+ Condition';
+    addCondBtn.onclick = function() { addCondition(blockIndex, variantIndex); };
+    card.appendChild(addCondBtn);
+
+    // Content override fields
+    var bt = state.blocks[blockIndex].block_type;
+    var fields = getBlockFields(bt);
+    var overrideContent = variant.content || {};
+    fields.forEach(function(f) {
+        if (f.type === 'paragraphs') return; // Skip complex fields in variant for simplicity
+        var row = document.createElement('div');
+        row.className = 'field-row';
+        row.innerHTML = '<label>Override: ' + f.label + '</label>';
+        var inp = document.createElement('input');
+        inp.type = 'text';
+        inp.value = overrideContent[f.key] || '';
+        inp.placeholder = 'Leave empty to use default';
+        inp.oninput = function() {
+            if (!state.blocks[blockIndex].variants[variantIndex].content)
+                state.blocks[blockIndex].variants[variantIndex].content = {};
+            state.blocks[blockIndex].variants[variantIndex].content[f.key] = inp.value;
+            state.dirty = true;
+        };
+        row.appendChild(inp);
+        card.appendChild(row);
+    });
+
+    return card;
+}
+
+function buildConditionRow(cond, blockIndex, variantIndex, condIndex) {
+    var row = document.createElement('div');
+    row.className = 'condition-row';
+
+    // Field select
+    var fieldSel = document.createElement('select');
+    Object.keys(CONDITION_FIELDS).forEach(function(fk) {
+        var o = document.createElement('option');
+        o.value = fk; o.textContent = CONDITION_FIELDS[fk].label;
+        if (cond.field === fk) o.selected = true;
+        fieldSel.appendChild(o);
+    });
+    fieldSel.onchange = function() {
+        state.blocks[blockIndex].variants[variantIndex].conditions[condIndex].field = fieldSel.value;
+        state.dirty = true;
+        renderBlockList();
+    };
+    row.appendChild(fieldSel);
+
+    // Operator select
+    var opSel = document.createElement('select');
+    var fieldCfg = CONDITION_FIELDS[cond.field || Object.keys(CONDITION_FIELDS)[0]] || {};
+    var allowedOps = fieldCfg.allowed_ops || Object.keys(CONDITION_OPERATORS);
+    allowedOps.forEach(function(opKey) {
+        var o = document.createElement('option');
+        o.value = opKey; o.textContent = CONDITION_OPERATORS[opKey] ? CONDITION_OPERATORS[opKey].label : opKey;
+        if (cond.operator === opKey) o.selected = true;
+        opSel.appendChild(o);
+    });
+    opSel.onchange = function() {
+        state.blocks[blockIndex].variants[variantIndex].conditions[condIndex].operator = opSel.value;
+        state.dirty = true;
+    };
+    row.appendChild(opSel);
+
+    // Value input
+    var valInp = document.createElement('input');
+    valInp.type = 'text';
+    valInp.value = cond.value !== undefined ? String(cond.value) : '';
+    valInp.placeholder = 'value';
+    valInp.oninput = function() {
+        var val = valInp.value;
+        // Try to parse as number if field is numeric
+        if (fieldCfg.type === 'int') val = parseInt(val) || 0;
+        else if (fieldCfg.type === 'float') val = parseFloat(val) || 0;
+        else if (fieldCfg.type === 'bool') val = val.toLowerCase() === 'true';
+        state.blocks[blockIndex].variants[variantIndex].conditions[condIndex].value = val;
+        state.dirty = true;
+    };
+    row.appendChild(valInp);
+
+    // Remove condition
+    var rmBtn = document.createElement('button');
+    rmBtn.style.cssText = 'background:none;border:1px solid var(--border);color:var(--red);border-radius:6px;cursor:pointer;font-size:12px';
+    rmBtn.innerHTML = '&times;';
+    rmBtn.onclick = function() {
+        state.blocks[blockIndex].variants[variantIndex].conditions.splice(condIndex, 1);
+        state.dirty = true;
+        renderBlockList();
+    };
+    row.appendChild(rmBtn);
+
+    return row;
+}
+
+// ── Block operations ───────────────────────────────────
+function addBlock() {
+    var bt = document.getElementById('addBlockType').value;
+    var btConfig = BLOCK_TYPES[bt] || {};
+    var defaults = btConfig.defaults || {};
+    state.blocks.push({block_type: bt, content: JSON.parse(JSON.stringify(defaults))});
+    state.expandedBlock = state.blocks.length - 1;
+    state.dirty = true;
+    renderBlockList();
+}
+
+function removeBlock(index) {
+    if (!confirm('Remove this block?')) return;
+    state.blocks.splice(index, 1);
+    if (state.expandedBlock === index) state.expandedBlock = null;
+    else if (state.expandedBlock > index) state.expandedBlock--;
+    state.dirty = true;
+    renderBlockList();
+}
+
+function moveBlock(index, direction) {
+    var newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= state.blocks.length) return;
+    var temp = state.blocks[index];
+    state.blocks[index] = state.blocks[newIndex];
+    state.blocks[newIndex] = temp;
+    if (state.expandedBlock === index) state.expandedBlock = newIndex;
+    else if (state.expandedBlock === newIndex) state.expandedBlock = index;
+    state.dirty = true;
+    renderBlockList();
+}
+
+function addVariant(blockIndex) {
+    if (!state.blocks[blockIndex].variants) state.blocks[blockIndex].variants = [];
+    state.blocks[blockIndex].variants.push({conditions: [{field: 'lifecycle_stage', operator: 'eq', value: ''}], content: {}});
+    state.dirty = true;
+    renderBlockList();
+}
+
+function removeVariant(blockIndex, variantIndex) {
+    state.blocks[blockIndex].variants.splice(variantIndex, 1);
+    state.dirty = true;
+    renderBlockList();
+}
+
+function addCondition(blockIndex, variantIndex) {
+    state.blocks[blockIndex].variants[variantIndex].conditions.push({field: 'lifecycle_stage', operator: 'eq', value: ''});
+    state.dirty = true;
+    renderBlockList();
+}
+
+// ── Save ───────────────────────────────────────────────
+function saveTemplate() {
+    var name = document.getElementById('tplName').value.trim();
+    var subject = document.getElementById('tplSubject').value.trim();
+    if (!name || !subject) { alert('Name and Subject are required.'); return; }
+
+    var payload = {
+        name: name,
+        subject: subject,
+        preview_text: document.getElementById('tplPreviewText').value,
+        family: document.getElementById('tplFamily').value,
+        blocks: state.blocks,
+        ai_enabled: document.getElementById('tplAiEnabled').checked,
+        block_ai_overrides: {},
+    };
+
+    var url, method;
+    if (TEMPLATE_ID) {
+        url = '/api/templates/' + TEMPLATE_ID + '/save-blocks';
+    } else {
+        url = '/api/templates/create-blocks';
+    }
+
+    document.getElementById('saveBtn').disabled = true;
+    document.getElementById('saveBtn').textContent = 'Saving...';
+
+    fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success || data.id) {
+            state.dirty = false;
+            if (data.id && !TEMPLATE_ID) {
+                TEMPLATE_ID = data.id;
+                history.replaceState(null, '', '/templates/' + data.id + '/edit-blocks');
+            }
+            // Show warnings if any
+            if (data.warnings && data.warnings.length) {
+                showValidation(data.warnings);
+            }
+            showFlash('Template saved!', 'success');
+            refreshPreview();
+        } else {
+            showFlash(data.error || 'Save failed', 'error');
+        }
+    })
+    .catch(function(e) { showFlash('Save error: ' + e, 'error'); })
+    .finally(function() {
+        document.getElementById('saveBtn').disabled = false;
+        document.getElementById('saveBtn').textContent = 'Save Template';
+    });
+}
+
+// ── Preview ────────────────────────────────────────────
+function refreshPreview() {
+    if (!TEMPLATE_ID) {
+        document.getElementById('previewFrame').srcdoc = '<div style="padding:40px;text-align:center;color:#999;font-family:sans-serif">Save the template first to see a preview.</div>';
+        return;
+    }
+    var contactId = document.getElementById('previewContact').value;
+    var explain = document.getElementById('showExplain').checked;
+    var url = '/api/templates/' + TEMPLATE_ID + '/preview-blocks?validate=1';
+    if (contactId) url += '&contact_id=' + contactId;
+    if (explain) url += '&explain=1';
+    var family = document.getElementById('tplFamily').value;
+    if (family) url += '&family=' + family;
+
+    fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.html) {
+            document.getElementById('previewFrame').srcdoc = data.html;
+        }
+        if (data.warnings) {
+            showValidation(data.warnings);
+        }
+        if (data.explain && explain) {
+            var panel = document.getElementById('explainPanel');
+            panel.classList.add('show');
+            panel.innerHTML = '<strong>Variant Trace:</strong><br>' +
+                data.explain.map(function(e) {
+                    return 'Block ' + e.block_index + ' (' + e.block_type + '): ' +
+                        (e.matched_variant_index >= 0 ? 'Variant ' + (e.matched_variant_index + 1) : 'Default') +
+                        (e.matched_conditions ? ' [' + JSON.stringify(e.matched_conditions) + ']' : '');
+                }).join('<br>');
+        } else {
+            document.getElementById('explainPanel').classList.remove('show');
+        }
+    })
+    .catch(function(e) {
+        document.getElementById('previewFrame').srcdoc = '<div style="padding:40px;color:red;font-family:sans-serif">Preview error: ' + e + '</div>';
+    });
+}
+
+// ── AI Suggest ─────────────────────────────────────────
+function aiSuggestBlock(index) {
+    var block = state.blocks[index];
+    var statusEl = document.getElementById('aiStatus_' + index);
+    if (statusEl) statusEl.textContent = 'Generating...';
+
+    var payload = {
+        block_type: block.block_type,
+        family: document.getElementById('tplFamily').value,
+        purpose: document.getElementById('tplSubject').value,
+        fallback: block.content || {},
+    };
+
+    var contactId = document.getElementById('previewContact').value;
+    if (contactId) payload.contact_id = parseInt(contactId);
+
+    fetch('/api/templates/ai-generate-block', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.content) {
+            // Merge AI content into block (only writable fields)
+            var content = state.blocks[index].content || {};
+            Object.keys(data.content).forEach(function(k) {
+                if (data.content[k] !== undefined && data.content[k] !== null && data.content[k] !== '') {
+                    content[k] = data.content[k];
+                }
+            });
+            state.blocks[index].content = content;
+            state.dirty = true;
+            renderBlockList();
+            // Re-expand the block
+            state.expandedBlock = index;
+            renderBlockList();
+        }
+        if (statusEl) statusEl.textContent = data.ai_generated ? 'AI generated' : 'Used fallback';
+        setTimeout(function() { if (statusEl) statusEl.textContent = ''; }, 3000);
+    })
+    .catch(function(e) {
+        if (statusEl) statusEl.textContent = 'Error: ' + e;
+    });
+}
+
+// ── Validation ─────────────────────────────────────────
+function validateAndShow() {
+    // Client-side: send blocks to save endpoint with dry-run or just show validate results from preview
+    if (TEMPLATE_ID) {
+        refreshPreview();
+    } else {
+        // No template saved yet — do basic client validation
+        var warnings = [];
+        if (!state.blocks.length) warnings.push({level:'error', message:'Template has no blocks'});
+        var hasCta = state.blocks.some(function(b) { return b.block_type === 'cta'; });
+        if (!hasCta) warnings.push({level:'error', message:'Template needs at least one CTA block'});
+        showValidation(warnings);
+    }
+}
+
+function showValidation(warnings) {
+    var panel = document.getElementById('validationPanel');
+    if (!warnings || !warnings.length) {
+        panel.innerHTML = '<div class="validation-item" style="background:rgba(16,185,129,0.08);color:var(--green);border:1px solid rgba(16,185,129,0.2)">No issues found</div>';
+        return;
+    }
+    panel.innerHTML = warnings.map(function(w) {
+        return '<div class="validation-item ' + w.level + '">' + w.message + '</div>';
+    }).join('');
+}
+
+// ── Flash messages ─────────────────────────────────────
+function showFlash(msg, type) {
+    var flash = document.createElement('div');
+    flash.className = 'flash ' + type;
+    flash.textContent = msg;
+    document.body.appendChild(flash);
+    setTimeout(function() { flash.remove(); }, 4000);
+}
+
+// ── Unsaved warning ────────────────────────────────────
+window.onbeforeunload = function(e) {
+    if (state.dirty) { e.preventDefault(); return ''; }
+};
+
+// ── Init ───────────────────────────────────────────────
+renderBlockList();
+if (TEMPLATE_ID) refreshPreview();
+</script>
+{% endblock %}

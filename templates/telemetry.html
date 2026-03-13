@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Telemetry — MailEngine{% endblock %}
+{% block page_title %}Template & AI Telemetry{% endblock %}
+
+{% block content %}
+<style>
+.tele-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.tele-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px 24px;position:relative;overflow:hidden}
+.tele-card .value{font-size:28px;font-weight:800;margin-bottom:2px}
+.tele-card .label{font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
+.tele-card.purple .value{color:var(--purple2)}
+.tele-card.purple::before{content:"";position:absolute;top:0;right:0;width:80px;height:80px;background:radial-gradient(circle,rgba(124,58,237,0.08),transparent);border-radius:50%}
+.tele-card.cyan .value{color:var(--cyan)}
+.tele-card.cyan::before{content:"";position:absolute;top:0;right:0;width:80px;height:80px;background:radial-gradient(circle,rgba(6,182,212,0.08),transparent);border-radius:50%}
+.tele-card.green .value{color:var(--green)}
+.tele-card.green::before{content:"";position:absolute;top:0;right:0;width:80px;height:80px;background:radial-gradient(circle,rgba(16,185,129,0.08),transparent);border-radius:50%}
+.tele-card.pink .value{color:var(--pink)}
+.tele-card.pink::before{content:"";position:absolute;top:0;right:0;width:80px;height:80px;background:radial-gradient(circle,rgba(236,72,153,0.08),transparent);border-radius:50%}
+.usage-bar{height:8px;border-radius:4px;background:var(--border);overflow:hidden;margin-top:8px}
+.usage-bar .fill{height:100%;border-radius:4px;transition:width .6s}
+.usage-bar .fill.success{background:var(--green)}
+.usage-bar .fill.fallback{background:var(--amber)}
+@media(max-width:768px){.tele-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+
+<!-- AI Usage Stats -->
+<div class="tele-grid" id="aiStats">
+    <div class="tele-card purple">
+        <div class="value" id="statTotal">—</div>
+        <div class="label">Total AI Renders</div>
+    </div>
+    <div class="tele-card green">
+        <div class="value" id="statSuccess">—</div>
+        <div class="label">AI Success</div>
+    </div>
+    <div class="tele-card pink">
+        <div class="value" id="statFallback">—</div>
+        <div class="label">Fallback Used</div>
+    </div>
+    <div class="tele-card cyan">
+        <div class="value" id="statLatency">—</div>
+        <div class="label">Avg Latency (ms)</div>
+    </div>
+</div>
+
+<!-- AI vs Fallback bar -->
+<div class="card" style="margin-bottom:24px">
+    <h3 style="font-size:14px;font-weight:700;margin-bottom:12px">AI vs Fallback Usage</h3>
+    <div style="display:flex;gap:16px;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;color:var(--green)">&#9679; AI Generated</span>
+        <span style="font-size:12px;color:var(--amber)">&#9679; Fallback</span>
+        <span style="font-size:12px;color:var(--text3);margin-left:auto" id="usagePercent"></span>
+    </div>
+    <div class="usage-bar" id="usageBar" style="height:12px">
+        <div class="fill success" id="usageFill" style="width:0%"></div>
+    </div>
+</div>
+
+<!-- Two columns: Family Performance + Field Breakdown -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+    <!-- Family Performance -->
+    <div class="card">
+        <h3 style="font-size:14px;font-weight:700;margin-bottom:12px">Family Performance</h3>
+        <div class="table-wrap">
+            <table>
+                <thead><tr>
+                    <th>Family</th>
+                    <th style="text-align:right">Emails Sent</th>
+                </tr></thead>
+                <tbody id="familyTable">
+                    <tr><td colspan="2" style="text-align:center;color:var(--text3);padding:20px">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Field Breakdown -->
+    <div class="card">
+        <h3 style="font-size:14px;font-weight:700;margin-bottom:12px">AI Field Breakdown</h3>
+        <div class="table-wrap">
+            <table>
+                <thead><tr>
+                    <th>Field</th>
+                    <th style="text-align:right">Generates</th>
+                    <th style="text-align:right">Avg ms</th>
+                    <th style="text-align:right">Fallbacks</th>
+                </tr></thead>
+                <tbody id="fieldTable">
+                    <tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function loadTelemetry() {
+    fetch('/api/telemetry/data')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        var ai = data.ai_usage || {};
+
+        // Stat cards
+        document.getElementById('statTotal').textContent = (ai.total || 0).toLocaleString();
+        document.getElementById('statSuccess').textContent = (ai.success || 0).toLocaleString();
+        document.getElementById('statFallback').textContent = (ai.fallback || 0).toLocaleString();
+        document.getElementById('statLatency').textContent = (ai.avg_render_ms || 0) + 'ms';
+
+        // Usage bar
+        var pct = ai.total > 0 ? Math.round((ai.success / ai.total) * 100) : 0;
+        document.getElementById('usageFill').style.width = pct + '%';
+        document.getElementById('usagePercent').textContent = pct + '% AI generated';
+
+        // Family table
+        var familyTbody = document.getElementById('familyTable');
+        var families = data.family_stats || [];
+        if (families.length === 0) {
+            familyTbody.innerHTML = '<tr><td colspan="2" style="text-align:center;color:var(--text3);padding:20px">No family data yet</td></tr>';
+        } else {
+            familyTbody.innerHTML = families.map(function(f) {
+                return '<tr><td>' + f.family.replace('_', ' ') + '</td><td style="text-align:right">' + f.sent + '</td></tr>';
+            }).join('');
+        }
+
+        // Field table
+        var fieldTbody = document.getElementById('fieldTable');
+        var fields = data.field_stats || [];
+        if (fields.length === 0) {
+            fieldTbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">No AI render data yet</td></tr>';
+        } else {
+            fieldTbody.innerHTML = fields.map(function(f) {
+                return '<tr><td>' + f.field_name + '</td><td style="text-align:right">' + f.count + '</td><td style="text-align:right">' + f.avg_ms + 'ms</td><td style="text-align:right">' + f.fallback_count + '</td></tr>';
+            }).join('');
+        }
+    })
+    .catch(function(e) {
+        console.error('Telemetry load error:', e);
+    });
+}
+
+loadTelemetry();
+setInterval(loadTelemetry, 30000);
+</script>
+{% endblock %}

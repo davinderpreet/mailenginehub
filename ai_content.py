@@ -26,6 +26,7 @@ import os
 import json
 import logging
 import re
+import time
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,28 @@ def _log_ai_content(action, block_type, contact=None, input_summary="",
         logger.warning("Failed to log AI content action: %s" % e)
 
 
+def _log_ai_render(template_id=0, contact_id=None, block_index=0,
+                   field_name="", generated_text="", fallback_used=False,
+                   render_ms=0, model_name=AI_MODEL, error_summary=""):
+    """Log to AIRenderLog table for telemetry and debugging."""
+    try:
+        from database import AIRenderLog, db
+        db.connect(reuse_if_open=True)
+        AIRenderLog.create(
+            template_id=template_id,
+            contact_id=contact_id,
+            block_index=block_index,
+            field_name=field_name,
+            generated_text=str(generated_text)[:2000],
+            fallback_used=fallback_used,
+            render_ms=render_ms,
+            model_name=model_name,
+            error_summary=str(error_summary)[:500] if error_summary else "",
+        )
+    except Exception as e:
+        logger.warning("Failed to log AIRenderLog: %s" % e)
+
+
 # =========================================================================
 #  AUTHORING-TIME: Generate block content with AI
 # =========================================================================
@@ -173,11 +196,23 @@ def generate_block_content(block_type, contact=None, family=None,
     if not writable:
         return dict(fallback)
 
+    # Extract IDs for AIRenderLog
+    _template_id = extra_context if isinstance(extra_context, int) else 0
+    _contact_id = getattr(contact, "id", None) if contact else None
+    _block_index = 0  # caller can set via extra_context or kwarg
+
     client = _get_client()
     if not client:
         _log_ai_content("generate", block_type, contact,
                          input_summary="no API key", success=False,
                          error_msg="ANTHROPIC_API_KEY not configured")
+        # Log fallback to AIRenderLog for each writable field
+        for field in writable:
+            _log_ai_render(template_id=_template_id, contact_id=_contact_id,
+                           block_index=_block_index, field_name=field,
+                           generated_text=str(fallback.get(field, "")),
+                           fallback_used=True, render_ms=0,
+                           model_name=AI_MODEL, error_summary="no_api_key")
         return dict(fallback)
 
     # Build prompt
@@ -204,7 +239,7 @@ def generate_block_content(block_type, contact=None, family=None,
         prompt += "Template family: %s\n" % family
     if customer_ctx:
         prompt += "%s\n" % customer_ctx
-    if extra_context:
+    if extra_context and isinstance(extra_context, str):
         prompt += "Additional context: %s\n" % extra_context
 
     prompt += "\nReturn ONLY a JSON object with these fields: %s\n" % fields_desc
@@ -215,12 +250,14 @@ def generate_block_content(block_type, contact=None, family=None,
     prompt += "- If 'paragraphs' field: return a JSON array of 1-4 short strings\n"
     prompt += "- Return ONLY the JSON object, no other text\n"
 
+    start_time = time.time()
     try:
         response = client.messages.create(
             model=AI_MODEL,
             max_tokens=AI_MAX_TOKENS,
             messages=[{"role": "user", "content": prompt}]
         )
+        render_ms = int((time.time() - start_time) * 1000)
         raw = response.content[0].text.strip()
 
         # Strip markdown fences if present
@@ -242,6 +279,12 @@ def generate_block_content(block_type, contact=None, family=None,
                 else:
                     max_len = FIELD_MAX_LENGTHS.get(field, 200)
                     result[field] = _sanitize_text(ai_output[field], max_len=max_len)
+                # Log each AI-generated field
+                _log_ai_render(template_id=_template_id, contact_id=_contact_id,
+                               block_index=_block_index, field_name=field,
+                               generated_text=str(result.get(field, "")),
+                               fallback_used=False, render_ms=render_ms,
+                               model_name=AI_MODEL)
 
         _log_ai_content("generate", block_type, contact,
                          input_summary=purpose[:200],
@@ -250,15 +293,29 @@ def generate_block_content(block_type, contact=None, family=None,
         return result
 
     except json.JSONDecodeError as e:
+        render_ms = int((time.time() - start_time) * 1000)
         _log_ai_content("generate", block_type, contact,
                          input_summary=purpose[:200], success=False,
                          error_msg="JSON parse error: %s" % str(e)[:200])
+        for field in writable:
+            _log_ai_render(template_id=_template_id, contact_id=_contact_id,
+                           block_index=_block_index, field_name=field,
+                           generated_text=str(fallback.get(field, "")),
+                           fallback_used=True, render_ms=render_ms,
+                           model_name=AI_MODEL, error_summary="json_parse_error")
         return dict(fallback)
 
     except Exception as e:
+        render_ms = int((time.time() - start_time) * 1000)
         _log_ai_content("generate", block_type, contact,
                          input_summary=purpose[:200], success=False,
                          error_msg=str(e)[:300])
+        for field in writable:
+            _log_ai_render(template_id=_template_id, contact_id=_contact_id,
+                           block_index=_block_index, field_name=field,
+                           generated_text=str(fallback.get(field, "")),
+                           fallback_used=True, render_ms=render_ms,
+                           model_name=AI_MODEL, error_summary=str(e)[:200])
         return dict(fallback)
 
 
@@ -325,13 +382,17 @@ def personalize_text_field(field_name, template_text, contact=None,
     prompt += "AI instruction: %s\n" % instruction
     prompt += "Return ONLY the final text, no quotes, no explanation. Keep it short.\n"
 
+    _contact_id = getattr(contact, "id", None) if contact else None
+
     for attempt in range(max_retries + 1):
+        start_time = time.time()
         try:
             response = client.messages.create(
                 model=AI_MODEL,
                 max_tokens=150,  # Very short — single field
                 messages=[{"role": "user", "content": prompt}]
             )
+            render_ms = int((time.time() - start_time) * 1000)
             raw = response.content[0].text.strip()
             max_len = FIELD_MAX_LENGTHS.get(field_name, 500)
             result = _sanitize_text(raw, max_len=max_len)
@@ -339,18 +400,27 @@ def personalize_text_field(field_name, template_text, contact=None,
             _log_ai_content("personalize", field_name, contact,
                              input_summary=template_text[:200],
                              output_summary=result[:200])
+            _log_ai_render(contact_id=_contact_id, field_name=field_name,
+                           generated_text=result, fallback_used=False,
+                           render_ms=render_ms, model_name=AI_MODEL)
             return result
 
         except Exception as e:
             if attempt < max_retries:
                 continue
+            render_ms = int((time.time() - start_time) * 1000)
             _log_ai_content("personalize", field_name, contact,
                              input_summary=template_text[:200], success=False,
                              error_msg=str(e)[:300])
             # Fall back: remove AI markers
             cleaned = re.sub(r'\{\{ai:[^}]*\}\}', '', text).strip()
-            return _sanitize_text(cleaned or fallback,
-                                  max_len=FIELD_MAX_LENGTHS.get(field_name, 500))
+            fallback_result = _sanitize_text(cleaned or fallback,
+                                             max_len=FIELD_MAX_LENGTHS.get(field_name, 500))
+            _log_ai_render(contact_id=_contact_id, field_name=field_name,
+                           generated_text=fallback_result, fallback_used=True,
+                           render_ms=render_ms, model_name=AI_MODEL,
+                           error_summary=str(e)[:200])
+            return fallback_result
 
 
 # =========================================================================
@@ -358,7 +428,8 @@ def personalize_text_field(field_name, template_text, contact=None,
 # =========================================================================
 
 def generate_template_content(blocks, family=None, contact=None,
-                                purpose="", fallback_blocks=None):
+                                purpose="", fallback_blocks=None,
+                                ai_enabled=True, block_ai_overrides=None):
     """
     Generate AI content for all AI-writable fields across a full template.
     Respects family constraints via enforce_family_constraints().
@@ -368,19 +439,28 @@ def generate_template_content(blocks, family=None, contact=None,
       - Only fills AI-writable fields
       - Falls back to fallback_blocks on per-block failures
       - Returns the blocks list with content populated
+      - Respects ai_enabled and block_ai_overrides rollout controls
 
     Args:
-        blocks:          list of block dicts (parsed, not JSON)
-        family:          template family key
-        contact:         optional Contact
-        purpose:         email purpose for AI context
-        fallback_blocks: list of block dicts with fallback content (same length)
+        blocks:              list of block dicts (parsed, not JSON)
+        family:              template family key
+        contact:             optional Contact
+        purpose:             email purpose for AI context
+        fallback_blocks:     list of block dicts with fallback content (same length)
+        ai_enabled:          template-level AI on/off (default True for backward compat)
+        block_ai_overrides:  dict of per-block AI overrides {"0": false, "2": true}
 
     Returns:
         list of block dicts with AI-generated content merged in
     """
     if fallback_blocks is None:
         fallback_blocks = blocks
+    if block_ai_overrides is None:
+        block_ai_overrides = {}
+
+    # If AI is disabled at template level, return fallback immediately
+    if not ai_enabled:
+        return list(fallback_blocks)
 
     # Enforce family constraints BEFORE any AI generation
     if family:
@@ -403,6 +483,13 @@ def generate_template_content(blocks, family=None, contact=None,
 
         writable = AI_WRITABLE_FIELDS.get(block_type, [])
         if not writable:
+            result_blocks.append(dict(block))
+            continue
+
+        # Check per-block AI override (string keys from JSON)
+        block_override = block_ai_overrides.get(str(i))
+        if block_override is False:
+            # AI explicitly disabled for this block
             result_blocks.append(dict(block))
             continue
 

@@ -72,6 +72,8 @@ class EmailTemplate(BaseModel):
     template_format = CharField(default="html")   # "html" (legacy) | "blocks" (new block-based)
     blocks_json     = TextField(default="[]")      # JSON array of block definitions
     template_family = CharField(default="")        # Phase 2: welcome|browse_recovery|cart_recovery|checkout_recovery|post_purchase|winback|promo
+    ai_enabled         = BooleanField(default=False)     # Phase 4: template-level AI on/off
+    block_ai_overrides = TextField(default="{}")         # Phase 4: JSON per-block AI overrides {"0": false, "2": true}
     created_at      = DateTimeField(default=datetime.now)
     updated_at      = DateTimeField(default=datetime.now)
 
@@ -691,6 +693,21 @@ def _migrate_template_family():
         pass
 
 
+def _migrate_template_ai_controls():
+    """Add ai_enabled and block_ai_overrides to email_templates for Phase 4 rollout controls."""
+    try:
+        cursor = db.execute_sql("PRAGMA table_info(email_templates)")
+        existing = {row[1] for row in cursor.fetchall()}
+        if "ai_enabled" not in existing:
+            db.execute_sql("ALTER TABLE email_templates ADD COLUMN ai_enabled INTEGER DEFAULT 0")
+            print("  [migrate] Added ai_enabled to email_templates")
+        if "block_ai_overrides" not in existing:
+            db.execute_sql("ALTER TABLE email_templates ADD COLUMN block_ai_overrides TEXT DEFAULT '{}'")
+            print("  [migrate] Added block_ai_overrides to email_templates")
+    except Exception:
+        pass
+
+
 def _migrate_activity_tokens():
     """Add checkout_token, cart_token, shopify_customer_id to customer_activity for direct stitch queries."""
     try:
@@ -730,7 +747,7 @@ def init_db():
          PreflightLog,
          MessageDecision, MessageDecisionHistory,
          SuggestedCampaign, OpportunityScanLog, ProductCommercial,
-         SystemConfig, ActionLedger, DeliveryQueue, IdentityJob],
+         SystemConfig, ActionLedger, DeliveryQueue, IdentityJob, AIRenderLog],
         safe=True
     )
     _migrate_contact_columns()
@@ -750,6 +767,7 @@ def init_db():
     _migrate_activity_tokens()
     _migrate_template_format()
     _migrate_template_family()
+    _migrate_template_ai_controls()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")
@@ -1379,6 +1397,25 @@ class IdentityJob(BaseModel):
 
     class Meta:
         table_name = "identity_jobs"
+
+
+class AIRenderLog(BaseModel):
+    """Tracks every AI content generation event for telemetry and debugging.
+    One row per field generated (not per block).
+    """
+    template_id    = IntegerField(default=0, index=True)
+    contact_id     = IntegerField(null=True)
+    block_index    = IntegerField(default=0)
+    field_name     = CharField(default="")          # headline, paragraphs, text, etc.
+    generated_text = TextField(default="")           # the AI output (or fallback text)
+    fallback_used  = BooleanField(default=False)     # True if AI failed and fallback was used
+    render_ms      = IntegerField(default=0)         # milliseconds for the AI call
+    model_name     = CharField(default="")           # e.g. claude-haiku-4-5-20251001
+    error_summary  = CharField(default="")           # truncated error if any
+    created_at     = DateTimeField(default=datetime.now, index=True)
+
+    class Meta:
+        table_name = "ai_render_log"
 
 
 def get_system_config():
