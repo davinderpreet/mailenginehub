@@ -747,7 +747,8 @@ def init_db():
          PreflightLog,
          MessageDecision, MessageDecisionHistory,
          SuggestedCampaign, OpportunityScanLog, ProductCommercial,
-         SystemConfig, ActionLedger, DeliveryQueue, IdentityJob, AIRenderLog],
+         SystemConfig, ActionLedger, DeliveryQueue, IdentityJob, AIRenderLog,
+         KnowledgeEntry, AIModelConfig, StudioJob, TemplateCandidate, TemplatePerformance],
         safe=True
     )
     _migrate_contact_columns()
@@ -1416,6 +1417,86 @@ class AIRenderLog(BaseModel):
 
     class Meta:
         table_name = "ai_render_log"
+
+
+# ═══════════════════════════════════════════════════════════════
+# AI Content Studio Models
+# ═══════════════════════════════════════════════════════════════
+
+class KnowledgeEntry(BaseModel):
+    """Reusable knowledge chunks: product catalog, brand copy, FAQs, testimonials, etc."""
+    entry_type      = CharField(index=True)
+    # Types: product_catalog, brand_copy, blog_post, competitor_intel, faq, testimonial
+    title           = CharField()
+    content         = TextField()
+    metadata_json   = TextField(default="{}")
+    is_active       = BooleanField(default=True)
+    created_at      = DateTimeField(default=datetime.now)
+    updated_at      = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "knowledge_entries"
+
+
+class AIModelConfig(BaseModel):
+    """Available AI model configurations for content generation."""
+    provider        = CharField()           # "anthropic" | "openai"
+    model_id        = CharField()           # "claude-haiku-4-5-20251001" | "gpt-4o-mini"
+    display_name    = CharField()           # "Claude Haiku 4.5" | "GPT-4o Mini"
+    api_key_env     = CharField()           # env var name
+    max_tokens      = IntegerField(default=2048)
+    is_default      = BooleanField(default=False)
+    is_active       = BooleanField(default=True)
+    created_at      = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "ai_model_configs"
+
+
+class StudioJob(BaseModel):
+    """Background job for AI content generation (e.g. template generation)."""
+    job_type        = CharField()           # "generate_template"
+    status          = CharField(default="pending")  # pending | running | done | error
+    family          = CharField()           # template family key
+    input_json      = TextField(default="{}")
+    model_config    = ForeignKeyField(AIModelConfig, null=True, backref="jobs")
+    error_message   = TextField(default="")
+    created_at      = DateTimeField(default=datetime.now)
+    completed_at    = DateTimeField(null=True)
+
+    class Meta:
+        table_name = "studio_jobs"
+
+
+class TemplateCandidate(BaseModel):
+    """AI-generated template candidate awaiting human review."""
+    job             = ForeignKeyField(StudioJob, backref="candidates")
+    blocks_json     = TextField()
+    subject_line    = CharField(default="")
+    preview_text    = CharField(default="")
+    reasoning       = TextField(default="")
+    metadata_json   = TextField(default="{}")
+    status          = CharField(default="pending")  # pending | approved | rejected
+    approved_at     = DateTimeField(null=True)
+    template        = ForeignKeyField(EmailTemplate, null=True, backref="studio_origin")
+    created_at      = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "template_candidates"
+
+
+class TemplatePerformance(BaseModel):
+    """Aggregated send/open/click performance per template."""
+    template        = ForeignKeyField(EmailTemplate, unique=True, backref="performance")
+    sends           = IntegerField(default=0)
+    opens           = IntegerField(default=0)
+    clicks          = IntegerField(default=0)
+    open_rate       = FloatField(default=0.0)
+    click_rate      = FloatField(default=0.0)
+    last_computed   = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "template_performance"
 
 
 def get_system_config():
