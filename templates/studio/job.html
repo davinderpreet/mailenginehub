@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Job #{{ job.id }} — MailEngineHub{% endblock %}
+{% block page_title %}Job #{{ job.id }}{% endblock %}
+
+{% block content %}
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:24px;">
+  <a href="/studio" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Back to Studio</a>
+</div>
+
+<!-- ── Job Info Card ─────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header">
+    <span class="card-title"><i class="fas fa-briefcase" style="margin-right:7px;color:var(--purple2);"></i>Job Details</span>
+    {% if job.status == 'pending' %}
+    <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.15);color:var(--amber);">pending</span>
+    {% elif job.status == 'running' %}
+    <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(6,182,212,0.15);color:var(--cyan);">running</span>
+    {% elif job.status == 'done' %}
+    <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(16,185,129,0.15);color:var(--green);">done</span>
+    {% elif job.status == 'error' %}
+    <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.15);color:var(--red);">error</span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:16px;">
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:4px;">Family</div>
+        <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(124,58,237,0.15);color:var(--purple);">{{ job.family }}</span>
+      </div>
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:4px;">Created</div>
+        <div style="font-size:14px;color:var(--text);">{{ job.created_at.strftime('%b %d, %Y %H:%M') if job.created_at else '—' }}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:4px;">Completed</div>
+        <div style="font-size:14px;color:var(--text);">{{ job.completed_at.strftime('%b %d, %Y %H:%M') if job.completed_at else 'In Progress' }}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:4px;">Candidates</div>
+        <div style="font-size:14px;color:var(--text);">{{ candidates|length }}</div>
+      </div>
+    </div>
+
+    {% if job.status == 'error' and job.error_message %}
+    <div style="margin-top:16px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px;">
+      <i class="fas fa-circle-exclamation" style="color:var(--red);font-size:14px;"></i>
+      <span style="font-size:13px;color:var(--red);">{{ job.error_message }}</span>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Candidates ─────────────────────────────────────── -->
+<div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:14px;">Candidates</div>
+
+{% if candidates %}
+{% for c in candidates %}
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-header">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span style="font-size:14px;font-weight:600;color:var(--text);">{{ c.subject_line or 'Untitled' }}</span>
+      {% if c.status == 'pending' %}
+      <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.15);color:var(--amber);">pending review</span>
+      {% elif c.status == 'approved' %}
+      <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(16,185,129,0.15);color:var(--green);">approved</span>
+      {% elif c.status == 'rejected' %}
+      <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.15);color:var(--red);">rejected</span>
+      {% endif %}
+    </div>
+    <a href="/studio/candidates/{{ c.id }}/preview" target="_blank" class="btn btn-outline btn-sm"><i class="fas fa-eye"></i> Preview</a>
+  </div>
+  <div class="card-body">
+    {% if c.preview_text %}
+    <div style="font-size:13px;color:var(--text2);margin-bottom:14px;">{{ c.preview_text }}</div>
+    {% endif %}
+
+    <!-- Block breakdown -->
+    {% if c.blocks_json %}
+    <div style="margin-bottom:14px;">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:8px;">Blocks Used</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        {% for block in c.blocks_json %}
+        <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(6,182,212,0.12);color:var(--cyan);border:1px solid rgba(6,182,212,0.2);">{{ block.block_type if block.block_type is defined else block }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- AI Reasoning (expandable) -->
+    {% if c.reasoning %}
+    <details style="margin-bottom:14px;">
+      <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text2);padding:8px 0;user-select:none;">
+        <i class="fas fa-robot" style="margin-right:6px;color:var(--purple2);"></i>AI Reasoning
+      </summary>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:8px;font-size:13px;color:var(--text2);line-height:1.7;">{{ c.reasoning }}</div>
+    </details>
+    {% endif %}
+
+    <!-- Actions for pending candidates -->
+    {% if c.status == 'pending' %}
+    <div style="display:flex;align-items:center;gap:10px;padding-top:14px;border-top:1px solid var(--border);">
+      <form method="POST" action="/studio/candidates/{{ c.id }}/approve" style="display:inline;">
+        <button type="submit" style="padding:8px 18px;background:linear-gradient(135deg, var(--green), #059669);color:#fff;border:none;border-radius:8px;font-weight:600;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-family:inherit;">
+          <i class="fas fa-check"></i> Approve
+        </button>
+      </form>
+      <form method="POST" action="/studio/candidates/{{ c.id }}/reject" style="display:inline-flex;align-items:center;gap:8px;">
+        <input type="text" name="reason" placeholder="Reason (optional)" style="padding:8px 12px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:12px;width:200px;font-family:inherit;">
+        <button type="submit" style="padding:8px 18px;background:transparent;color:var(--red);border:1px solid rgba(239,68,68,0.3);border-radius:8px;font-weight:600;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-family:inherit;">
+          <i class="fas fa-times"></i> Reject
+        </button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="card">
+  <div class="empty-state" style="padding:40px;">
+    <i class="fas fa-file-lines"></i>
+    <h3>No candidates yet</h3>
+    <p style="color:var(--text3);margin-top:4px;">This job hasn't produced any candidates yet. Check back when the job completes.</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

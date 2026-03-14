@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Knowledge Base — MailEngineHub{% endblock %}
+{% block page_title %}Knowledge Base{% endblock %}
+
+{% block content %}
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:24px;">
+  <a href="/studio" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Back to Studio</a>
+</div>
+
+<!-- ── Intelligence Score Banner ─────────────────────── -->
+<div style="background:linear-gradient(135deg, rgba(124,58,237,0.12) 0%, rgba(6,182,212,0.08) 100%);border:1px solid rgba(124,58,237,0.2);border-radius:14px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:16px;">
+  <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+    <i class="fas fa-brain" style="color:var(--purple2);font-size:18px;"></i>
+    <span style="font-size:14px;font-weight:700;color:var(--text);">Intelligence Score</span>
+    <span style="font-size:22px;font-weight:800;color:{% if score.score >= 70 %}var(--green){% elif score.score >= 40 %}var(--amber){% else %}var(--red){% endif %};">{{ score.score }}/100</span>
+  </div>
+  <div style="flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;">
+    <div style="height:100%;width:{{ score.score }}%;background:linear-gradient(90deg, var(--purple), var(--cyan));border-radius:4px;"></div>
+  </div>
+</div>
+
+<!-- ── Type Filter Tabs ──────────────────────────────── -->
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;">
+  <a href="/studio/knowledge" style="display:inline-block;padding:7px 16px;border-radius:8px;font-size:12.5px;font-weight:600;text-decoration:none;{% if not current_type %}background:var(--purple);color:#fff;{% else %}background:var(--surface);color:var(--text2);border:1px solid var(--border2);{% endif %}">All</a>
+  {% for etype in entry_types %}
+  <a href="/studio/knowledge?type={{ etype }}" style="display:inline-block;padding:7px 16px;border-radius:8px;font-size:12.5px;font-weight:600;text-decoration:none;{% if current_type == etype %}background:var(--purple);color:#fff;{% else %}background:var(--surface);color:var(--text2);border:1px solid var(--border2);{% endif %}">{{ etype.replace('_', ' ')|title }}</a>
+  {% endfor %}
+</div>
+
+<!-- ── Add Entry Form ────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-header" style="cursor:pointer;" onclick="document.getElementById('addEntryForm').style.display = document.getElementById('addEntryForm').style.display === 'none' ? 'block' : 'none';">
+    <span class="card-title"><i class="fas fa-plus-circle" style="margin-right:7px;color:var(--green);"></i>Add New Entry</span>
+    <i class="fas fa-chevron-down" style="color:var(--text3);font-size:12px;"></i>
+  </div>
+  <div id="addEntryForm" style="display:none;">
+    <div class="card-body">
+      <form method="POST" action="/studio/knowledge">
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:16px;margin-bottom:16px;">
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Entry Type</label>
+            <select name="entry_type" required style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
+              {% for etype in entry_types %}
+              <option value="{{ etype }}">{{ etype.replace('_', ' ')|title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Title</label>
+            <input type="text" name="title" required placeholder="Entry title" style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
+          </div>
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Content</label>
+          <textarea name="content" required rows="5" placeholder="Paste your content here..." style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;resize:vertical;"></textarea>
+        </div>
+        <button type="submit" style="padding:10px 24px;background:linear-gradient(135deg, var(--purple), #5b21b6);color:#fff;border:none;border-radius:10px;font-weight:600;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;box-shadow:0 4px 15px rgba(124,58,237,0.35);font-family:inherit;">
+          <i class="fas fa-plus"></i> Add Entry
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Entries List ───────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title"><i class="fas fa-book" style="margin-right:7px;color:var(--cyan);"></i>Knowledge Entries</span>
+    <span style="color:var(--text3);font-size:12px;">{{ entries|length }} entries</span>
+  </div>
+  {% if entries %}
+  <div class="table-wrap">
+    <table style="width:100%;border-collapse:separate;border-spacing:0;">
+      <thead>
+        <tr>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Type</th>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Title</th>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Content Preview</th>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Created</th>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:14px 16px;font-size:13.5px;">
+            {% if entry.entry_type == 'product_catalog' %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(124,58,237,0.15);color:var(--purple);">Product</span>
+            {% elif entry.entry_type == 'brand_copy' %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(236,72,153,0.15);color:var(--pink);">Brand</span>
+            {% elif entry.entry_type == 'blog_post' %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(6,182,212,0.15);color:var(--cyan);">Blog</span>
+            {% elif entry.entry_type == 'competitor_intel' %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.15);color:var(--amber);">Competitor</span>
+            {% elif entry.entry_type == 'faq' %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(16,185,129,0.15);color:var(--green);">FAQ</span>
+            {% elif entry.entry_type == 'testimonial' %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(236,72,153,0.15);color:var(--pink);">Testimonial</span>
+            {% else %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text2);">{{ entry.entry_type }}</span>
+            {% endif %}
+          </td>
+          <td style="padding:14px 16px;font-size:13.5px;font-weight:600;color:var(--text);">{{ entry.title }}</td>
+          <td style="padding:14px 16px;font-size:13px;color:var(--text2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ entry.content[:100] }}{% if entry.content|length > 100 %}...{% endif %}</td>
+          <td style="padding:14px 16px;font-size:12px;color:var(--text3);">{{ entry.created_at.strftime('%b %d, %Y') if entry.created_at else '—' }}</td>
+          <td style="padding:14px 16px;font-size:13.5px;">
+            <div style="display:flex;gap:6px;">
+              <button onclick="openEditModal({{ entry.id }}, '{{ entry.entry_type }}', '{{ entry.title|e }}', '{{ entry.content|e|truncate(500) }}', {{ 'true' if entry.is_active else 'false' }})" class="btn btn-outline btn-sm" style="padding:5px 10px;">
+                <i class="fas fa-pen" style="font-size:11px;"></i>
+              </button>
+              <form method="POST" action="/studio/knowledge/{{ entry.id }}/delete" onsubmit="return confirm('Delete this entry?');" style="display:inline;">
+                <button type="submit" style="padding:5px 10px;background:rgba(239,68,68,0.1);color:var(--red);border:1px solid rgba(239,68,68,0.2);border-radius:8px;font-size:11px;cursor:pointer;font-family:inherit;">
+                  <i class="fas fa-trash" style="font-size:11px;"></i>
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:40px;">
+    <i class="fas fa-book"></i>
+    <h3>No knowledge entries yet</h3>
+    <p style="color:var(--text3);margin-top:4px;">Add product info, brand copy, and more to power AI template generation.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Edit Modal ─────────────────────────────────────── -->
+<div id="editModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:none;align-items:center;justify-content:center;">
+  <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:20px;padding:28px;width:560px;max-width:90vw;max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <span style="font-size:16px;font-weight:700;color:var(--text);">Edit Entry</span>
+      <button onclick="closeEditModal()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;"><i class="fas fa-times"></i></button>
+    </div>
+    <form method="POST" id="editForm">
+      <div style="margin-bottom:16px;">
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;">Title</label>
+        <input type="text" name="title" id="editTitle" required style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;">Content</label>
+        <textarea name="content" id="editContent" rows="8" required style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;resize:vertical;"></textarea>
+      </div>
+      <div style="margin-bottom:20px;display:flex;align-items:center;gap:10px;">
+        <label style="font-size:12.5px;font-weight:600;color:var(--text2);margin:0;">Active</label>
+        <input type="checkbox" name="is_active" id="editActive" value="1" style="width:18px;height:18px;accent-color:var(--purple);">
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button type="submit" style="padding:10px 24px;background:linear-gradient(135deg, var(--purple), #5b21b6);color:#fff;border:none;border-radius:10px;font-weight:600;font-size:14px;cursor:pointer;font-family:inherit;">Save Changes</button>
+        <button type="button" onclick="closeEditModal()" style="padding:10px 24px;background:var(--surface);color:var(--text2);border:1px solid var(--border2);border-radius:10px;font-weight:600;font-size:14px;cursor:pointer;font-family:inherit;">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function openEditModal(id, entryType, title, content, isActive) {
+  document.getElementById('editForm').action = '/studio/knowledge/' + id + '/edit';
+  document.getElementById('editTitle').value = title;
+  document.getElementById('editContent').value = content;
+  document.getElementById('editActive').checked = isActive;
+  var modal = document.getElementById('editModal');
+  modal.style.display = 'flex';
+}
+function closeEditModal() {
+  document.getElementById('editModal').style.display = 'none';
+}
+document.getElementById('editModal').addEventListener('click', function(e) {
+  if (e.target === this) closeEditModal();
+});
+</script>
+{% endblock %}

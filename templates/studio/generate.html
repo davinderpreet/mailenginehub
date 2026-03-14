@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Generate Template — MailEngineHub{% endblock %}
+{% block page_title %}Generate Template{% endblock %}
+
+{% block content %}
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:24px;">
+  <a href="/studio" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Back to Studio</a>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;">
+  <!-- Generation Form -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title"><i class="fas fa-wand-magic-sparkles" style="margin-right:7px;color:var(--purple2);"></i>Generate Template</span>
+    </div>
+    <div class="card-body">
+      <form method="POST" action="/studio/generate">
+        <div style="margin-bottom:20px;">
+          <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Family <span style="color:var(--red);">*</span></label>
+          <select name="family" required style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
+            <option value="">Select a template family...</option>
+            {% for key, fam in families.items() %}
+            <option value="{{ key }}">{{ fam.label if fam.label is defined else key.replace('_', ' ')|title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div style="margin-bottom:20px;">
+          <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Product Focus <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+          <input type="text" name="product_focus" placeholder="e.g., TH11 Headset, Dash Cam Pro" style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
+        </div>
+
+        <div style="margin-bottom:20px;">
+          <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Tone <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+          <input type="text" name="tone" placeholder="e.g., reassuring, urgent, technical, casual" style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
+        </div>
+
+        <div style="margin-bottom:24px;">
+          <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">AI Model <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+          <select name="model" style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
+            <option value="">Use Default</option>
+            {% for model in models %}
+            <option value="{{ model.id }}">{{ model.display_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <button type="submit" style="padding:12px 28px;background:linear-gradient(135deg, var(--purple), #5b21b6);color:#fff;border:none;border-radius:10px;font-weight:600;font-size:15px;cursor:pointer;box-shadow:0 4px 15px rgba(124,58,237,0.35);display:inline-flex;align-items:center;gap:8px;font-family:inherit;">
+          <i class="fas fa-wand-magic-sparkles"></i> Generate Template
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Info Panel -->
+  <div>
+    <div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:14px;padding:20px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+        <i class="fas fa-circle-info" style="color:var(--cyan);font-size:14px;"></i>
+        <span style="font-size:13px;font-weight:700;color:var(--cyan);">How It Works</span>
+      </div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.7;">
+        The AI will analyze your knowledge base, select optimal blocks for the journey type, compose content, and produce a template candidate for your review.
+      </div>
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:24px;height:24px;border-radius:50%;background:rgba(124,58,237,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <span style="font-size:11px;font-weight:700;color:var(--purple);">1</span>
+          </div>
+          <span style="font-size:12px;color:var(--text2);">Analyzes knowledge base entries</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:24px;height:24px;border-radius:50%;background:rgba(124,58,237,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <span style="font-size:11px;font-weight:700;color:var(--purple);">2</span>
+          </div>
+          <span style="font-size:12px;color:var(--text2);">Selects optimal email blocks</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:24px;height:24px;border-radius:50%;background:rgba(124,58,237,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <span style="font-size:11px;font-weight:700;color:var(--purple);">3</span>
+          </div>
+          <span style="font-size:12px;color:var(--text2);">Composes personalized content</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:24px;height:24px;border-radius:50%;background:rgba(16,185,129,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <span style="font-size:11px;font-weight:700;color:var(--green);">4</span>
+          </div>
+          <span style="font-size:12px;color:var(--text2);">Produces candidate for review</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
