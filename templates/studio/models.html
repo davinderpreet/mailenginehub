@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}AI Models — MailEngineHub{% endblock %}
+{% block page_title %}AI Model Configuration{% endblock %}
+
+{% block content %}
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:24px;">
+  <div style="flex:1;">
+    <p style="color:var(--text2);margin:0;font-size:14px;">Configure AI model providers for template generation. The default model is used unless overridden per job.</p>
+  </div>
+</div>
+
+<!-- Add Model Form -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;margin-bottom:24px;">
+  <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:16px;">
+    <i class="fas fa-plus" style="margin-right:8px;color:var(--cyan);"></i>Add Model
+  </div>
+  <form method="POST" action="/studio/models/add">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+      <div>
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px;">Provider</label>
+        <select name="provider" required style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;">
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="openai">OpenAI (GPT)</option>
+        </select>
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px;">Model ID</label>
+        <input type="text" name="model_id" required placeholder="claude-haiku-4-5-20251001" style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;">
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px;">Display Name</label>
+        <input type="text" name="display_name" required placeholder="Claude Haiku 4.5" style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;">
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px;">API Key Env Variable</label>
+        <input type="text" name="api_key_env" required placeholder="ANTHROPIC_API_KEY" style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;">
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px;">Max Tokens</label>
+        <input type="number" name="max_tokens" value="2048" style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;">
+      </div>
+      <div style="display:flex;align-items:flex-end;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" name="is_default" value="1">
+          <span style="font-size:13px;color:var(--text2);">Set as default</span>
+        </label>
+      </div>
+    </div>
+    <button type="submit" style="padding:10px 24px;background:var(--purple);color:#fff;border:none;border-radius:10px;font-weight:600;font-size:14px;cursor:pointer;">
+      <i class="fas fa-plus"></i> Add Model
+    </button>
+  </form>
+</div>
+
+<!-- Models List -->
+{% if models %}
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;">
+  <table style="width:100%;border-collapse:separate;border-spacing:0;">
+    <thead>
+      <tr>
+        <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Name</th>
+        <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Provider</th>
+        <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Model ID</th>
+        <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Max Tokens</th>
+        <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in models %}
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:14px 16px;font-size:13.5px;font-weight:600;color:var(--text);">{{ m.display_name }}</td>
+        <td style="padding:14px 16px;font-size:13.5px;">
+          <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:{% if m.provider == 'anthropic' %}rgba(124,58,237,0.15);color:var(--purple){% else %}rgba(16,185,129,0.15);color:var(--green){% endif %};">{{ m.provider }}</span>
+        </td>
+        <td style="padding:14px 16px;font-size:12px;color:var(--text2);font-family:monospace;">{{ m.model_id }}</td>
+        <td style="padding:14px 16px;font-size:13.5px;color:var(--text2);">{{ m.max_tokens }}</td>
+        <td style="padding:14px 16px;font-size:13.5px;">
+          {% if m.is_default %}
+          <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(6,182,212,0.15);color:var(--cyan);">DEFAULT</span>
+          {% endif %}
+          {% if m.is_active %}
+          <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(16,185,129,0.15);color:var(--green);">active</span>
+          {% else %}
+          <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(239,68,68,0.15);color:var(--red);">inactive</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div style="text-align:center;padding:60px 20px;color:var(--text3);background:var(--surface);border:1px solid var(--border);border-radius:14px;">
+  <i class="fas fa-microchip" style="font-size:32px;margin-bottom:16px;display:block;color:var(--text3);"></i>
+  <h3 style="margin:0 0 8px;color:var(--text2);font-size:16px;">No models configured</h3>
+  <p style="margin:0;font-size:13px;">Add a model above. If none is configured, the system falls back to Claude Haiku with ANTHROPIC_API_KEY.</p>
+</div>
+{% endif %}
+{% endblock %}

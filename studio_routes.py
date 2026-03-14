@@ -48,9 +48,11 @@ def dashboard():
 
     return render_template(
         "studio/dashboard.html",
-        score_data=score_data,
+        score=score_data,
         recent_jobs=list(recent_jobs),
-        stats=stats,
+        total_jobs=stats["total_jobs"],
+        total_candidates=stats["total_candidates"],
+        total_approved=stats["approved"],
     )
 
 
@@ -72,11 +74,15 @@ def knowledge_list():
         "blog_post", "competitor_intel", "faq",
     ]
 
+    studio = TemplateStudio()
+    score = studio.get_intelligence_score()
+
     return render_template(
         "studio/knowledge.html",
         entries=entries,
         entry_types=entry_types,
         current_type=entry_type,
+        score=score,
     )
 
 
@@ -181,6 +187,7 @@ def jobs_list():
         jobs=jobs,
         page=page,
         total_pages=total_pages,
+        total=total,
     )
 
 
@@ -195,7 +202,7 @@ def job_detail(id):
         .order_by(TemplateCandidate.created_at)
     )
     return render_template(
-        "studio/job_detail.html",
+        "studio/job.html",
         job=job,
         candidates=candidates,
     )
