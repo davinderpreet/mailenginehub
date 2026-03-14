@@ -25,6 +25,9 @@ import threading
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change_this_secret_key_2024")
+
+from studio_routes import studio_bp
+app.register_blueprint(studio_bp)
 SITE_URL = os.environ.get("SITE_URL", "https://mailenginehub.com").rstrip("/")
 APP_DIR  = os.path.dirname(os.path.abspath(__file__))
 

@@ -672,6 +672,82 @@ def execute_plan(plan_id):
 
 
 # ─────────────────────────────────
+#  TEMPLATE PERFORMANCE
+# ─────────────────────────────────
+
+def update_template_performance():
+    """Compute open/click rates for all templates that have been sent via campaigns."""
+    from database import TemplatePerformance, EmailTemplate, Campaign, CampaignEmail
+
+    # Find all distinct template_ids used in campaigns
+    template_ids = (
+        Campaign
+        .select(Campaign.template_id)
+        .distinct()
+        .tuples()
+    )
+
+    for (template_id,) in template_ids:
+        # Verify template exists
+        try:
+            template = EmailTemplate.get_by_id(template_id)
+        except EmailTemplate.DoesNotExist:
+            continue
+
+        # Get all campaign IDs that used this template
+        campaign_ids = [
+            c.id for c in
+            Campaign.select(Campaign.id).where(Campaign.template_id == template_id)
+        ]
+        if not campaign_ids:
+            continue
+
+        # Count sends, opens, clicks across all campaigns for this template
+        base_q = CampaignEmail.select().where(
+            CampaignEmail.campaign_id.in_(campaign_ids)
+        )
+        sends = base_q.where(CampaignEmail.status == "sent").count()
+        if sends == 0:
+            continue
+
+        opens = base_q.where(
+            CampaignEmail.status == "sent",
+            CampaignEmail.opened == True,  # noqa: E712
+        ).count()
+        clicks = base_q.where(
+            CampaignEmail.status == "sent",
+            CampaignEmail.clicked == True,  # noqa: E712
+        ).count()
+
+        open_rate = round(opens / sends, 4) if sends else 0.0
+        click_rate = round(clicks / sends, 4) if sends else 0.0
+
+        # Upsert TemplatePerformance row
+        from datetime import datetime as dt
+        perf, created = TemplatePerformance.get_or_create(
+            template=template,
+            defaults={
+                "sends": sends,
+                "opens": opens,
+                "clicks": clicks,
+                "open_rate": open_rate,
+                "click_rate": click_rate,
+                "last_computed": dt.now(),
+            },
+        )
+        if not created:
+            perf.sends = sends
+            perf.opens = opens
+            perf.clicks = clicks
+            perf.open_rate = open_rate
+            perf.click_rate = click_rate
+            perf.last_computed = dt.now()
+            perf.save()
+
+    logger.info("[AI Engine] Template performance update complete")
+
+
+# ─────────────────────────────────
 #  SCHEDULER ENTRY POINTS
 # ─────────────────────────────────
 
@@ -680,6 +756,8 @@ def run_nightly_scoring():
     try:
         n = score_all_contacts()
         logger.info(f"[AI Engine] Nightly scoring done: {n} contacts")
+        update_template_performance()
+        logger.info("[AI Engine] Template performance updated")
     except Exception as e:
         logger.error(f"[AI Engine] Scoring failed: {e}")
 
