@@ -693,6 +693,18 @@ def _migrate_template_family():
         pass
 
 
+def _migrate_knowledge_entry_fields():
+    """Add is_rejected column to knowledge_entries if missing."""
+    try:
+        cursor = db.execute_sql("PRAGMA table_info(knowledge_entries)")
+        existing = {row[1] for row in cursor.fetchall()}
+        if "is_rejected" not in existing:
+            db.execute_sql("ALTER TABLE knowledge_entries ADD COLUMN is_rejected INTEGER DEFAULT 0")
+            print("  [migrate] Added is_rejected to knowledge_entries")
+    except Exception:
+        pass
+
+
 def _migrate_template_ai_controls():
     """Add ai_enabled and block_ai_overrides to email_templates for Phase 4 rollout controls."""
     try:
@@ -748,7 +760,8 @@ def init_db():
          MessageDecision, MessageDecisionHistory,
          SuggestedCampaign, OpportunityScanLog, ProductCommercial,
          SystemConfig, ActionLedger, DeliveryQueue, IdentityJob, AIRenderLog,
-         KnowledgeEntry, AIModelConfig, StudioJob, TemplateCandidate, TemplatePerformance],
+         KnowledgeEntry, AIModelConfig, StudioJob, TemplateCandidate, TemplatePerformance,
+         ScrapeSource, ScrapeLog, RejectionLog],
         safe=True
     )
     _migrate_contact_columns()
@@ -769,6 +782,7 @@ def init_db():
     _migrate_template_format()
     _migrate_template_family()
     _migrate_template_ai_controls()
+    _migrate_knowledge_entry_fields()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")
@@ -1431,6 +1445,7 @@ class KnowledgeEntry(BaseModel):
     content         = TextField()
     metadata_json   = TextField(default="{}")
     is_active       = BooleanField(default=True)
+    is_rejected     = BooleanField(default=False)
     created_at      = DateTimeField(default=datetime.now)
     updated_at      = DateTimeField(default=datetime.now)
 
@@ -1497,6 +1512,50 @@ class TemplatePerformance(BaseModel):
 
     class Meta:
         table_name = "template_performance"
+
+
+# ═══════════════════════════════════════════════════════════════
+# Knowledge Scraper Models
+# ═══════════════════════════════════════════════════════════════
+
+class ScrapeSource(BaseModel):
+    source_type      = CharField()           # "shopify" | "web" | "amazon"
+    source_name      = CharField()
+    url              = CharField()
+    scrape_frequency = CharField(default="weekly")  # "daily" | "weekly"
+    is_active        = BooleanField(default=True)
+    last_scraped_at  = DateTimeField(null=True)
+    config_json      = TextField(default="{}")
+    created_at       = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "scrape_sources"
+
+class ScrapeLog(BaseModel):
+    source          = ForeignKeyField(ScrapeSource, backref="logs")
+    started_at      = DateTimeField(default=datetime.now)
+    completed_at    = DateTimeField(null=True)
+    status          = CharField(default="running")  # "running" | "ok" | "error"
+    items_found     = IntegerField(default=0)
+    items_staged    = IntegerField(default=0)
+    items_skipped   = IntegerField(default=0)
+    items_errored   = IntegerField(default=0)
+    error_message   = TextField(default="")
+
+    class Meta:
+        table_name = "scrape_logs"
+
+class RejectionLog(BaseModel):
+    original_entry_type = CharField()
+    source          = ForeignKeyField(ScrapeSource, null=True, backref="rejections")
+    title           = CharField()
+    content_snippet = TextField(default="")
+    source_url      = CharField(default="")
+    content_hash    = CharField(default="")
+    created_at      = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "rejection_logs"
 
 
 def get_system_config():
