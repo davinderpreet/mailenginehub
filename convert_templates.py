@@ -308,8 +308,8 @@ CONVERSIONS = [
             }},
             {"block_type": "bundle_value", "content": {
                 "section_title": "Pairs Perfectly With Your Order",
-                "items": [],
-                "bundle_price": "0.00",
+                "items": ["Complementary accessory", "Matching cable or mount"],
+                "bundle_price": "49.99",
                 "savings_text": "Bundle & Save",
                 "cta_text": "Shop the Bundle",
                 "cta_url": "https://ldas.ca",
