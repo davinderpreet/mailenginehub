@@ -48,6 +48,16 @@ CONVERSIONS = [
                 "display_text": "Your first order",
                 "expires_text": "No minimum purchase",
             }},
+            {"block_type": "feature_highlights", "content": {
+                "section_title": "Why LDAS",
+                "icon_type": "check",
+                "columns": 1,
+                "items": [
+                    "Rugged electronics built for the road",
+                    "Canadian-owned, ships from Ontario",
+                    "24/7 customer support",
+                ],
+            }},
             {"block_type": "trust_reassurance", "content": {
                 "items": [
                     {"icon": "shipping", "text": "Free Shipping Over $50"},
@@ -81,13 +91,12 @@ CONVERSIONS = [
                 "section_title": "More Bestsellers",
                 "columns": 2,
             }},
-            {"block_type": "trust_reassurance", "content": {
-                "items": [
-                    {"icon": "shipping", "text": "Free Shipping Over $50"},
-                    {"icon": "returns", "text": "30-Day Returns"},
-                    {"icon": "rating", "text": "4.8/5 Average Rating"},
-                    {"icon": "canadian", "text": "Ships from Ontario"},
-                ],
+            {"block_type": "driver_testimonial", "content": {
+                "quote": "Best Bluetooth speaker I've owned. Survived months on the road without a scratch.",
+                "author_name": "Mike R.",
+                "author_role": "Long-haul driver",
+                "rating": 5,
+                "section_title": "What Customers Say",
             }},
             {"block_type": "cta", "content": {
                 "text": "Browse All Products",
@@ -108,6 +117,15 @@ CONVERSIONS = [
                 "paragraphs": [
                     "Our products are tested by truckers, tradespeople, and everyday Canadians who need gear that works.",
                 ],
+            }},
+            {"block_type": "why_choose_this", "content": {
+                "section_title": "Why Customers Choose LDAS",
+                "items": [
+                    "Built tough for Canadian conditions",
+                    "Fast, free shipping on orders over $50",
+                    "30-day hassle-free returns on everything",
+                ],
+                "icon_style": "check",
             }},
             {"block_type": "trust_reassurance", "content": {
                 "items": [
@@ -147,12 +165,14 @@ CONVERSIONS = [
             {"block_type": "urgency", "content": {
                 "message": "This welcome offer expires soon -- don't miss out!",
             }},
-            {"block_type": "trust_reassurance", "content": {
+            {"block_type": "feature_highlights", "content": {
+                "section_title": "What You're Missing",
+                "icon_type": "check",
+                "columns": 1,
                 "items": [
-                    {"icon": "shipping", "text": "Free Shipping Over $50"},
-                    {"icon": "returns", "text": "30-Day Returns"},
-                    {"icon": "rating", "text": "4.8/5 Customer Rating"},
-                    {"icon": "canadian", "text": "Canadian-Owned"},
+                    "Premium Bluetooth speakers and dash cams",
+                    "Free shipping on orders over $50",
+                    "4.8/5 average customer rating",
                 ],
             }},
             {"block_type": "cta", "content": {
@@ -178,12 +198,13 @@ CONVERSIONS = [
                 "section_title": "Your Cart Items",
                 "columns": 2,
             }},
-            {"block_type": "trust_reassurance", "content": {
+            {"block_type": "objection_handling", "content": {
+                "section_title": "Quick Answers",
+                "style": "qa",
                 "items": [
-                    {"icon": "returns", "text": "30-Day Hassle-Free Returns"},
-                    {"icon": "shipping", "text": "Free Shipping Over $50"},
-                    {"icon": "rating", "text": "Secure Checkout"},
-                    {"icon": "canadian", "text": "Ships from Ontario"},
+                    {"objection": "What if it doesn't work for me?", "answer": "30-day hassle-free returns, no questions asked."},
+                    {"objection": "How fast is shipping?", "answer": "Most orders arrive in 3-5 business days across Canada."},
+                    {"objection": "Is my payment secure?", "answer": "256-bit SSL encryption on every transaction."},
                 ],
             }},
             {"block_type": "cta", "content": {
@@ -207,15 +228,22 @@ CONVERSIONS = [
                 "section_title": "Still In Your Cart",
                 "columns": 2,
             }},
-            {"block_type": "urgency", "content": {
-                "message": "These items are in high demand -- they may sell out soon!",
-            }},
-            {"block_type": "features_benefits", "content": {
-                "section_title": "Why Buy Now",
+            {"block_type": "feature_highlights", "content": {
+                "section_title": "Why Buy from LDAS",
+                "icon_type": "check",
+                "columns": 1,
                 "items": [
-                    "Fast shipping -- most orders arrive in 3-5 business days",
-                    "30-day return guarantee if you change your mind",
-                    "Secure checkout with encrypted payment processing",
+                    "Fast shipping -- most orders arrive in 3-5 days",
+                    "30-day return guarantee",
+                    "Secure, encrypted checkout",
+                ],
+            }},
+            {"block_type": "trust_reassurance", "content": {
+                "items": [
+                    {"icon": "shipping", "text": "Free Shipping Over $50"},
+                    {"icon": "returns", "text": "30-Day Returns"},
+                    {"icon": "rating", "text": "Secure Checkout"},
+                    {"icon": "canadian", "text": "Ships from Ontario"},
                 ],
             }},
             {"block_type": "cta", "content": {
@@ -245,12 +273,12 @@ CONVERSIONS = [
                 "section_title": "Your Cart Items",
                 "columns": 2,
             }},
-            {"block_type": "trust_reassurance", "content": {
+            {"block_type": "faq", "content": {
+                "section_title": "Common Questions",
                 "items": [
-                    {"icon": "returns", "text": "30-Day Returns"},
-                    {"icon": "shipping", "text": "Free Shipping $50+"},
-                    {"icon": "rating", "text": "Secure Checkout"},
-                    {"icon": "canadian", "text": "Canadian-Owned"},
+                    {"question": "Can I return it?", "answer": "Yes -- 30-day hassle-free returns on every order."},
+                    {"question": "When will it arrive?", "answer": "Most Canadian orders arrive in 3-5 business days."},
+                    {"question": "Is the discount stackable?", "answer": "This code works on any cart over $25."},
                 ],
             }},
             {"block_type": "cta", "content": {
@@ -278,6 +306,14 @@ CONVERSIONS = [
                 "section_title": "Recommended for You",
                 "cta_text": "Shop Now",
             }},
+            {"block_type": "bundle_value", "content": {
+                "section_title": "Pairs Perfectly With Your Order",
+                "items": [],
+                "bundle_price": "0.00",
+                "savings_text": "Bundle & Save",
+                "cta_text": "Shop the Bundle",
+                "cta_url": "https://ldas.ca",
+            }},
             {"block_type": "product_grid", "content": {
                 "section_title": "You Might Also Like",
                 "columns": 2,
@@ -299,13 +335,16 @@ CONVERSIONS = [
             {"block_type": "text", "content": {"paragraphs": [
                 "You've had your order for a bit now -- how's everything working out? Your review helps other customers make confident decisions.",
             ]}},
-            {"block_type": "trust_reassurance", "content": {
-                "items": [
-                    {"icon": "rating", "text": "4.8/5 Average Rating"},
-                    {"icon": "canadian", "text": "2,000+ Happy Customers"},
-                    {"icon": "returns", "text": "30-Day Guarantee"},
-                    {"icon": "shipping", "text": "Fast Canadian Shipping"},
-                ],
+            {"block_type": "driver_testimonial", "content": {
+                "quote": "Solid build quality. My LDAS speaker has been through rain, dust, and highway vibration -- still sounds great.",
+                "author_name": "Jason T.",
+                "author_role": "Fleet owner",
+                "rating": 5,
+                "section_title": "Others Love Their Purchase",
+            }},
+            {"block_type": "product_grid", "content": {
+                "section_title": "You Might Also Like",
+                "columns": 2,
             }},
             {"block_type": "cta", "content": {
                 "text": "Leave a Review",
@@ -324,15 +363,15 @@ CONVERSIONS = [
             {"block_type": "text", "content": {"paragraphs": [
                 "You're part of the LDAS family now. Here's an exclusive loyalty discount on your next order:",
             ]}},
+            {"block_type": "comparison_block", "content": {
+                "section_title": "Recommended for You",
+                "columns": 2,
+            }},
             {"block_type": "discount", "content": {
                 "code": "LOYAL10",
                 "value_display": "10% Off",
                 "display_text": "Your next order",
                 "expires_text": "Valid for 30 days",
-            }},
-            {"block_type": "comparison_block", "content": {
-                "section_title": "Recommended for You",
-                "columns": 2,
             }},
             {"block_type": "cta", "content": {
                 "text": "Shop With My Discount",
@@ -357,13 +396,11 @@ CONVERSIONS = [
                 "section_title": "New Arrival",
                 "cta_text": "Shop Now",
             }},
-            {"block_type": "features_benefits", "content": {
-                "section_title": "What's New at LDAS",
-                "items": [
-                    "New Bluetooth speakers built for outdoor and truck use",
-                    "Expanded dash cam lineup with night vision",
-                    "Faster shipping -- most orders arrive in 3-5 days",
-                ],
+            {"block_type": "best_seller_proof", "content": {
+                "section_title": "What's Popular Right Now",
+                "proof_line": "Our top sellers this month",
+                "badge_text": "Best Seller",
+                "show_rating": True,
             }},
             {"block_type": "cta", "content": {
                 "text": "See What's New",
@@ -392,13 +429,12 @@ CONVERSIONS = [
                 "section_title": "Popular Right Now",
                 "columns": 2,
             }},
-            {"block_type": "trust_reassurance", "content": {
-                "items": [
-                    {"icon": "shipping", "text": "Free Shipping Over $50"},
-                    {"icon": "returns", "text": "30-Day Returns"},
-                    {"icon": "rating", "text": "4.8/5 Rating"},
-                    {"icon": "canadian", "text": "Canadian-Owned"},
-                ],
+            {"block_type": "driver_testimonial", "content": {
+                "quote": "Came back after a year away and their new lineup is even better. The dash cam quality blew me away.",
+                "author_name": "Sarah K.",
+                "author_role": "Verified buyer",
+                "rating": 5,
+                "section_title": "Why Customers Come Back",
             }},
             {"block_type": "cta", "content": {
                 "text": "Shop With My Discount",
@@ -423,19 +459,18 @@ CONVERSIONS = [
                 "display_text": "Everything in store",
                 "expires_text": "48 hours only",
             }},
-            {"block_type": "urgency", "content": {
-                "message": "This is our final offer -- 15% off expires in 48 hours!",
-            }},
             {"block_type": "product_grid", "content": {
                 "section_title": "Top Picks for You",
                 "columns": 2,
             }},
-            {"block_type": "trust_reassurance", "content": {
+            {"block_type": "feature_highlights", "content": {
+                "section_title": "What's Improved Since Your Last Visit",
+                "icon_type": "check",
+                "columns": 1,
                 "items": [
-                    {"icon": "shipping", "text": "Free Shipping $50+"},
-                    {"icon": "returns", "text": "30-Day Returns"},
-                    {"icon": "rating", "text": "4.8/5 Rating"},
-                    {"icon": "canadian", "text": "Ships from Ontario"},
+                    "Expanded product lineup with new categories",
+                    "Faster shipping -- most orders in 3-5 days",
+                    "Even better return policy -- 30 days, no hassle",
                 ],
             }},
             {"block_type": "cta", "content": {
@@ -462,13 +497,14 @@ CONVERSIONS = [
                 "section_title": "Similar Products",
                 "columns": 2,
             }},
-            {"block_type": "trust_reassurance", "content": {
+            {"block_type": "why_choose_this", "content": {
+                "section_title": "Why LDAS Is the Right Choice",
                 "items": [
-                    {"icon": "shipping", "text": "Free Shipping Over $50"},
-                    {"icon": "returns", "text": "30-Day Returns"},
-                    {"icon": "rating", "text": "4.8/5 Rating"},
-                    {"icon": "canadian", "text": "Canadian-Owned"},
+                    "Built tough for Canadian conditions",
+                    "Free shipping on orders over $50",
+                    "30-day hassle-free returns",
                 ],
+                "icon_style": "check",
             }},
             {"block_type": "cta", "content": {
                 "text": "Continue Shopping",
@@ -490,6 +526,12 @@ CONVERSIONS = [
             {"block_type": "product_grid", "content": {
                 "section_title": "Trending Products",
                 "columns": 2,
+            }},
+            {"block_type": "best_seller_proof", "content": {
+                "section_title": "Customer Favourites",
+                "proof_line": "Thousands of happy Canadian customers",
+                "badge_text": "Top Rated",
+                "show_rating": True,
             }},
             {"block_type": "trust_reassurance", "content": {
                 "items": [
