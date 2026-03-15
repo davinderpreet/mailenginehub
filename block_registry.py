@@ -13,7 +13,10 @@ Usage:
 """
 
 import json
+import logging
 import html as html_mod
+
+logger = logging.getLogger(__name__)
 from email_shell import (
     wrap_email,
     BRAND_NAME, BRAND_URL, BRAND_COLOR, BRAND_COLOR_DARK,
@@ -40,11 +43,11 @@ DESIGN = {
     "brand_light":       "#3366ff",
     "brand_glow":        "rgba(6,60,255,0.15)",
 
-    # Buttons (inverted for dark)
-    "btn_primary_bg":    "#ffffff",
-    "btn_primary_text":  "#111111",
-    "btn_card_bg":       "#ffffff",
-    "btn_card_text":     "#111111",
+    # Buttons (brand blue on dark)
+    "btn_primary_bg":    "#063cff",
+    "btn_primary_text":  "#ffffff",
+    "btn_card_bg":       "#063cff",
+    "btn_card_text":     "#ffffff",
 
     # Prices
     "price_color":       "#ffffff",
@@ -560,10 +563,14 @@ def _render_product_card(product, width="48%"):
 
 def render_product_hero(content, products=None):
     """Large single-product feature block — dark elevated card."""
-    if not products:
+    # Support both: products kwarg (from render pipeline) and content dict fields (from test/showcase)
+    if products:
+        product = products[0]
+    elif content.get("title") and content.get("image_url"):
+        product = content
+    else:
         return ""
 
-    product = products[0]
     title = html_mod.escape(product.get("title", "")[:80])
     image_url = product.get("image_url", "")
     price = product.get("price", "0.00")
@@ -1813,10 +1820,22 @@ def render_template_blocks(template, contact=None, products=None, discount=None,
     """
     try:
         blocks = json.loads(template.blocks_json or "[]")
-    except (json.JSONDecodeError, TypeError):
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.warning(
+            "BLOCKS_PARSE_FAIL template_id=%s name=%s error=%s",
+            getattr(template, "id", "?"),
+            getattr(template, "name", "?"),
+            str(e),
+        )
         blocks = []
 
     if not blocks:
+        if template.html_body:
+            logger.warning(
+                "BLOCKS_FALLBACK template_id=%s name=%s reason=empty_or_invalid_blocks_json",
+                getattr(template, "id", "?"),
+                getattr(template, "name", "?"),
+            )
         result = template.html_body if template.html_body else ""
         return (result, []) if explain else result
 
