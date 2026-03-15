@@ -547,6 +547,71 @@ CONVERSIONS = [
             }},
         ],
     },
+
+    # ── Cart Abandonment (dedicated) ─────────────────────
+    {
+        "name": "Cart Abandon — Reassurance",
+        "family": "cart_recovery",
+        "blocks": [
+            {"block_type": "hero", "content": {
+                "headline": "Your Cart Is Waiting, {{first_name}}",
+                "subheadline": "Everything is saved and ready to go",
+            }},
+            {"block_type": "product_grid", "content": {
+                "section_title": "Still in Your Cart",
+                "columns": 2,
+            }},
+            {"block_type": "trust_reassurance", "content": {
+                "items": [
+                    {"icon": "returns", "text": "30-Day Hassle-Free Returns"},
+                    {"icon": "shipping", "text": "Free Shipping Over $50"},
+                    {"icon": "rating", "text": "Secure Checkout"},
+                    {"icon": "canadian", "text": "Ships from Ontario"},
+                ],
+            }},
+            {"block_type": "objection_handling", "content": {
+                "section_title": "Still Have Questions?",
+                "style": "qa",
+                "items": [
+                    {"objection": "What if it doesn't work for me?", "answer": "Easy 30-day returns, no questions asked."},
+                    {"objection": "Is shipping really free?", "answer": "Free on all orders over $50 across Canada."},
+                ],
+            }},
+            {"block_type": "cta", "content": {
+                "text": "Complete My Order",
+                "url": "https://ldas.ca",
+            }},
+        ],
+    },
+    {
+        "name": "Cart Abandon — Urgency + FAQ",
+        "family": "cart_recovery",
+        "blocks": [
+            {"block_type": "hero", "content": {
+                "headline": "Don't Miss Out, {{first_name}}",
+                "subheadline": "Your cart items are in demand",
+            }},
+            {"block_type": "product_hero", "content": {
+                "section_title": "Your Top Pick",
+                "cta_text": "View in Cart",
+            }},
+            {"block_type": "urgency", "content": {
+                "message": "Cart items aren't reserved -- popular products can sell out!",
+            }},
+            {"block_type": "faq", "content": {
+                "section_title": "Quick Answers",
+                "items": [
+                    {"question": "Can I return it?", "answer": "Yes -- 30-day easy returns on everything."},
+                    {"question": "How fast does it ship?", "answer": "Most orders arrive in 3-5 business days."},
+                    {"question": "Is my info safe?", "answer": "256-bit SSL encryption on every order."},
+                ],
+            }},
+            {"block_type": "cta", "content": {
+                "text": "Return to My Cart",
+                "url": "https://ldas.ca",
+            }},
+        ],
+    },
 ]
 
 
