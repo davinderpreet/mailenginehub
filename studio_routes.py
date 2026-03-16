@@ -8,11 +8,12 @@ job/candidate review, model configuration, and preview.
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from database import (
     KnowledgeEntry, AIModelConfig, StudioJob, TemplateCandidate,
-    TemplatePerformance, EmailTemplate, db
+    TemplatePerformance, EmailTemplate, ScrapeSource, ScrapeLog, RejectionLog, db
 )
 from template_studio import TemplateStudio
 from condition_engine import TEMPLATE_FAMILIES
 import json
+import threading
 from datetime import datetime
 
 studio_bp = Blueprint("studio", __name__, url_prefix="/studio")
@@ -46,6 +47,24 @@ def dashboard():
         ).count(),
     }
 
+    pending_count = KnowledgeEntry.select().where(
+        (KnowledgeEntry.is_active == False) &  # noqa: E712
+        (KnowledgeEntry.is_rejected == False)  # noqa: E712
+    ).count()
+
+    # Source health: any active sources with >50% rejection rate
+    unhealthy_sources = []
+    for src in ScrapeSource.select().where(ScrapeSource.is_active == True):  # noqa: E712
+        total_staged = KnowledgeEntry.select().where(
+            KnowledgeEntry.metadata_json.contains(f'"scrape_source_id": {src.id}')
+        ).count()
+        total_rejected = RejectionLog.select().where(
+            RejectionLog.source == src
+        ).count()
+        total = total_staged + total_rejected
+        if total > 0 and (total_rejected / total) > 0.5:
+            unhealthy_sources.append({"source": src, "rejection_rate": round(total_rejected / total * 100)})
+
     return render_template(
         "studio/dashboard.html",
         score=score_data,
@@ -53,6 +72,8 @@ def dashboard():
         total_jobs=stats["total_jobs"],
         total_candidates=stats["total_candidates"],
         total_approved=stats["approved"],
+        pending_count=pending_count,
+        unhealthy_sources=unhealthy_sources,
     )
 
 
@@ -292,3 +313,180 @@ def api_intelligence_score():
     """Return JSON intelligence score."""
     studio = TemplateStudio()
     return jsonify(studio.get_intelligence_score())
+
+
+# ─────────────────────────────────
+#  PENDING REVIEW
+# ─────────────────────────────────
+
+@studio_bp.route("/knowledge/pending")
+def knowledge_pending():
+    """Show staged entries awaiting human review (is_active=False, is_rejected=False)."""
+    entries = list(
+        KnowledgeEntry
+        .select()
+        .where(
+            (KnowledgeEntry.is_active == False) &  # noqa: E712
+            (KnowledgeEntry.is_rejected == False)   # noqa: E712
+        )
+        .order_by(KnowledgeEntry.created_at.desc())
+    )
+    return render_template("studio/pending.html", entries=entries)
+
+
+@studio_bp.route("/knowledge/<int:id>/approve", methods=["POST"])
+def knowledge_approve(id):
+    """Approve a staged entry — sets is_active=True."""
+    entry = KnowledgeEntry.get_by_id(id)
+    entry.is_active = True
+    entry.updated_at = datetime.now()
+    entry.save()
+    flash("Entry approved and added to the knowledge base.", "success")
+    return redirect(url_for("studio.knowledge_pending"))
+
+
+@studio_bp.route("/knowledge/<int:id>/reject", methods=["POST"])
+def knowledge_reject(id):
+    """Reject a staged entry — creates a RejectionLog and marks as rejected."""
+    entry = KnowledgeEntry.get_by_id(id)
+
+    # Parse metadata to extract source info and content hash
+    try:
+        meta = json.loads(entry.metadata_json or "{}")
+    except (ValueError, TypeError):
+        meta = {}
+
+    scrape_source_id = meta.get("scrape_source_id")
+    content_hash = meta.get("raw_content_hash", "")
+    source_url = meta.get("source_url", "")
+
+    # Resolve source FK (may be None for manually-added entries)
+    source_obj = None
+    if scrape_source_id:
+        try:
+            source_obj = ScrapeSource.get_by_id(scrape_source_id)
+        except ScrapeSource.DoesNotExist:
+            source_obj = None
+
+    RejectionLog.create(
+        original_entry_type=entry.entry_type,
+        source=source_obj,
+        title=entry.title,
+        content_snippet=entry.content[:200],
+        source_url=source_url,
+        content_hash=content_hash,
+    )
+
+    entry.is_rejected = True
+    entry.updated_at = datetime.now()
+    entry.save()
+    flash("Entry rejected and logged.", "success")
+    return redirect(url_for("studio.knowledge_pending"))
+
+
+# ─────────────────────────────────
+#  SOURCE MANAGEMENT
+# ─────────────────────────────────
+
+@studio_bp.route("/sources")
+def sources_list():
+    """List all ScrapeSource rows with rejection rates and last log."""
+    sources = list(ScrapeSource.select().order_by(ScrapeSource.created_at.desc()))
+
+    source_data = []
+    for src in sources:
+        # Last scrape log
+        try:
+            last_log = (
+                ScrapeLog
+                .select()
+                .where(ScrapeLog.source == src)
+                .order_by(ScrapeLog.started_at.desc())
+                .get()
+            )
+        except ScrapeLog.DoesNotExist:
+            last_log = None
+
+        # Rejection rate
+        total_staged = KnowledgeEntry.select().where(
+            KnowledgeEntry.metadata_json.contains(f'"scrape_source_id": {src.id}')
+        ).count()
+        total_rejected = RejectionLog.select().where(
+            RejectionLog.source == src
+        ).count()
+        total = total_staged + total_rejected
+        rejection_rate = round(total_rejected / total * 100) if total > 0 else 0
+
+        source_data.append({
+            "source": src,
+            "last_log": last_log,
+            "rejection_rate": rejection_rate,
+            "high_rejection": rejection_rate > 50,
+        })
+
+    return render_template("studio/sources.html", source_data=source_data)
+
+
+@studio_bp.route("/sources/add", methods=["POST"])
+def sources_add():
+    """Create a new ScrapeSource."""
+    ScrapeSource.create(
+        source_type=request.form.get("source_type", "web").strip(),
+        source_name=request.form.get("source_name", "").strip(),
+        url=request.form.get("url", "").strip(),
+        scrape_frequency=request.form.get("scrape_frequency", "weekly").strip(),
+        config_json=request.form.get("config_json", "{}").strip() or "{}",
+    )
+    flash("Scrape source added.", "success")
+    return redirect(url_for("studio.sources_list"))
+
+
+@studio_bp.route("/sources/<int:id>/toggle", methods=["POST"])
+def sources_toggle(id):
+    """Toggle is_active on a ScrapeSource."""
+    src = ScrapeSource.get_by_id(id)
+    src.is_active = not src.is_active
+    src.save()
+    state = "enabled" if src.is_active else "disabled"
+    flash(f'Source "{src.source_name}" {state}.', "success")
+    return redirect(url_for("studio.sources_list"))
+
+
+@studio_bp.route("/sources/<int:id>/run", methods=["POST"])
+def sources_run(id):
+    """Trigger a background scrape for a single source."""
+    src = ScrapeSource.get_by_id(id)
+
+    def _run():
+        try:
+            import sys as _sys
+            import os as _os
+            _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+            from knowledge_scraper import run_single_source
+            run_single_source(src.id)
+        except Exception as _e:
+            import logging
+            logging.getLogger(__name__).error(f"Manual source run failed for {src.id}: {_e}")
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    flash(f'Scrape started for "{src.source_name}". Check the log in a few moments.', "success")
+    return redirect(url_for("studio.sources_list"))
+
+
+# ─────────────────────────────────
+#  SCRAPE LOG
+# ─────────────────────────────────
+
+@studio_bp.route("/scrape-log")
+def scrape_log():
+    """Show the last 50 ScrapeLog entries."""
+    logs = list(
+        ScrapeLog
+        .select(ScrapeLog, ScrapeSource)
+        .join(ScrapeSource)
+        .order_by(ScrapeLog.started_at.desc())
+        .limit(50)
+    )
+    return render_template("studio/scrape_log.html", logs=logs)

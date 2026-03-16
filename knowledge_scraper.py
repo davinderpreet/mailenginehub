@@ -645,3 +645,15 @@ def run_knowledge_enrichment():
                 continue
 
         _run_single_source(source, rejections)
+
+
+def run_single_source(source_id: int):
+    """
+    Public entry point to scrape one source by ID immediately,
+    ignoring the frequency check. Used by the "Run Now" button.
+    """
+    source = ScrapeSource.get_by_id(source_id)
+    rejections = list(
+        RejectionLog.select().order_by(RejectionLog.created_at.desc()).limit(50)
+    )
+    _run_single_source(source, rejections)

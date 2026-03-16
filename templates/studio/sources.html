@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Scrape Sources — MailEngineHub{% endblock %}
+{% block page_title %}Scrape Sources{% endblock %}
+
+{% block content %}
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:24px;">
+  <a href="/studio" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Back to Studio</a>
+  <div style="flex:1;"></div>
+  <a href="/studio/scrape-log" class="btn btn-outline btn-sm"><i class="fas fa-scroll"></i> Scrape History</a>
+</div>
+
+<!-- ── Sources Table ───────────────────────────────────── -->
+<div class="card" style="margin-bottom:24px;">
+  <div class="card-header">
+    <span class="card-title"><i class="fas fa-database" style="margin-right:7px;color:var(--cyan);"></i>Configured Sources</span>
+    <span style="color:var(--text3);font-size:12px;">{{ source_data|length }} sources</span>
+  </div>
+  {% if source_data %}
+  <div class="table-wrap">
+    <table style="width:100%;border-collapse:separate;border-spacing:0;">
+      <thead>
+        <tr>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Name</th>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Type</th>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">URL</th>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Frequency</th>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Last Scraped</th>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Rejection Rate</th>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in source_data %}
+        {% set src = item.source %}
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:14px 16px;font-size:13.5px;font-weight:600;color:var(--text);">{{ src.source_name }}</td>
+          <td style="padding:14px 16px;font-size:13.5px;">
+            {% if src.source_type == 'shopify' %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(16,185,129,0.15);color:var(--green);">Shopify</span>
+            {% elif src.source_type == 'amazon' %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.15);color:var(--amber);">Amazon</span>
+            {% elif src.source_type == 'web' %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(6,182,212,0.15);color:var(--cyan);">Web</span>
+            {% else %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text2);">{{ src.source_type }}</span>
+            {% endif %}
+          </td>
+          <td style="padding:14px 16px;font-size:12px;color:var(--text3);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ src.url }}">{{ src.url[:50] }}{% if src.url|length > 50 %}…{% endif %}</td>
+          <td style="padding:14px 16px;font-size:13px;color:var(--text2);">{{ src.scrape_frequency|title }}</td>
+          <td style="padding:14px 16px;font-size:12px;color:var(--text3);">{{ src.last_scraped_at.strftime('%b %d, %H:%M') if src.last_scraped_at else '—' }}</td>
+          <td style="padding:14px 16px;font-size:13px;">
+            {% if item.high_rejection %}
+            <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(245,158,11,0.15);color:var(--amber);">
+              <i class="fas fa-triangle-exclamation" style="font-size:10px;"></i>{{ item.rejection_rate }}%
+            </span>
+            {% elif item.rejection_rate > 0 %}
+            <span style="color:var(--text2);font-size:12px;">{{ item.rejection_rate }}%</span>
+            {% else %}
+            <span style="color:var(--text3);font-size:12px;">—</span>
+            {% endif %}
+          </td>
+          <td style="padding:14px 16px;">
+            <div style="display:flex;gap:6px;align-items:center;">
+              <!-- Active toggle -->
+              <form method="POST" action="/studio/sources/{{ src.id }}/toggle" style="display:inline;">
+                <button type="submit" style="padding:5px 10px;{% if src.is_active %}background:rgba(16,185,129,0.1);color:var(--green);border:1px solid rgba(16,185,129,0.2);{% else %}background:var(--surface2);color:var(--text3);border:1px solid var(--border2);{% endif %}border-radius:8px;font-size:11px;cursor:pointer;font-family:inherit;" title="{% if src.is_active %}Disable{% else %}Enable{% endif %}">
+                  {% if src.is_active %}<i class="fas fa-toggle-on"></i>{% else %}<i class="fas fa-toggle-off"></i>{% endif %}
+                </button>
+              </form>
+              <!-- Run now -->
+              <form method="POST" action="/studio/sources/{{ src.id }}/run" style="display:inline;">
+                <button type="submit" style="padding:5px 10px;background:rgba(124,58,237,0.1);color:var(--purple);border:1px solid rgba(124,58,237,0.2);border-radius:8px;font-size:11px;cursor:pointer;font-family:inherit;" title="Run now">
+                  <i class="fas fa-play"></i>
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:40px;">
+    <i class="fas fa-database"></i>
+    <h3>No sources configured</h3>
+    <p style="color:var(--text3);margin-top:4px;">Add a source below to start enriching the knowledge base automatically.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Add Source Form ────────────────────────────────── -->
+<div class="card">
+  <div class="card-header" style="cursor:pointer;" onclick="document.getElementById('addSourceForm').style.display = document.getElementById('addSourceForm').style.display === 'none' ? 'block' : 'none';">
+    <span class="card-title"><i class="fas fa-plus-circle" style="margin-right:7px;color:var(--green);"></i>Add New Source</span>
+    <i class="fas fa-chevron-down" style="color:var(--text3);font-size:12px;"></i>
+  </div>
+  <div id="addSourceForm" style="display:none;">
+    <div class="card-body">
+      <form method="POST" action="/studio/sources/add">
+        <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:16px;margin-bottom:16px;">
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Source Type</label>
+            <select name="source_type" required style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
+              <option value="web">Web</option>
+              <option value="shopify">Shopify</option>
+              <option value="amazon">Amazon</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Name</label>
+            <input type="text" name="source_name" required placeholder="e.g. Competitor Blog" style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">URL</label>
+            <input type="text" name="url" required placeholder="https://example.com/blog" style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:16px;margin-bottom:16px;">
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Scrape Frequency</label>
+            <select name="scrape_frequency" style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
+              <option value="daily">Daily</option>
+              <option value="weekly" selected>Weekly</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Config JSON <span style="font-weight:400;color:var(--text3);">(optional — CSS selectors etc.)</span></label>
+            <textarea name="config_json" rows="2" placeholder='{"item_selector": "article", "title_selector": "h2", "content_selector": "p"}' style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:13px;font-family:monospace;resize:vertical;"></textarea>
+          </div>
+        </div>
+        <button type="submit" style="padding:10px 24px;background:linear-gradient(135deg, var(--purple), #5b21b6);color:#fff;border:none;border-radius:10px;font-weight:600;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;box-shadow:0 4px 15px rgba(124,58,237,0.35);font-family:inherit;">
+          <i class="fas fa-plus"></i> Add Source
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

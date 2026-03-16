@@ -649,6 +649,30 @@ class TestPipelineOrchestrator:
         assert scrape_log.items_errored == 1
         assert scrape_log.status == "ok"
 
+    def test_run_single_source_public_api(self, in_memory_db):
+        """run_single_source() should call _run_single_source for the given source id."""
+        from database import ScrapeSource
+        from knowledge_scraper import run_single_source
+
+        source = ScrapeSource.create(
+            source_type="web",
+            source_name="Run Single Test",
+            url="https://example.com",
+            scrape_frequency="weekly",
+            is_active=True,
+            config_json=json.dumps({
+                "item_selector": "article",
+                "title_selector": "h2",
+                "content_selector": "p",
+            }),
+        )
+
+        with patch("knowledge_scraper._run_single_source") as mock_run:
+            run_single_source(source.id)
+            assert mock_run.call_count == 1
+            called_source = mock_run.call_args[0][0]
+            assert called_source.id == source.id
+
     def test_weekly_source_skipped_if_recently_scraped(self, in_memory_db):
         """A weekly source scraped within the last 7 days should be skipped."""
         from database import KnowledgeEntry, ScrapeLog, ScrapeSource
@@ -680,3 +704,102 @@ class TestPipelineOrchestrator:
 
         # No ScrapeLog should exist for this source
         assert ScrapeLog.select().where(ScrapeLog.source == source).count() == 0
+
+
+# ===========================================================================
+# TestStudioRoutes
+# ===========================================================================
+
+class TestStudioRoutes:
+    """Integration tests for the studio knowledge review / source management routes.
+
+    Uses a minimal Flask app built directly from studio_bp to avoid the
+    Unix-only fcntl dependency in app.py.
+    """
+
+    @pytest.fixture
+    def app_client(self, in_memory_db):
+        import sys, os
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+        from flask import Flask
+        from studio_routes import studio_bp
+
+        mini_app = Flask(
+            __name__,
+            template_folder=os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "templates",
+            ),
+        )
+        mini_app.secret_key = "test-secret"
+        mini_app.config["TESTING"] = True
+        mini_app.config["WTF_CSRF_ENABLED"] = False
+
+        # Register the fromjson filter used in pending.html
+        import json as _json
+        @mini_app.template_filter("fromjson")
+        def _fromjson(s):
+            try:
+                return _json.loads(s)
+            except Exception:
+                return {}
+
+        mini_app.register_blueprint(studio_bp)
+
+        with mini_app.test_client() as client:
+            yield client
+
+    def test_pending_page_loads(self, app_client):
+        """GET /studio/knowledge/pending should return 200."""
+        response = app_client.get("/studio/knowledge/pending")
+        assert response.status_code == 200
+        assert b"Pending" in response.data
+
+    def test_approve_sets_active(self, app_client, in_memory_db):
+        """POST /studio/knowledge/<id>/approve should set is_active=True."""
+        from database import KnowledgeEntry
+        entry = KnowledgeEntry.create(
+            entry_type="faq",
+            title="Test FAQ",
+            content="This is test content for approval.",
+            is_active=False,
+            is_rejected=False,
+            metadata_json="{}",
+        )
+        response = app_client.post(f"/studio/knowledge/{entry.id}/approve",
+                                   follow_redirects=True)
+        assert response.status_code == 200
+        updated = KnowledgeEntry.get_by_id(entry.id)
+        assert updated.is_active is True
+
+    def test_reject_creates_rejection_log(self, app_client, in_memory_db):
+        """POST /studio/knowledge/<id>/reject should create a RejectionLog and set is_rejected=True."""
+        from database import KnowledgeEntry, RejectionLog
+        entry = KnowledgeEntry.create(
+            entry_type="blog_post",
+            title="Spam Blog Post",
+            content="Buy cheap things now. This is spam content.",
+            is_active=False,
+            is_rejected=False,
+            metadata_json="{}",
+        )
+        before_count = RejectionLog.select().count()
+        response = app_client.post(f"/studio/knowledge/{entry.id}/reject",
+                                   follow_redirects=True)
+        assert response.status_code == 200
+        updated = KnowledgeEntry.get_by_id(entry.id)
+        assert updated.is_rejected is True
+        assert RejectionLog.select().count() == before_count + 1
+
+    def test_sources_page_loads(self, app_client):
+        """GET /studio/sources should return 200."""
+        response = app_client.get("/studio/sources")
+        assert response.status_code == 200
+        assert b"Sources" in response.data
+
+    def test_scrape_log_page_loads(self, app_client):
+        """GET /studio/scrape-log should return 200."""
+        response = app_client.get("/studio/scrape-log")
+        assert response.status_code == 200
+        assert b"Scrape" in response.data

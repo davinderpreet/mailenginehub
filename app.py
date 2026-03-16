@@ -5445,6 +5445,20 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
     _scheduler.add_job(_run_nightly_shopify_sync, "cron", hour=2, minute=0,
                        id="shopify_sync_nightly", replace_existing=True)
 
+    # Nightly knowledge enrichment at 4:30am
+    def _run_nightly_knowledge_enrichment():
+        try:
+            import sys as _sk; _sk.path.insert(0, APP_DIR)
+            from knowledge_scraper import run_knowledge_enrichment
+            app.logger.info("Nightly knowledge enrichment starting...")
+            run_knowledge_enrichment()
+            app.logger.info("Knowledge enrichment complete")
+        except Exception as _e:
+            app.logger.error(f"Knowledge enrichment failed: {_e}")
+
+    _scheduler.add_job(_run_nightly_knowledge_enrichment, "cron", hour=4, minute=30,
+                       id="knowledge_enrichment", replace_existing=True)
+
     _scheduler.start()
     atexit.register(lambda: _scheduler.shutdown(wait=False))
     sys.stderr.write("[OK] Background scheduler started (ENABLE_SCHEDULER=1, pid=%d)\n" % os.getpid())
