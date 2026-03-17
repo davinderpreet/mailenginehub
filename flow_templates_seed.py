@@ -273,7 +273,11 @@ TEMPLATES = [
         "preview_text": "We'd love to hear what you think.",
         "html_body": f'''<tr><td style="padding:28px 30px;">
   {_heading("How's Everything Going?")}
-  {_para("Hey {{{{first_name}}}}, you've had your order for a couple of weeks now — we hope you're loving it!")}
+  {_para("Hey {{{{first_name}}}}, you've had your order for about a week now — we hope you're loving it!")}
+  {_para("<strong>What you ordered:</strong>")}
+  <div style="background:#f8f9ff;border-radius:10px;padding:16px 20px;margin:16px 0;">
+    {{{{top_products_html}}}}
+  </div>
   {_para("If you have a moment, we'd really appreciate a quick review. It helps other shoppers make confident decisions and helps us keep improving.")}
   {_button("Leave a Review", f"{BRAND_URL}/pages/reviews")}
   {_divider()}
@@ -329,9 +333,9 @@ TEMPLATES = [
         "preview_text": "It's been a while — here's what's new.",
         "html_body": f'''<tr><td style="padding:28px 30px;">
   {_heading("We Miss You, {{{{first_name}}}}!")}
-  {_para("It's been a while since your last visit, and a lot has changed at LDAS Electronics. We've been busy adding new products, improving quality, and making your shopping experience even better.")}
+  {_para("You've ordered from us {{{{total_orders}}}} time(s) and we've loved having you as a customer. It's been a while since your last visit, and a lot has changed at LDAS Electronics.")}
   {_divider()}
-  {_heading("What's New")}
+  {_heading("What's New Since You Were Here")}
   {_para("&bull; <strong>New Bluetooth 5.3 speakers</strong> — even better sound, longer battery life<br/>&bull; <strong>4K dash cameras</strong> — ultra-sharp footage day and night<br/>&bull; <strong>Expanded accessory line</strong> — mounts, cables, cases, and more<br/>&bull; <strong>Faster shipping</strong> — most orders ship same day")}
   {_button("See What's New")}
   {_para("We'd love to see you back. If there's anything we can help with, just reply.")}
@@ -393,12 +397,15 @@ TEMPLATES = [
     # ────────────────────────────────────────────
     {
         "name": "Browse Abandon — Product Reminder",
-        "subject": "Still thinking about it, {{first_name}}?",
+        "subject": "Still thinking about {{last_viewed_product}}, {{first_name}}?",
         "preview_text": "The product you were looking at is still available.",
         "html_body": f'''<tr><td style="padding:28px 30px;">
   {_heading("Still Thinking About It?")}
-  {_para("Hey {{{{first_name}}}}, we noticed you were browsing our store recently. Sometimes it helps to sleep on it — but we wanted to make sure you didn't forget.")}
-  {_para("The product you were looking at is still available and ready to ship.")}
+  {_para("Hey {{{{first_name}}}}, we noticed you were checking out <strong>{{{{last_viewed_product}}}}</strong>. Good eye — it's still available and ready to ship.")}
+  {_para("<strong>You were also browsing:</strong>")}
+  <div style="background:#f8f9ff;border-radius:10px;padding:16px 20px;margin:16px 0;">
+    {{{{recently_browsed_html}}}}
+  </div>
   {_button("Continue Shopping")}
   {_divider()}
   {_para("<strong>Why shop with LDAS?</strong>")}
@@ -407,11 +414,11 @@ TEMPLATES = [
     },
     {
         "name": "Browse Abandon — Social Proof",
-        "subject": "Popular choice — don't miss out, {{first_name}}",
+        "subject": "{{last_viewed_product}} is selling fast, {{first_name}}",
         "preview_text": "Other customers are loving this product.",
         "html_body": f'''<tr><td style="padding:28px 30px;">
   {_heading("Popular Choice")}
-  {_para("Hey {{{{first_name}}}}, the product you were looking at is one of our most popular items. Here's why customers love it:")}
+  {_para("Hey {{{{first_name}}}}, <strong>{{{{last_viewed_product}}}}</strong> is one of our most popular items. Here's why customers love it:")}
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
     <tr><td style="padding:16px 20px;background:#f8f9ff;border-left:4px solid {BRAND_COLOR};border-radius:0 8px 8px 0;">
       <p style="margin:0 0 6px;font-size:14px;color:{TEXT_DARK};font-style:italic;">"Exactly what I needed. Great quality and fast shipping to my door."</p>
@@ -426,11 +433,11 @@ TEMPLATES = [
     },
     {
         "name": "Browse Abandon — Free Shipping Push",
-        "subject": "Free shipping on the item you were eyeing, {{first_name}}",
+        "subject": "Free shipping on {{last_viewed_product}}, {{first_name}}",
         "preview_text": "We'll ship it free — no minimum required.",
         "html_body": f'''<tr><td style="padding:28px 30px;">
   {_heading("We'll Ship It Free")}
-  {_para("Hey {{{{first_name}}}}, still thinking about that product you checked out? Here's a nudge — <strong>free shipping, no minimum</strong>.")}
+  {_para("Hey {{{{first_name}}}}, still thinking about <strong>{{{{last_viewed_product}}}}</strong>? Here's a nudge — <strong>free shipping, no minimum</strong>.")}
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:16px 0;">
   <div style="background:#f0f4ff;border:2px dashed {BRAND_COLOR};border-radius:12px;padding:24px;text-align:center;">
     <p style="margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:2px;color:{BRAND_COLOR};text-transform:uppercase;">FREE SHIPPING</p>

@@ -2420,6 +2420,7 @@ def _process_flow_enrollments():
     from action_ledger import log_action, RC_COOLDOWN_ACTIVE, RC_UNSUBSCRIBED, \
         RC_SUPPRESSED_ENTRY, RC_NO_STEP, RC_WARMUP_LIMIT, RC_OK
     from delivery_engine import enqueue_email, get_priority_for_trigger
+    from database import CustomerProfile, ContactScore, CustomerActivity
 
     now = datetime.now()
     pending = (FlowEnrollment.select(FlowEnrollment, Flow, Contact)
@@ -2580,6 +2581,69 @@ def _process_flow_enrollments():
                     html = html.replace("{{cart_items}}", '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>')
                     html = html.replace("{{checkout_url}}", "https://ldas.ca")
 
+            # ── Personalization injection — pull from CustomerProfile + ContactScore ──
+            try:
+                _profile = CustomerProfile.get_or_none(CustomerProfile.contact == contact)
+                _cscore  = ContactScore.get_or_none(ContactScore.contact == contact)
+
+                # Last viewed product (for browse abandonment emails)
+                _last_viewed = ""
+                if _profile and _profile.last_viewed_product:
+                    _last_viewed = _profile.last_viewed_product
+                html = html.replace("{{last_viewed_product}}", _last_viewed or "one of our popular items")
+
+                # Recently browsed products (HTML rows from activity)
+                if "{{recently_browsed_html}}" in html:
+                    _browsed_html = ""
+                    try:
+                        _recent = (CustomerActivity.select()
+                                   .where(CustomerActivity.contact == contact,
+                                          CustomerActivity.event_type == 'viewed_product')
+                                   .order_by(CustomerActivity.occurred_at.desc())
+                                   .limit(4))
+                        _seen_titles = set()
+                        for _act in _recent:
+                            import json as _jj
+                            _d = _jj.loads(_act.event_data) if _act.event_data else {}
+                            _t = _d.get("product_title", "")
+                            if _t and _t not in _seen_titles:
+                                _seen_titles.add(_t)
+                                _p = _d.get("price", "")
+                                _price_str = " — $%s" % _p if _p else ""
+                                _browsed_html += '<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; <strong>%s</strong>%s</p>' % (_t, _price_str)
+                    except Exception:
+                        pass
+                    html = html.replace("{{recently_browsed_html}}", _browsed_html or '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your recently viewed items</p>')
+
+                # Top purchased products (for cross-sell / post-purchase emails)
+                if "{{top_products_html}}" in html:
+                    _top_html = ""
+                    try:
+                        if _profile and _profile.top_products:
+                            import json as _jj2
+                            _tops = _jj2.loads(_profile.top_products)[:3]
+                            for _tp in _tops:
+                                _top_html += '<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; %s</p>' % _tp
+                    except Exception:
+                        pass
+                    html = html.replace("{{top_products_html}}", _top_html or "")
+
+                # Customer stats
+                html = html.replace("{{total_orders}}", str(_profile.total_orders) if _profile else "0")
+                html = html.replace("{{total_spent}}", "$%.2f" % _profile.total_spent if _profile and _profile.total_spent else "$0")
+
+                # RFM segment and lifecycle
+                html = html.replace("{{rfm_segment}}", _cscore.rfm_segment if _cscore else "new")
+                html = html.replace("{{lifecycle_stage}}", _profile.lifecycle_stage if _profile and hasattr(_profile, 'lifecycle_stage') else "prospect")
+
+            except Exception as _perr:
+                app.logger.warning("[FlowPersonalization] Error loading profile for %s: %s", contact.email, _perr)
+                # Fallback — clear any remaining personalization tags
+                import re as _re
+                for _tag in ["{{last_viewed_product}}", "{{recently_browsed_html}}", "{{top_products_html}}",
+                             "{{total_orders}}", "{{total_spent}}", "{{rfm_segment}}", "{{lifecycle_stage}}"]:
+                    html = html.replace(_tag, "")
+
             # Wrap in email shell if template uses shell_version >= 1
             if getattr(template, 'shell_version', 0) >= 1:
                 from email_shell import wrap_email
@@ -2590,6 +2654,18 @@ def _process_flow_enrollments():
 
         subject = step.subject_override or template.subject
         subject = subject.replace("{{first_name}}", contact.first_name or "Friend")
+        # Personalize subject with browse/purchase data
+        try:
+            if "{{last_viewed_product}}" in subject:
+                _prof = CustomerProfile.get_or_none(CustomerProfile.contact == contact)
+                _lvp = _prof.last_viewed_product if _prof and _prof.last_viewed_product else "something great"
+                subject = subject.replace("{{last_viewed_product}}", _lvp)
+            if "{{total_orders}}" in subject:
+                _prof2 = CustomerProfile.get_or_none(CustomerProfile.contact == contact)
+                subject = subject.replace("{{total_orders}}", str(_prof2.total_orders) if _prof2 else "0")
+        except Exception:
+            subject = subject.replace("{{last_viewed_product}}", "something great")
+            subject = subject.replace("{{total_orders}}", "")
 
         from_email = step.from_email or os.getenv("DEFAULT_FROM_EMAIL", "")
         from_name  = step.from_name
