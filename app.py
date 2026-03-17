@@ -2592,7 +2592,7 @@ def _process_flow_enrollments():
                 else:
                     html = html.replace("{{discount_code}}", "")
 
-            # Inject checkout variables for abandoned checkout flows
+            # Inject checkout/cart variables for abandoned checkout flows
             if flow.trigger_type == "checkout_abandoned" and ("{{cart_items}}" in html or "{{checkout_url}}" in html):
                 _checkout = (AbandonedCheckout.select()
                              .where(AbandonedCheckout.contact == contact,
@@ -2613,8 +2613,33 @@ def _process_flow_enrollments():
                     html = html.replace("{{cart_items}}", _cart_html)
                     html = html.replace("{{checkout_url}}", _checkout.checkout_url or "https://ldas.ca/checkout")
                 else:
-                    html = html.replace("{{cart_items}}", '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>')
-                    html = html.replace("{{checkout_url}}", "https://ldas.ca")
+                    # No AbandonedCheckout record (came from viewed_cart pixel) —
+                    # pull recently viewed products as cart proxy
+                    _cart_html = ""
+                    try:
+                        import json as _json
+                        _recent_views = (CustomerActivity.select()
+                                         .where(CustomerActivity.contact == contact,
+                                                CustomerActivity.event_type == 'viewed_product')
+                                         .order_by(CustomerActivity.occurred_at.desc())
+                                         .limit(4))
+                        _seen = set()
+                        for _rv in _recent_views:
+                            try:
+                                _rd = _json.loads(_rv.event_data) if isinstance(_rv.event_data, str) else _rv.event_data
+                                _title = _rd.get("product_title", "")
+                                _url = _rd.get("product_url", "")
+                                if _title and _title not in _seen:
+                                    _seen.add(_title)
+                                    _cart_html += f'<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; {_title}</p>'
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    if not _cart_html:
+                        _cart_html = '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>'
+                    html = html.replace("{{cart_items}}", _cart_html)
+                    html = html.replace("{{checkout_url}}", "https://ldas.ca/cart")
 
             # ── Personalization injection — pull from CustomerProfile + ContactScore ──
             try:
@@ -5709,7 +5734,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                        id="flow_processor", replace_existing=True)
     _scheduler.add_job(_process_delivery_queue_wrapper, "interval", seconds=30,
                        id="delivery_queue", replace_existing=True)
-    _scheduler.add_job(_check_passive_triggers, "interval", minutes=30,
+    _scheduler.add_job(_check_passive_triggers, "interval", minutes=5,
                        id="passive_triggers", replace_existing=True)
     _scheduler.add_job(_check_abandoned_checkouts, "interval", minutes=15,
                        id="abandoned_checkout_checker", replace_existing=True)
