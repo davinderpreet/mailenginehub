@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-17 19:13 -- `2f4860b`
+
+**Fix cart_abandonment trigger alias to match checkout_abandoned flow**
+
+Files changed:
+```
+app.py
+```
+
+---
+
 ### 2026-03-17 18:42 -- `42d2b12`
 
 **Auto-update CLAUDE.md before deploy**
