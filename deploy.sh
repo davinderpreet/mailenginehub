@@ -28,7 +28,7 @@ if [ -f "generate-context.py" ]; then
     python3 generate-context.py 2>/dev/null || python generate-context.py 2>/dev/null || echo "  (skipped — python not found)"
     # If CLAUDE.md changed, auto-commit it
     # Stage and commit if anything changed
-    git add CLAUDE.md 2>/dev/null
+    git add CLAUDE.md REFERENCE.md 2>/dev/null
     git add DEPLOY_LOG.md 2>/dev/null || true
     if ! git diff --cached --quiet 2>/dev/null; then
         git commit -m "Auto-update CLAUDE.md before deploy"
