@@ -12,7 +12,7 @@ from database import (db, Contact, EmailTemplate, Campaign, CampaignEmail, init_
                       SuppressionEntry, BounceLog, PreflightLog, PendingTrigger,
                       get_bounce_stats_by_domain)
 from email_sender import send_campaign_email, test_ses_connection
-from discount_codes import generate_discount_code
+from discount_engine import generate_discount_code
 from token_utils import create_token, verify_token
 from shopify_sync import sync_shopify_customers, verify_shopify_webhook, handle_shopify_customer_webhook
 import json
@@ -727,7 +727,7 @@ def webhook_shopify_customer_create():
         contact, created = handle_shopify_customer_webhook(customer)
 
         if contact:
-            # Canonical identity resolution: profile, enrichment, cascade, welcome enrollment
+            # Canonical identity resolution: profile, enrichment, cascade
             from identity_resolution import resolve_identity
             resolve_identity(
                 email=contact.email,
@@ -737,6 +737,11 @@ def webhook_shopify_customer_create():
                 last_name=customer.get("last_name", ""),
                 create_if_missing=False,
             )
+
+            # Enroll new contacts in welcome flows
+            if created and contact.subscribed:
+                _enroll_contact_in_flows(contact, "contact_created")
+                app.logger.info(f"Shopify customer webhook: enrolled new contact {contact.email} in welcome flows")
 
             app.logger.info(f"Shopify customer webhook: {'new' if created else 'updated'} contact {contact.email}")
             return jsonify({"success": True, "contact_id": contact.id, "created": created}), 200
@@ -901,10 +906,11 @@ def webhook_shopify_order_create():
          .execute())
 
         if contact:
-            # 2. Smart exit: cancel ALL abandonment + winback flows on purchase
+            # 2. Smart exit: cancel ALL abandonment + winback + welcome flows on purchase
+            # Welcome flow should stop once customer converts — no "5% off" after they bought
             _exit_flows_by_trigger_type(
                 contact,
-                ["checkout_abandoned", "browse_abandonment", "cart_abandonment", "no_purchase_days"],
+                ["checkout_abandoned", "browse_abandonment", "cart_abandonment", "no_purchase_days", "contact_created"],
                 reason_code="flow_exit_purchase",
             )
 
@@ -2367,12 +2373,30 @@ def _exit_flows_by_trigger_type(contact, trigger_types, reason_code="flow_exit_p
 
 
 def _enroll_contact_in_flows(contact, trigger_type, trigger_value=""):
-    """Enroll a contact in all active flows matching trigger_type (and trigger_value if relevant)."""
+    """Enroll a contact in all active flows matching trigger_type (and trigger_value if relevant).
+
+    For order_placed flows: skips if contact completed the same flow in the last 30 days.
+    This prevents repeat buyers getting the same post-purchase sequence every order.
+    """
     query = Flow.select().where(Flow.is_active == True, Flow.trigger_type == trigger_type)
     if trigger_type == "tag_added" and trigger_value:
         query = query.where(Flow.trigger_value == trigger_value)
 
     for flow in query:
+        # For order_placed: skip if recently completed this flow (30-day cooldown)
+        if trigger_type == "order_placed":
+            _thirty_days_ago = datetime.now() - timedelta(days=30)
+            _recent = (FlowEnrollment.select()
+                       .where(FlowEnrollment.flow == flow,
+                              FlowEnrollment.contact == contact,
+                              FlowEnrollment.status == "completed",
+                              FlowEnrollment.enrolled_at >= _thirty_days_ago)
+                       .first())
+            if _recent:
+                app.logger.info("[FlowEnroll] Skipping '%s' for %s — completed %s (30-day cooldown)"
+                                % (flow.name, contact.email, _recent.enrolled_at.strftime('%Y-%m-%d')))
+                continue
+
         first_step = (FlowStep.select()
                       .where(FlowStep.flow == flow)
                       .order_by(FlowStep.step_order)
@@ -2532,6 +2556,16 @@ def _process_flow_enrollments():
         template = step.template
         _unsub = _make_unsubscribe_url(contact)
 
+        # Map flow trigger types to discount engine purposes
+        _TRIGGER_TO_DISCOUNT_PURPOSE = {
+            "checkout_abandoned": "cart_abandonment",
+            "browse_abandonment": "browse_abandonment",
+            "no_purchase_days":   "winback",
+            "contact_created":    "welcome",
+            "order_placed":       "loyalty_reward",
+        }
+        _discount_purpose = _TRIGGER_TO_DISCOUNT_PURPOSE.get(flow.trigger_type, "welcome")
+
         if getattr(template, 'template_format', 'html') == 'blocks':
             # Block-based template -- render via block_registry
             from block_registry import render_template_blocks
@@ -2539,8 +2573,9 @@ def _process_flow_enrollments():
             html = html.replace("{{unsubscribe_url}}", _unsub)
             # Discount code injection for blocks templates
             if "{{discount_code}}" in html:
-                _dcode = generate_discount_code(template.name, enrollment.id, contact.id)
-                html = html.replace("{{discount_code}}", _dcode if _dcode else "")
+                _result = generate_discount_code(contact.email, _discount_purpose)
+                _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
+                html = html.replace("{{discount_code}}", _dcode)
         else:
             # Legacy HTML template -- existing path unchanged
             html = template.html_body
@@ -2548,12 +2583,12 @@ def _process_flow_enrollments():
             html = html.replace("{{last_name}}",  contact.last_name  or "")
             html = html.replace("{{email}}",      contact.email)
             html = html.replace("{{unsubscribe_url}}", _unsub)
-            # Generate unique discount code if template uses one
+            # Generate real Shopify discount code via discount_engine
             if "{{discount_code}}" in html:
-                _dcode = generate_discount_code(template.name, enrollment.id, contact.id)
+                _result = generate_discount_code(contact.email, _discount_purpose)
+                _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
                 if _dcode:
                     html = html.replace("{{discount_code}}", _dcode)
-                    subject = subject if "subject" in dir() else (step.subject_override or template.subject)
                 else:
                     html = html.replace("{{discount_code}}", "")
 
@@ -2711,10 +2746,12 @@ def _check_abandoned_checkouts():
     """Run every 15 min. Enroll contacts with 1h+ old un-recovered checkouts into checkout_abandoned flows."""
     try:
         one_hour_ago = datetime.now() - timedelta(hours=1)
+        # Use abandoned_at (Shopify's actual timestamp) not created_at (DB insert time)
+        # This ensures the 1-hour delay is from actual abandonment, not webhook processing
         pending = (AbandonedCheckout.select()
                    .where(AbandonedCheckout.recovered == False,
                           AbandonedCheckout.enrolled_in_flow == False,
-                          AbandonedCheckout.created_at <= one_hour_ago))
+                          AbandonedCheckout.abandoned_at <= one_hour_ago.isoformat()))
 
         enrolled_count = 0
         for checkout in pending:
