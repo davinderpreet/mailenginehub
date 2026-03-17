@@ -1,0 +1,403 @@
+{% extends "base.html" %}
+{% block title %}Self-Learning — MailEngineHub{% endblock %}
+{% block page_title %}Self-Learning Intelligence{% endblock %}
+
+{% block content %}
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:24px;">
+  <div style="flex:1">
+    <p style="color:var(--text2);margin:0;font-size:14px;">Closed-loop learning system — observes email outcomes, learns what works, and adjusts sending behavior to maximize revenue.</p>
+  </div>
+  <form method="POST" action="/learning/toggle" style="margin:0;">
+    <button type="submit" class="btn {{ 'btn-danger' if enabled else 'btn-primary' }}" style="white-space:nowrap;">
+      {% if enabled %}
+        <i class="fas fa-pause"></i> Disable Learning
+      {% else %}
+        <i class="fas fa-play"></i> Enable Learning
+      {% endif %}
+    </button>
+  </form>
+</div>
+
+<!-- ── Phase Status Banner ──────────────────────────────────── -->
+{% if enabled %}
+  {% if phase == 'observation' %}
+  <div style="background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.2);border-radius:14px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;">
+    <i class="fas fa-eye" style="font-size:20px;color:var(--cyan);"></i>
+    <div>
+      <div style="font-size:14px;font-weight:700;color:var(--cyan);">Observation Phase — Collecting Data</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:3px;">The system is watching outcomes (opens, clicks, purchases) without making any changes to sending behavior. Needs 30 days + 500 outcomes to advance.</div>
+    </div>
+    <div style="margin-left:auto;background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.3);border-radius:10px;padding:8px 16px;white-space:nowrap;">
+      <span style="font-size:11px;color:var(--cyan);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Day {{ days_elapsed }}</span>
+    </div>
+  </div>
+  {% elif phase == 'conservative' %}
+  <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:14px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;">
+    <i class="fas fa-flask" style="font-size:20px;color:var(--amber);"></i>
+    <div>
+      <div style="font-size:14px;font-weight:700;color:var(--amber);">Conservative Phase — Gentle Adjustments</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:3px;">Making small frequency adjustments (max ±2h/night). Sunset threshold raised to 90. Needs 60 days + 20 purchases to advance.</div>
+    </div>
+    <div style="margin-left:auto;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:8px 16px;white-space:nowrap;">
+      <span style="font-size:11px;color:var(--amber);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Day {{ days_elapsed }}</span>
+    </div>
+  </div>
+  {% else %}
+  <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:14px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;">
+    <i class="fas fa-bolt" style="font-size:20px;color:var(--green);"></i>
+    <div>
+      <div style="font-size:14px;font-weight:700;color:var(--green);">Active Phase — Full Autonomy</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:3px;">All optimizations are live — personalized frequency, template recommendations, sunset policy, action scoring. Guardrails still enforced.</div>
+    </div>
+    <div style="margin-left:auto;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);border-radius:10px;padding:8px 16px;white-space:nowrap;">
+      <span style="font-size:11px;color:var(--green);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Day {{ days_elapsed }}</span>
+    </div>
+  </div>
+  {% endif %}
+{% else %}
+<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:14px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;">
+  <i class="fas fa-circle-pause" style="font-size:20px;color:var(--red);"></i>
+  <div>
+    <div style="font-size:14px;font-weight:700;color:var(--red);">Learning Disabled — Kill Switch Active</div>
+    <div style="font-size:12px;color:var(--text3);margin-top:3px;">The self-learning pipeline is paused. No outcome tracking, no adjustments. Click "Enable Learning" to resume.</div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── 4 Hero Stat Cards ──────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;margin-bottom:20px;">
+  <!-- Learning Phase -->
+  <div style="background:linear-gradient(135deg, rgba(124,58,237,0.12) 0%, rgba(124,58,237,0.04) 100%);border:1px solid rgba(124,58,237,0.2);border-radius:14px;padding:18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <i class="fas fa-graduation-cap" style="color:var(--purple);font-size:14px;"></i>
+      <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);">Learning Phase</span>
+    </div>
+    <div style="font-size:28px;font-weight:800;color:var(--purple);text-transform:capitalize;">{{ phase }}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;">{{ days_elapsed }} days since activation</div>
+  </div>
+
+  <!-- Emails Tracked -->
+  <div style="background:linear-gradient(135deg, rgba(6,182,212,0.12) 0%, rgba(6,182,212,0.04) 100%);border:1px solid rgba(6,182,212,0.2);border-radius:14px;padding:18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <i class="fas fa-chart-line" style="color:var(--cyan);font-size:14px;"></i>
+      <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);">Emails Tracked</span>
+    </div>
+    <div style="font-size:28px;font-weight:800;color:var(--cyan);">{{ "{:,}".format(total_tracked) }}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;">{{ total_purchases }} purchases attributed</div>
+  </div>
+
+  <!-- Revenue Attributed -->
+  <div style="background:linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(16,185,129,0.04) 100%);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <i class="fas fa-dollar-sign" style="color:var(--green);font-size:14px;"></i>
+      <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);">Revenue Attributed</span>
+    </div>
+    <div style="font-size:28px;font-weight:800;color:var(--green);">${{ "{:,.2f}".format(total_revenue) }}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;">72h last-touch attribution</div>
+  </div>
+
+  <!-- Sunset Queue -->
+  <div style="background:linear-gradient(135deg, rgba(236,72,153,0.12) 0%, rgba(236,72,153,0.04) 100%);border:1px solid rgba(236,72,153,0.2);border-radius:14px;padding:18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <i class="fas fa-moon" style="color:var(--pink);font-size:14px;"></i>
+      <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);">Sunset Queue</span>
+    </div>
+    <div style="font-size:28px;font-weight:800;color:var(--pink);">{{ sunset_queue }}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;">{{ sunset_executed }} already sunset</div>
+  </div>
+</div>
+
+<!-- ── Outcome Breakdown + Weekly Trend (2-col) ─────────── -->
+<div style="display:grid;grid-template-columns:1fr 1.5fr;gap:16px;margin-bottom:20px;">
+  <!-- Outcome Breakdown -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;">
+    <h3 style="margin:0 0 16px;font-size:15px;font-weight:700;">Outcome Breakdown</h3>
+
+    <!-- Open Rate -->
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+        <span style="font-size:12px;color:var(--text2);">Open Rate</span>
+        <span style="font-size:12px;font-weight:700;color:var(--cyan);">{{ open_rate }}%</span>
+      </div>
+      <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+        <div style="height:100%;width:{{ [open_rate, 100]|min }}%;background:var(--cyan);border-radius:3px;"></div>
+      </div>
+    </div>
+
+    <!-- Click Rate -->
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+        <span style="font-size:12px;color:var(--text2);">Click Rate</span>
+        <span style="font-size:12px;font-weight:700;color:var(--purple);">{{ click_rate }}%</span>
+      </div>
+      <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+        <div style="height:100%;width:{{ [click_rate * 5, 100]|min }}%;background:var(--purple);border-radius:3px;"></div>
+      </div>
+    </div>
+
+    <!-- Conversion Rate -->
+    <div style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+        <span style="font-size:12px;color:var(--text2);">Conversion Rate</span>
+        <span style="font-size:12px;font-weight:700;color:var(--green);">{{ conversion_rate }}%</span>
+      </div>
+      <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+        <div style="height:100%;width:{{ [conversion_rate * 10, 100]|min }}%;background:var(--green);border-radius:3px;"></div>
+      </div>
+    </div>
+
+    <!-- Unsub Rate -->
+    <div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+        <span style="font-size:12px;color:var(--text2);">Unsub Rate</span>
+        <span style="font-size:12px;font-weight:700;color:var(--red);">{{ unsub_rate }}%</span>
+      </div>
+      <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+        <div style="height:100%;width:{{ [unsub_rate * 20, 100]|min }}%;background:var(--red);border-radius:3px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Weekly Trend Chart -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;">
+    <h3 style="margin:0 0 16px;font-size:15px;font-weight:700;">Weekly Trend</h3>
+    <canvas id="weeklyChart" height="180"></canvas>
+  </div>
+</div>
+
+<!-- ── Phase Progress ──────────────────────────────────────── -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:20px;">
+  <h3 style="margin:0 0 16px;font-size:15px;font-weight:700;">Phase Progress</h3>
+  <div style="display:flex;align-items:center;gap:0;position:relative;">
+    {% set phases = [
+      {"name": "Observation", "days": "30 days", "gate": "500 outcomes", "key": "observation"},
+      {"name": "Conservative", "days": "30 days", "gate": "20 purchases", "key": "conservative"},
+      {"name": "Active", "days": "∞", "gate": "Full autonomy", "key": "active"},
+    ] %}
+    {% for p in phases %}
+    <div style="flex:1;text-align:center;position:relative;">
+      <div style="width:36px;height:36px;border-radius:50%;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;
+        {% if p.key == phase %}background:var(--purple);color:white;box-shadow:0 0 16px rgba(124,58,237,0.4);
+        {% elif (p.key == 'conservative' and phase == 'active') or (p.key == 'observation' and phase in ['conservative', 'active']) %}background:var(--green);color:white;
+        {% else %}background:rgba(255,255,255,0.08);color:var(--text3);{% endif %}">
+        {% if (p.key == 'conservative' and phase == 'active') or (p.key == 'observation' and phase in ['conservative', 'active']) %}
+          <i class="fas fa-check" style="font-size:12px;"></i>
+        {% else %}
+          {{ loop.index }}
+        {% endif %}
+      </div>
+      <div style="font-size:12px;font-weight:{% if p.key == phase %}700;color:var(--text){% else %}500;color:var(--text3){% endif %};">{{ p.name }}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px;">{{ p.days }} · {{ p.gate }}</div>
+    </div>
+    {% if not loop.last %}
+    <div style="flex:0.5;height:2px;background:{% if (loop.index == 1 and phase in ['conservative','active']) or (loop.index == 2 and phase == 'active') %}var(--green){% else %}rgba(255,255,255,0.08){% endif %};margin-bottom:28px;"></div>
+    {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ── Template Performance Table ──────────────────────────── -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:20px;">
+  <h3 style="margin:0 0 4px;font-size:15px;font-weight:700;">Template Performance</h3>
+  <p style="font-size:12px;color:var(--text3);margin:0 0 16px;">Ranked by revenue per send — last 30 days rolling window</p>
+
+  {% if template_perf %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border);">
+          <th style="text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Template</th>
+          <th style="text-align:right;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Sends</th>
+          <th style="text-align:right;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Open %</th>
+          <th style="text-align:right;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Click %</th>
+          <th style="text-align:right;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Conv %</th>
+          <th style="text-align:right;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Rev/Send</th>
+          <th style="text-align:right;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Total Rev</th>
+          <th style="text-align:center;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Confidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in template_perf %}
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.03);">
+          <td style="padding:10px 12px;font-size:13px;color:var(--text);font-weight:500;">{{ t.name }}</td>
+          <td style="padding:10px 12px;font-size:13px;color:var(--text2);text-align:right;">{{ "{:,}".format(t.sends) }}</td>
+          <td style="padding:10px 12px;font-size:13px;color:var(--cyan);text-align:right;">{{ t.open_rate }}%</td>
+          <td style="padding:10px 12px;font-size:13px;color:var(--purple2);text-align:right;">{{ t.click_rate }}%</td>
+          <td style="padding:10px 12px;font-size:13px;color:var(--green);text-align:right;">{{ t.conversion_rate }}%</td>
+          <td style="padding:10px 12px;font-size:13px;color:var(--green);text-align:right;font-weight:700;">${{ t.revenue_per_send }}</td>
+          <td style="padding:10px 12px;font-size:13px;color:var(--text2);text-align:right;">${{ "{:,.2f}".format(t.revenue_total) }}</td>
+          <td style="padding:10px 12px;text-align:center;">
+            {% if t.confidence == 'high' %}
+            <span style="background:rgba(16,185,129,0.15);color:var(--green);font-size:10px;padding:3px 8px;border-radius:6px;font-weight:600;">HIGH</span>
+            {% else %}
+            <span style="background:rgba(245,158,11,0.15);color:var(--amber);font-size:10px;padding:3px 8px;border-radius:6px;font-weight:600;">LEARNING</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:32px;color:var(--text3);font-size:13px;">
+    <i class="fas fa-hourglass-half" style="font-size:24px;margin-bottom:8px;display:block;"></i>
+    No template performance data yet — the learning engine computes this nightly after outcomes are collected.
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Action Effectiveness Table ──────────────────────────── -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:20px;">
+  <h3 style="margin:0 0 4px;font-size:15px;font-weight:700;">Action Effectiveness</h3>
+  <p style="font-size:12px;color:var(--text3);margin:0 0 16px;">How each action type performs per segment — multipliers applied to NBM scoring</p>
+
+  {% if action_perf %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border);">
+          <th style="text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Action</th>
+          <th style="text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Segment</th>
+          <th style="text-align:right;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Samples</th>
+          <th style="text-align:right;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Open %</th>
+          <th style="text-align:right;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Conv %</th>
+          <th style="text-align:right;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Rev/Send</th>
+          <th style="text-align:center;padding:8px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:600;">Multiplier</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in action_perf %}
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.03);">
+          <td style="padding:10px 12px;font-size:13px;color:var(--text);font-weight:500;">{{ a.action_type|replace('_', ' ')|title }}</td>
+          <td style="padding:10px 12px;">
+            <span style="background:rgba(124,58,237,0.15);color:var(--purple2);font-size:10px;padding:3px 8px;border-radius:6px;font-weight:600;">{{ a.segment }}</span>
+          </td>
+          <td style="padding:10px 12px;font-size:13px;color:var(--text2);text-align:right;">{{ "{:,}".format(a.sample_size) }}</td>
+          <td style="padding:10px 12px;font-size:13px;color:var(--cyan);text-align:right;">{{ a.open_rate }}%</td>
+          <td style="padding:10px 12px;font-size:13px;color:var(--green);text-align:right;">{{ a.conversion_rate }}%</td>
+          <td style="padding:10px 12px;font-size:13px;color:var(--text2);text-align:right;">${{ a.revenue_per_send }}</td>
+          <td style="padding:10px 12px;text-align:center;">
+            {% if a.multiplier > 1.0 %}
+            <span style="background:rgba(16,185,129,0.15);color:var(--green);font-size:11px;padding:3px 10px;border-radius:6px;font-weight:700;">{{ a.multiplier }}x</span>
+            {% elif a.multiplier < 1.0 %}
+            <span style="background:rgba(239,68,68,0.15);color:var(--red);font-size:11px;padding:3px 10px;border-radius:6px;font-weight:700;">{{ a.multiplier }}x</span>
+            {% else %}
+            <span style="background:rgba(255,255,255,0.06);color:var(--text3);font-size:11px;padding:3px 10px;border-radius:6px;font-weight:700;">1.0x</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:32px;color:var(--text3);font-size:13px;">
+    <i class="fas fa-hourglass-half" style="font-size:24px;margin-bottom:8px;display:block;"></i>
+    No action effectiveness data yet — the learning engine computes this nightly after outcomes are collected.
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── How It Works (Info Box) ──────────────────────────────── -->
+<div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:14px;padding:18px 22px;margin-bottom:20px;">
+  <div style="display:flex;align-items:flex-start;gap:14px;">
+    <i class="fas fa-circle-info" style="font-size:16px;color:var(--cyan);margin-top:2px;"></i>
+    <div>
+      <div style="font-size:13px;font-weight:700;color:var(--cyan);margin-bottom:6px;">How the Self-Learning Pipeline Works</div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.6;">
+        <strong>5:00 AM</strong> — Outcome Tracker collects opens, clicks, purchases, and unsubscribes from the last 48 hours.<br>
+        <strong>5:30 AM</strong> — Learning Engine analyzes outcomes: template scoring, action effectiveness, optimal frequency, sunset scores.<br>
+        <strong>6:00 AM</strong> — Strategy Optimizer applies insights: template recommendations, personalized freq caps, sunset execution.<br>
+        <strong>Next night</strong> — The AI Engine and decision pipeline consume the learned data to make smarter decisions.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// Weekly Trend Chart
+const ctx = document.getElementById('weeklyChart').getContext('2d');
+const weeklyData = {{ weekly_trend|tojson }};
+
+new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: weeklyData.map(w => w.label),
+    datasets: [
+      {
+        label: 'Open Rate %',
+        data: weeklyData.map(w => w.open_rate),
+        borderColor: '#06b6d4',
+        backgroundColor: 'rgba(6, 182, 212, 0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 4,
+        pointBackgroundColor: '#06b6d4',
+        borderWidth: 2,
+      },
+      {
+        label: 'Conversion Rate %',
+        data: weeklyData.map(w => w.conversion_rate),
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 4,
+        pointBackgroundColor: '#10b981',
+        borderWidth: 2,
+      },
+      {
+        label: 'Revenue $',
+        data: weeklyData.map(w => w.revenue),
+        borderColor: '#a855f7',
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0.3,
+        pointRadius: 4,
+        pointBackgroundColor: '#a855f7',
+        borderWidth: 2,
+        yAxisID: 'revenue',
+      },
+    ],
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { intersect: false, mode: 'index' },
+    plugins: {
+      legend: {
+        labels: { color: '#94a3b8', font: { size: 11 }, usePointStyle: true, pointStyle: 'circle' },
+      },
+      tooltip: {
+        backgroundColor: '#0f172a',
+        titleColor: '#e2e8f0',
+        bodyColor: '#94a3b8',
+        borderColor: 'rgba(255,255,255,0.1)',
+        borderWidth: 1,
+        cornerRadius: 8,
+        padding: 10,
+      },
+    },
+    scales: {
+      x: {
+        grid: { color: 'rgba(255,255,255,0.04)' },
+        ticks: { color: '#475569', font: { size: 10 } },
+      },
+      y: {
+        position: 'left',
+        grid: { color: 'rgba(255,255,255,0.04)' },
+        ticks: { color: '#475569', font: { size: 10 }, callback: v => v + '%' },
+        beginAtZero: true,
+      },
+      revenue: {
+        position: 'right',
+        grid: { display: false },
+        ticks: { color: '#a855f7', font: { size: 10 }, callback: v => '$' + v },
+        beginAtZero: true,
+      },
+    },
+  },
+});
+</script>
+{% endblock %}
