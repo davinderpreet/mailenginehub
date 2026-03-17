@@ -53,7 +53,7 @@
         <tr>
           <td><a href="/campaigns/{{ c.id }}" style="color:var(--purple2);text-decoration:none;font-weight:600;">{{ c.name }}</a></td>
           <td><span class="badge badge-{{ c.status }}">{{ c.status.title() }}</span></td>
-          <td>{{ c.created_at.strftime('%b %d, %Y') }}</td>
+          <td>{{ c.created_at|et("%b %d, %Y") }}</td>
         </tr>
         {% endfor %}
         </tbody>

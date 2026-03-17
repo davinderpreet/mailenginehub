@@ -27,11 +27,11 @@ from email_shell import (
 # =========================================================================
 
 DESIGN = {
-    # Dark backgrounds
-    "body_bg":           "#111111",
-    "surface":           "#1a1a1a",
-    "surface_border":    "#2a2a2a",
-    "divider_color":     "#222222",
+    # Dark backgrounds — unified deep navy for cohesive look
+    "body_bg":           "#0d1020",
+    "surface":           "#141828",
+    "surface_border":    "#1e2440",
+    "divider_color":     "#1a1e35",
 
     # Text on dark
     "text_primary":      "#ffffff",
@@ -413,12 +413,10 @@ _TRUST_ICONS = {
 # =========================================================================
 
 def render_hero(content):
-    """Hero headline section with dark background."""
+    """Hero headline section — flows seamlessly into next block via gradient fade."""
     headline = html_mod.escape(content.get("headline", ""))
     subheadline = content.get("subheadline", "")
-    bg = content.get("bg_color", DESIGN["body_bg"])
 
-    # On dark theme, text is ALWAYS white regardless of bg_color
     text_color = DESIGN["text_primary"]
     sub_color = DESIGN["text_secondary"]
 
@@ -429,29 +427,36 @@ def render_hero(content):
         img_html = '<img src="%s" alt="" width="100%%" style="display:block;max-width:100%%;" />' % html_mod.escape(hero_image_url)
         img_html = '<tr><td style="padding:0;background:%s;">%s</td></tr>' % (DESIGN["body_bg"], img_html)
 
+    # Thin blue accent line — visual thread that ties email together
+    accent_line = '<div style="width:48px;height:3px;background:linear-gradient(90deg,%s,%s);margin:0 auto 20px;border-radius:2px;"></div>' % (
+        DESIGN["brand"], DESIGN["brand_light"]
+    )
+
     sub_html = ""
     if subheadline:
-        sub_html = '<p style="margin:10px 0 0;font-size:17px;color:%s;font-weight:400;">%s</p>' % (
+        sub_html = '<p style="margin:14px 0 0;font-size:17px;color:%s;font-weight:400;letter-spacing:0.2px;line-height:1.5;">%s</p>' % (
             sub_color, html_mod.escape(subheadline)
         )
 
-    # Optional inline CTA — always inverted white on dark
+    # Optional inline CTA
     cta_text = content.get("cta_text", "")
     cta_url = content.get("cta_url", "")
     cta_html = ""
     if cta_text and cta_url:
-        cta_html = '<p style="margin:18px 0 0;"><a href="%s" style="%s;background:%s;color:%s;">%s</a></p>' % (
+        cta_html = '<p style="margin:22px 0 0;"><a href="%s" style="%s;background:%s;color:%s;box-shadow:0 0 24px rgba(6,60,255,0.35);">%s</a></p>' % (
             cta_url, DESIGN["btn_primary"], DESIGN["btn_primary_bg"], DESIGN["btn_primary_text"], html_mod.escape(cta_text)
         )
 
-    return '''%s<tr><td style="background:%s;padding:36px 30px;text-align:center;" class="mobile-pad">
-  <h1 style="%s;color:%s;">%s</h1>
+    # Hero uses generous top padding but tight bottom — flows INTO the next block
+    return '''%s<tr><td style="padding:48px 30px 16px;text-align:center;" class="mobile-pad">
+  %s
+  <h1 style="%s;color:%s;font-size:34px;letter-spacing:-0.5px;">%s</h1>
   %s%s
-</td></tr>''' % (img_html, bg, DESIGN["h1"], text_color, headline, sub_html, cta_html)
+</td></tr>''' % (img_html, accent_line, DESIGN["h1"], text_color, headline, sub_html, cta_html)
 
 
 def render_text(content):
-    """Body text paragraphs with optional section header."""
+    """Body text — center-aligned to maintain visual flow from hero."""
     paragraphs = content.get("paragraphs", [])
     if not paragraphs:
         return ""
@@ -460,7 +465,7 @@ def render_text(content):
     section_header = content.get("section_header", "")
     header_html = ""
     if section_header:
-        header_html = '<p style="margin:0 0 12px;%s;color:%s;">%s</p>' % (
+        header_html = '<p style="margin:0 0 14px;%s;color:%s;">%s</p>' % (
             DESIGN["label"], DESIGN["text_tertiary"], html_mod.escape(section_header)
         )
 
@@ -470,12 +475,13 @@ def render_text(content):
         safe = safe.replace("&lt;strong&gt;", "<strong>").replace("&lt;/strong&gt;", "</strong>")
         safe = safe.replace("&lt;br/&gt;", "<br/>").replace("&lt;br&gt;", "<br/>")
         safe = safe.replace("&amp;bull;", "&bull;")
-        paras_html += '<p style="margin:0 0 14px;%s;color:%s;">%s</p>' % (
+        paras_html += '<p style="margin:0 0 12px;%s;color:%s;">%s</p>' % (
             DESIGN["body"], DESIGN["text_secondary"], safe
         )
 
-    return '<tr><td style="padding:%s;background:%s;" class="mobile-pad">%s%s</td></tr>' % (
-        DESIGN["section_pad"], DESIGN["body_bg"], header_html, paras_html
+    # Center-aligned text, tighter padding to flow from hero/previous block
+    return '<tr><td style="padding:12px 36px 20px;background:%s;text-align:center;" class="mobile-pad">%s%s</td></tr>' % (
+        DESIGN["body_bg"], header_html, paras_html
     )
 
 
@@ -573,6 +579,9 @@ def render_product_hero(content, products=None):
 
     title = html_mod.escape(product.get("title", "")[:80])
     image_url = product.get("image_url", "")
+    # Guardrail: reject placeholder/broken URLs — fall back to no-image card
+    if image_url and ("placeholder" in image_url or not image_url.startswith("http")):
+        image_url = ""
     price = product.get("price", "0.00")
     product_url = product.get("product_url", BRAND_URL)
     compare_price = product.get("compare_price", "")
@@ -612,7 +621,7 @@ def render_product_hero(content, products=None):
             DESIGN["body"], DESIGN["text_secondary"], html_mod.escape(description[:200])
         )
 
-    # Elevated dark card
+    # Elevated dark card (no CTA button — the dedicated cta block handles that)
     card_html = '''<tr><td style="padding:10px 30px 8px;background:%s;" class="mobile-pad">
   <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="%s;border-radius:%s;overflow:hidden;background:%s;box-shadow:%s;">
     <tr><td style="padding:0;background:%s;">%s</td></tr>
@@ -620,16 +629,12 @@ def render_product_hero(content, products=None):
       <a href="%s" style="text-decoration:none;color:inherit;"><p style="%s;color:%s;margin-bottom:4px;">%s</p></a>
       <p style="margin:10px 0 16px;">%s</p>
       %s
-      <p style="margin:0;text-align:center;">
-        <a href="%s" style="%s;background:%s;color:%s;">%s</a>
-      </p>
     </td></tr>
   </table>
 </td></tr>''' % (DESIGN["body_bg"], DESIGN["card_border"], DESIGN["card_radius"], DESIGN["card_bg"], DESIGN["card_shadow_lg"],
                  DESIGN["spotlight"], img_cell,
                  product_url, DESIGN["h2"], DESIGN["text_primary"], title,
-                 price_html, desc_html,
-                 product_url, DESIGN["btn_primary"], DESIGN["btn_primary_bg"], DESIGN["btn_primary_text"], cta_text)
+                 price_html, desc_html)
 
     return label_html + card_html
 
@@ -688,35 +693,56 @@ def render_comparison(content, products=None):
 
 
 def render_trust(content):
-    """Trust & reassurance badges — horizontal inline on dark surface."""
+    """Trust badges — lightweight inline row, no heavy card. Flows as a natural pause."""
     items = content.get("items", BLOCK_TYPES["trust_reassurance"]["defaults"]["items"])
     if not items:
         return ""
+
+    _ICON_CHARS = {
+        "package":  "&#x25A1;",
+        "truck":    "&#x27A4;",
+        "shield":   "&#x2714;",
+        "star":     "&#x2605;",
+        "maple":    "&#x2665;",
+        "lock":     "&#x25CF;",
+        "heart":    "&#x2665;",
+        "check":    "&#x2714;",
+        "clock":    "&#x25D4;",
+        "gift":     "&#x2714;",
+    }
 
     badges_html = ""
     for idx, item in enumerate(items[:4]):
         icon_key = item.get("icon", "check") if isinstance(item, dict) else "check"
         text = item.get("text", str(item)) if isinstance(item, dict) else str(item)
-        icon_entity = _TRUST_ICONS.get(icon_key, "&#x2705;")
+        icon_char = _ICON_CHARS.get(icon_key, "&#x2714;")
 
-        divider = ""
+        # Dot separator between badges (not divider lines)
+        sep = ""
         if idx > 0:
-            divider = '<td style="width:1px;background:%s;font-size:0;">&nbsp;</td>' % DESIGN["surface_border"]
+            sep = '<td style="width:12px;text-align:center;font-size:0;color:#333;vertical-align:middle;">&bull;</td>'
 
-        badges_html += '''%s<td style="padding:16px 14px;text-align:center;vertical-align:middle;">
-  <span style="font-size:20px;vertical-align:middle;">%s</span>
-  <span style="font-size:13px;font-weight:600;color:%s;vertical-align:middle;margin-left:4px;">%s</span>
-</td>''' % (divider, icon_entity, DESIGN["text_primary"], html_mod.escape(text))
+        badges_html += '''%s<td style="padding:6px 8px;text-align:center;vertical-align:middle;">
+  <span style="display:inline-block;width:28px;height:28px;background:linear-gradient(135deg,%s,%s);border-radius:50%%;text-align:center;font-size:12px;color:#fff;line-height:28px;font-weight:700;vertical-align:middle;">%s</span>
+  <span style="font-size:11px;font-weight:600;color:%s;vertical-align:middle;margin-left:4px;">%s</span>
+</td>''' % (sep, DESIGN["brand"], DESIGN["brand_light"], icon_char, DESIGN["text_secondary"], html_mod.escape(text))
 
-    return '''<tr><td style="padding:20px 24px;background:%s;" class="mobile-pad">
-  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="background:%s;border-radius:14px;%s;">
-    <tr>%s</tr>
+    # No card background — just a clean row with subtle top/bottom borders for rhythm
+    return '''<tr><td style="padding:16px 24px;background:%s;" class="mobile-pad">
+  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid %s;border-bottom:1px solid %s;">
+    <tr>
+      <td style="padding:14px 0;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
+          <tr>%s</tr>
+        </table>
+      </td>
+    </tr>
   </table>
-</td></tr>''' % (DESIGN["body_bg"], DESIGN["surface"], DESIGN["card_border"], badges_html)
+</td></tr>''' % (DESIGN["body_bg"], DESIGN["surface_border"], DESIGN["surface_border"], badges_html)
 
 
 def render_features(content):
-    """Features & benefits checklist — flat on dark."""
+    """Features & benefits — center-aligned with inline checkmarks for flow."""
     items = content.get("items", [])
     if not items:
         return ""
@@ -725,24 +751,28 @@ def render_features(content):
 
     header_html = ""
     if section_title:
-        header_html = '<p style="margin:0 0 14px;%s;color:%s;">%s</p>' % (
+        header_html = '<p style="margin:0 0 18px;%s;color:%s;text-align:center;">%s</p>' % (
             DESIGN["label"], DESIGN["brand"], html_mod.escape(section_title)
         )
 
     rows = ""
-    for item in items[:8]:
+    capped = items[:6]
+    for item in capped:
         text = html_mod.escape(str(item))
         rows += '''<tr>
-  <td style="width:28px;font-size:16px;vertical-align:top;padding:4px 0;"><span style="display:inline-block;width:24px;height:24px;background:%s;border-radius:50%%;text-align:center;font-size:13px;color:%s;line-height:24px;">&#x2713;</span></td>
-  <td style="%s;color:%s;padding:4px 0;">%s</td>
-</tr>''' % (DESIGN["brand_glow"], DESIGN["brand"], DESIGN["body"], DESIGN["text_primary"], text)
+  <td style="width:32px;vertical-align:middle;padding:7px 0;">
+    <span style="display:inline-block;width:22px;height:22px;background:linear-gradient(135deg,%s,%s);border-radius:50%%;text-align:center;font-size:11px;color:#fff;line-height:22px;font-weight:700;">&#x2713;</span>
+  </td>
+  <td style="font-size:14px;line-height:1.6;color:%s;padding:7px 0;">%s</td>
+</tr>''' % (DESIGN["brand"], DESIGN["brand_light"], DESIGN["text_primary"], text)
 
-    return '''<tr><td style="padding:%s;background:%s;" class="mobile-pad">
+    # Center the feature list within a narrower container for visual focus
+    return '''<tr><td style="padding:20px 30px;background:%s;text-align:center;" class="mobile-pad">
   %s
-  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="text-align:left;">
     %s
   </table>
-</td></tr>''' % (DESIGN["section_pad"], DESIGN["body_bg"], header_html, rows)
+</td></tr>''' % (DESIGN["body_bg"], header_html, rows)
 
 
 def render_discount(content, discount_data=None):
@@ -775,43 +805,38 @@ def render_discount(content, discount_data=None):
 
 
 def render_cta(content):
-    """Large call-to-action button — inverted white on dark."""
+    """CTA button — generous breathing room, blue glow draws the eye down."""
     text = html_mod.escape(content.get("text", "Shop Now"))
     url = content.get("url", BRAND_URL)
-    # color param ignored in dark redesign — always inverted white
 
     secondary_text = content.get("secondary_text", "")
     secondary_url = content.get("secondary_url", "")
 
     secondary_html = ""
     if secondary_text and secondary_url:
-        secondary_html = '<p style="margin:12px 0 0;font-size:13px;"><a href="%s" style="color:%s;text-decoration:underline;">%s</a></p>' % (
+        secondary_html = '<p style="margin:14px 0 0;font-size:13px;"><a href="%s" style="color:%s;text-decoration:underline;">%s</a></p>' % (
             secondary_url, DESIGN["text_secondary"], html_mod.escape(secondary_text)
         )
 
-    return '''<tr><td style="padding:8px 30px 24px;text-align:center;background:%s;" class="mobile-pad">
-  <a href="%s" style="%s;background:%s;color:%s;">%s</a>
+    return '''<tr><td style="padding:24px 30px 32px;text-align:center;" class="mobile-pad">
+  <a href="%s" style="%s;background:%s;color:%s;box-shadow:0 0 28px rgba(6,60,255,0.35),0 4px 14px rgba(6,60,255,0.2);font-size:17px;padding:18px 52px;">%s</a>
   %s
-</td></tr>''' % (DESIGN["body_bg"], url, DESIGN["btn_primary"], DESIGN["btn_primary_bg"], DESIGN["btn_primary_text"], text, secondary_html)
+</td></tr>''' % (url, DESIGN["btn_primary"], DESIGN["btn_primary_bg"], DESIGN["btn_primary_text"], text, secondary_html)
 
 
 def render_urgency(content):
-    """Amber urgency message bar — dark theme."""
+    """Urgency bar — centered, lightweight, acts as a visual beat before CTA."""
     message = content.get("message", "")
     if not message:
         return ""
     safe = html_mod.escape(message)
-    return '''<tr><td style="padding:0 30px 16px;background:%s;" class="mobile-pad">
-  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0">
-    <tr><td style="background:%s;border:1px solid %s;border-radius:10px;padding:12px 16px;text-align:center;">
-      <span style="font-size:13px;font-weight:600;color:%s;">&#9203; %s</span>
-    </td></tr>
-  </table>
-</td></tr>''' % (DESIGN["body_bg"], DESIGN["urgency_bg"], DESIGN["urgency_border"], DESIGN["urgency_text"], safe)
+    return '''<tr><td style="padding:8px 30px 14px;background:%s;text-align:center;" class="mobile-pad">
+  <span style="display:inline-block;font-size:13px;font-weight:600;color:%s;letter-spacing:0.3px;padding:10px 24px;background:%s;border:1px solid %s;border-radius:24px;">&#9203; %s</span>
+</td></tr>''' % (DESIGN["body_bg"], DESIGN["urgency_text"], DESIGN["urgency_bg"], DESIGN["urgency_border"], safe)
 
 
 def render_driver_testimonial(content):
-    """Customer testimonial quote card — dark theme with left accent bar."""
+    """Customer testimonial — center-aligned, minimal styling, flows in the narrative."""
     quote = html_mod.escape(content.get("quote", ""))
     author_name = html_mod.escape(content.get("author_name", ""))
     author_role = html_mod.escape(content.get("author_role", ""))
@@ -830,34 +855,21 @@ def render_driver_testimonial(content):
         else:
             stars_html += '<span style="color:#333;">&#9733;</span>'
 
-    # Attribution line
-    attribution = "&mdash; %s" % author_name
+    # Attribution
+    attr_parts = [author_name]
     if author_role:
-        attribution += '<br/><span style="font-size:12px;color:%s;font-weight:400;">%s</span>' % (DESIGN["text_secondary"], author_role)
+        attr_parts.append(author_role)
     if product_name:
-        attribution += '<br/><span style="font-size:12px;color:%s;font-style:italic;">Re: %s</span>' % (DESIGN["text_tertiary"], product_name)
+        attr_parts.append(product_name)
 
-    # Section header
-    header_html = '<p style="margin:0 0 16px;%s;color:%s;">%s</p>' % (
-        DESIGN["label"], DESIGN["brand"], section_title
-    )
-
-    return '''<tr><td style="padding:%s;background:%s;" class="mobile-pad">
-  %s
-  <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="background:%s;border-radius:14px;%s;overflow:hidden;">
-    <tr>
-      <td style="width:5px;background:%s;font-size:0;">&nbsp;</td>
-      <td style="padding:26px 28px 26px 24px;">
-        <p style="margin:0 0 12px;font-size:20px;letter-spacing:2px;">%s</p>
-        <p style="margin:0 0 18px;font-size:17px;font-style:italic;color:%s;line-height:1.65;">&ldquo;%s&rdquo;</p>
-        <p style="margin:0;font-size:14px;font-weight:600;color:%s;line-height:1.5;">%s</p>
-      </td>
-    </tr>
-  </table>
-</td></tr>''' % (DESIGN["section_pad"], DESIGN["body_bg"], header_html,
-                 DESIGN["card_bg"], DESIGN["card_border"],
-                 DESIGN["brand"],
-                 stars_html, DESIGN["text_primary"], quote, DESIGN["text_secondary"], attribution)
+    return '''<tr><td style="padding:20px 36px;background:%s;text-align:center;" class="mobile-pad">
+  <p style="margin:0 0 12px;%s;color:%s;">%s</p>
+  <p style="margin:0 0 10px;font-size:18px;letter-spacing:1px;">%s</p>
+  <p style="margin:0 0 14px;font-size:16px;font-style:italic;color:%s;line-height:1.6;">&ldquo;%s&rdquo;</p>
+  <p style="margin:0;font-size:13px;font-weight:600;color:%s;">%s</p>
+</td></tr>''' % (DESIGN["body_bg"], DESIGN["label"], DESIGN["brand"], section_title,
+                 stars_html, DESIGN["text_primary"], quote,
+                 DESIGN["text_secondary"], " &bull; ".join(attr_parts))
 
 
 def render_comparison_module(content, products=None):
@@ -1507,7 +1519,12 @@ def render_whats_included(content):
 
     list_rows = ""
     for item in items[:8]:
-        text = html_mod.escape(str(item))[:40]
+        # Handle both string items and dict items (e.g. {"name": "..."})
+        if isinstance(item, dict):
+            text = item.get("name", item.get("text", str(item)))
+        else:
+            text = str(item)
+        text = html_mod.escape(text)[:40]
         list_rows += '''<tr>
   <td style="width:38px;vertical-align:middle;padding:6px 0;">%s</td>
   <td style="font-size:14px;color:%s;padding:6px 0;line-height:1.5;">%s</td>
@@ -1794,6 +1811,74 @@ _BLOCK_RENDERERS = {
 
 
 # =========================================================================
+#  VISUAL FLOW — Inter-block spacing for cohesive design
+# =========================================================================
+
+# Block type categories for flow logic
+_INTRO_BLOCKS = {"hero"}
+_CONTENT_BLOCKS = {"text", "features_benefits", "feature_highlights", "why_choose_this"}
+_PROOF_BLOCKS = {"trust_reassurance", "driver_testimonial", "best_seller_proof"}
+_ACTION_BLOCKS = {"cta", "urgency", "discount"}
+_PRODUCT_BLOCKS = {"product_grid", "product_hero", "comparison", "comparison_block", "bundle_value"}
+
+
+def _get_flow_spacer(prev_type, next_type):
+    """Return an inter-block HTML spacer row that creates visual flow.
+
+    Rules:
+    - Hero → anything: NO spacer (hero has tight bottom padding, flows directly)
+    - Content → Content: tiny spacer (continuous reading flow)
+    - Content → Proof/Trust: thin accent divider (section shift)
+    - Anything → CTA: breathing room (let CTA be the focal point)
+    - Anything → Product: section label spacer
+    - Proof → Action: no spacer (trust flows right into CTA)
+    """
+    if prev_type is None:
+        return None
+
+    bg = DESIGN["body_bg"]
+
+    # Hero flows directly into next block — no gap
+    if prev_type in _INTRO_BLOCKS:
+        return None
+
+    # Urgency flows directly into CTA — no gap
+    if prev_type == "urgency" and next_type == "cta":
+        return None
+
+    # CTA after discount — minimal gap
+    if prev_type == "discount" and next_type == "cta":
+        return '<tr><td style="height:6px;background:%s;font-size:0;line-height:0;">&nbsp;</td></tr>' % bg
+
+    # Trust/proof flows into action — tight connection
+    if prev_type in _PROOF_BLOCKS and next_type in _ACTION_BLOCKS:
+        return '<tr><td style="height:8px;background:%s;font-size:0;line-height:0;">&nbsp;</td></tr>' % bg
+
+    # Content → Content: minimal breathing
+    if prev_type in _CONTENT_BLOCKS and next_type in _CONTENT_BLOCKS:
+        return None  # text blocks have their own padding
+
+    # Before product blocks: subtle section divider
+    if next_type in _PRODUCT_BLOCKS:
+        return '<tr><td style="padding:8px 60px;background:%s;"><div style="height:1px;background:linear-gradient(90deg,transparent,%s,transparent);"></div></td></tr>' % (
+            bg, DESIGN["surface_border"]
+        )
+
+    # Content → Proof: subtle gradient divider (section transition)
+    if prev_type in _CONTENT_BLOCKS and next_type in _PROOF_BLOCKS:
+        return '<tr><td style="padding:6px 60px;background:%s;"><div style="height:1px;background:linear-gradient(90deg,transparent,%s,transparent);"></div></td></tr>' % (
+            bg, DESIGN["surface_border"]
+        )
+
+    # Before any action block: breathing room
+    if next_type in _ACTION_BLOCKS:
+        return '<tr><td style="height:10px;background:%s;font-size:0;line-height:0;">&nbsp;</td></tr>' % bg
+
+    # Default: small breathing spacer
+    return '<tr><td style="height:6px;background:%s;font-size:0;line-height:0;">&nbsp;</td></tr>' % bg
+
+
+# =========================================================================
 #  MASTER RENDER FUNCTION
 # =========================================================================
 
@@ -1855,9 +1940,11 @@ def render_template_blocks(template, contact=None, products=None, discount=None,
         except ImportError:
             contact_context = None
 
-    # Render each block (with variant resolution)
+    # Render each block (with variant resolution + visual flow)
     body_parts = []
     explain_list = []
+    rendered_types = []  # track block types for flow logic
+    product_offset = 0   # track products consumed by earlier blocks (e.g. product_hero)
 
     for i, block in enumerate(blocks):
         block_type = block.get("block_type", "")
@@ -1893,9 +1980,19 @@ def render_template_blocks(template, contact=None, products=None, discount=None,
         if not renderer:
             continue
 
-        html_fragment = renderer(content, products=products or [], discount=discount)
+        # Pass remaining products (skip ones already consumed by earlier blocks)
+        remaining_products = (products or [])[product_offset:]
+        html_fragment = renderer(content, products=remaining_products, discount=discount)
+        if block_type == "product_hero" and html_fragment and remaining_products:
+            product_offset += 1  # product_hero consumes one product
         if html_fragment:
+            # ── Visual flow: add connective spacing between blocks ──
+            prev_type = rendered_types[-1] if rendered_types else None
+            spacer = _get_flow_spacer(prev_type, block_type)
+            if spacer:
+                body_parts.append(spacer)
             body_parts.append(html_fragment)
+            rendered_types.append(block_type)
 
     body_html = "\n".join(body_parts)
 

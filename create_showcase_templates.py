@@ -395,9 +395,9 @@ SHOWCASE_TEMPLATES = [
             {"block_type": "use_case_match", "content": {
                 "section_title": "Find Your Match",
                 "cases": [
-                    {"persona": "Long-Haul Trucker", "description": "24-hour battery, noise cancelling for highway calls, lightweight all-day comfort", "product_name": "G3 Pro Headset", "cta_url": "https://ldas.ca/products/g3-headset"},
-                    {"persona": "Fleet Manager", "description": "Dual-device connect, crystal clear calls, durable build for daily use", "product_name": "TH11 Headset", "cta_url": "https://ldas.ca/products/th11-headset"},
-                    {"persona": "Owner-Operator", "description": "Night vision dash cam, loop recording, installs in 5 minutes", "product_name": "DC200 Dash Cam", "cta_url": "https://ldas.ca/products/dc200-dashcam"},
+                    {"persona": "Long-Haul Trucker", "description": "24-hour battery, noise cancelling for highway calls, lightweight all-day comfort", "product_name": "G3 Pro Headset", "product_url": "https://ldas.ca/products/g3-headset"},
+                    {"persona": "Fleet Manager", "description": "Dual-device connect, crystal clear calls, durable build for daily use", "product_name": "TH11 Headset", "product_url": "https://ldas.ca/products/th11-headset"},
+                    {"persona": "Owner-Operator", "description": "Night vision dash cam, loop recording, installs in 5 minutes", "product_name": "DC200 Dash Cam", "product_url": "https://ldas.ca/products/dc200-dashcam"},
                 ],
             }},
             {"block_type": "cta", "content": {

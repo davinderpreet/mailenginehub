@@ -29,11 +29,11 @@
       </div>
       <div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:4px;">Created</div>
-        <div style="font-size:14px;color:var(--text);">{{ job.created_at.strftime('%b %d, %Y %H:%M') if job.created_at else '—' }}</div>
+        <div style="font-size:14px;color:var(--text);">{{ job.created_at|et("%b %d, %Y %I:%M %p") if job.created_at else '—' }}</div>
       </div>
       <div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:4px;">Completed</div>
-        <div style="font-size:14px;color:var(--text);">{{ job.completed_at.strftime('%b %d, %Y %H:%M') if job.completed_at else 'In Progress' }}</div>
+        <div style="font-size:14px;color:var(--text);">{{ job.completed_at|et("%b %d, %Y %I:%M %p") if job.completed_at else 'In Progress' }}</div>
       </div>
       <div>
         <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:4px;">Candidates</div>

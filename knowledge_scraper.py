@@ -114,12 +114,22 @@ two-way radios, and accessories.
 
 Your job is to classify and summarise scraped web content for our internal knowledge base.
 
+IMPORTANT CLASSIFICATION RULES:
+- "product_catalog" is RESERVED for LDAS's own products only (from ldas.ca/Shopify).
+  NEVER classify competitor products (Jabra, Poly, BlueParrott, HP, Plantronics) as product_catalog.
+- Competitor/rival products must ALWAYS be "competitor_intel".
+- Email marketing tips, template design, deliverability, and industry benchmarks = "email_design_intel".
+- LDAS blog posts about trucking/headsets = "blog_post".
+- Brand messaging, taglines, company voice = "brand_copy".
+
+SOURCE HINT: %s
+
 RECENTLY REJECTED CONTENT (do NOT re-classify similar items):
 %s
 
 Given a raw text chunk and its source URL, respond with a single JSON object:
 {
-  "entry_type": "<product_catalog|brand_copy|blog_post|competitor_intel|faq|testimonial>",
+  "entry_type": "<product_catalog|brand_copy|blog_post|competitor_intel|email_design_intel|faq|testimonial>",
   "title": "<concise title, max 120 chars>",
   "content": "<cleaned, useful content — remove navigation/boilerplate>",
   "relevance_score": <0-100 integer — how relevant to LDAS Electronics>,
@@ -148,6 +158,28 @@ def _build_rejection_context(rejections) -> str:
     return "\n".join(lines)
 
 
+# Source-to-hint mapping: tells the classifier what kind of source this is
+_SOURCE_HINTS = {
+    "LDAS Shopify Products": "This is an LDAS product from our Shopify store. Classify as product_catalog.",
+    "LDAS Blog": "This is from the LDAS company blog. Classify as blog_post or brand_copy.",
+    "Jabra Office Headsets": "This is a COMPETITOR product (Jabra). MUST be competitor_intel, NOT product_catalog.",
+    "HP Poly Headsets": "This is a COMPETITOR product (HP/Poly/Plantronics). MUST be competitor_intel, NOT product_catalog.",
+    "Litmus Blog": "This is email marketing intelligence. Classify as email_design_intel.",
+    "Campaign Monitor Blog": "This is email marketing intelligence. Classify as email_design_intel.",
+    "Mailchimp Resources": "This is email marketing intelligence. Classify as email_design_intel.",
+}
+
+# Hard overrides: force entry_type based on source (safety net if AI ignores hints)
+_SOURCE_TYPE_OVERRIDES = {
+    "Jabra Office Headsets": "competitor_intel",
+    "HP Poly Headsets": "competitor_intel",
+    "Litmus Blog": "email_design_intel",
+    "Campaign Monitor Blog": "email_design_intel",
+    "Mailchimp Resources": "email_design_intel",
+    "LDAS Shopify Products": "product_catalog",
+}
+
+
 def classify_content(raw_chunk: dict, source: ScrapeSource, rejections) -> dict | None:
     """
     Call the AI provider to classify a raw content chunk.
@@ -158,7 +190,8 @@ def classify_content(raw_chunk: dict, source: ScrapeSource, rejections) -> dict 
     Raises AIProviderError on API failures (caller handles).
     """
     rejection_context = _build_rejection_context(rejections)
-    system_prompt = _CLASSIFIER_SYSTEM_PROMPT % rejection_context
+    source_hint = _SOURCE_HINTS.get(source.source_name, "General web source.")
+    system_prompt = _CLASSIFIER_SYSTEM_PROMPT % (source_hint, rejection_context)
 
     raw_text = raw_chunk.get("raw_text", "")
     source_url = raw_chunk.get("url", source.url)
@@ -182,6 +215,11 @@ def classify_content(raw_chunk: dict, source: ScrapeSource, rejections) -> dict 
 
     if result.get("relevance_score", 0) < 30:
         return None
+
+    # Enforce hard overrides — never let competitor products slip into product_catalog
+    override = _SOURCE_TYPE_OVERRIDES.get(source.source_name)
+    if override:
+        result["entry_type"] = override
 
     return result
 
@@ -252,7 +290,15 @@ class WebScraper(BaseScraper):
         return chunks
 
     def _parse_html(self, html: str, page_url: str) -> list:
-        """Parse HTML using CSS selectors from config_json."""
+        """Parse HTML using CSS selectors from config_json.
+
+        Supports two modes:
+        - Normal: item_selector finds containers, title/content selectors
+          find children inside each container.
+        - Flat mode (flat_mode=true in config): item_selector elements ARE
+          the content themselves — useful for pages where product names are
+          bare h3 tags not wrapped in card containers.
+        """
         try:
             config = json.loads(self.source.config_json or "{}")
         except (json.JSONDecodeError, TypeError):
@@ -261,25 +307,42 @@ class WebScraper(BaseScraper):
         item_selector = config.get("item_selector", "article")
         title_selector = config.get("title_selector", "h2")
         content_selector = config.get("content_selector", "p")
+        flat_mode = config.get("flat_mode", False)
 
         soup = BeautifulSoup(html, "html.parser")
         items = soup.select(item_selector)
 
         chunks = []
         for item in items:
-            # Extract title
-            title_el = item.select_one(title_selector)
-            title = title_el.get_text(strip=True) if title_el else ""
+            if flat_mode:
+                # The matched element IS the content
+                raw_text = item.get_text(strip=True)
+            else:
+                # Extract title from child
+                title_el = item.select_one(title_selector)
+                title = title_el.get_text(strip=True) if title_el else ""
 
-            # Extract content paragraphs
-            content_els = item.select(content_selector)
-            content = " ".join(el.get_text(strip=True) for el in content_els)
+                # Extract content paragraphs from children
+                content_els = item.select(content_selector)
+                content = " ".join(el.get_text(strip=True) for el in content_els)
 
-            raw_text = f"{title} {content}".strip()
+                raw_text = f"{title} {content}".strip()
 
             # Skip items with fewer than 20 characters
             if len(raw_text) < 20:
                 continue
+
+            # Extract link URL if present
+            link_el = item.select_one("a[href]") if not flat_mode else item.find_parent("a")
+            item_url = page_url
+            if link_el and link_el.get("href", "").startswith(("http", "/")):
+                href = link_el["href"]
+                if href.startswith("/"):
+                    # Build absolute URL from page URL
+                    from urllib.parse import urlparse
+                    parsed = urlparse(page_url)
+                    href = f"{parsed.scheme}://{parsed.netloc}{href}"
+                item_url = href
 
             # Extract image URLs
             image_urls = []
@@ -290,7 +353,7 @@ class WebScraper(BaseScraper):
 
             chunks.append({
                 "raw_text": raw_text,
-                "url": page_url,
+                "url": item_url,
                 "image_urls": image_urls,
             })
 
@@ -301,35 +364,79 @@ class WebScraper(BaseScraper):
 # AmazonScraper
 # ---------------------------------------------------------------------------
 
-class AmazonScraper(WebScraper):
-    """Scrapes Amazon.ca search results for a given search term."""
+class AmazonScraper(BaseScraper):
+    """
+    Scrapes Amazon.ca search results using a session-based approach.
 
-    def _build_search_url(self) -> str:
-        search_term = urllib.parse.quote_plus(self.source.url)
-        return f"https://www.amazon.ca/s?k={search_term}"
+    Amazon blocks direct requests from datacenter IPs (503). The fix is to:
+    1. Create a requests.Session with full browser-like headers
+    2. Hit amazon.ca homepage first to establish cookies
+    3. Then make the search request with those cookies
+    """
 
-    def _get_user_agent(self) -> str:
-        return random.choice(_USER_AGENTS)
+    # Full browser fingerprint headers
+    _BROWSER_HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        ),
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;q=0.9,"
+            "image/avif,image/webp,*/*;q=0.8"
+        ),
+        "Accept-Language": "en-CA,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+        "Connection": "keep-alive",
+    }
 
     def fetch(self) -> list:
-        search_url = self._build_search_url()
-        _rate_limit(3.0)
+        search_term = urllib.parse.quote_plus(self.source.url)
+        search_url = f"https://www.amazon.ca/s?k={search_term}&ref=nb_sb_noss"
 
+        # Step 1: Establish session with cookies from homepage
+        session = requests.Session()
+        session.headers.update(self._BROWSER_HEADERS)
+
+        _rate_limit(3.0)
         try:
-            headers = {"User-Agent": self._get_user_agent()}
-            response = requests.get(search_url, headers=headers, timeout=15)
-            response.raise_for_status()
+            session.get("https://www.amazon.ca/", timeout=15)
         except requests.RequestException as exc:
-            log.warning("AmazonScraper fetch error: %s", exc)
+            log.warning("AmazonScraper homepage failed: %s", exc)
+            return []
+
+        # Pause to look human
+        time.sleep(random.uniform(1.5, 3.0))
+
+        # Step 2: Search with session cookies + referrer
+        session.headers["Referer"] = "https://www.amazon.ca/"
+        session.headers["Sec-Fetch-Site"] = "same-origin"
+
+        _rate_limit(3.0)
+        try:
+            response = session.get(search_url, timeout=15)
+        except requests.RequestException as exc:
+            log.warning("AmazonScraper search failed: %s", exc)
+            return []
+
+        if response.status_code != 200:
+            log.warning(
+                "AmazonScraper got status %d for '%s'",
+                response.status_code, self.source.url,
+            )
             return []
 
         soup = BeautifulSoup(response.text, "html.parser")
-        results = soup.select('[data-component-type="s-search-result"]')
+        results = soup.select("[data-component-type='s-search-result']")
 
         chunks = []
-        for item in results[:10]:
-            # Title
-            title_el = item.select_one("h2 a span")
+        for item in results[:15]:
+            # Title (Amazon 2025+ uses h2 > span, no <a> wrapper)
+            title_el = item.select_one("h2 span") or item.select_one("h2")
             title = title_el.get_text(strip=True) if title_el else ""
 
             # Price
@@ -340,6 +447,15 @@ class AmazonScraper(WebScraper):
             rating_el = item.select_one(".a-icon-alt")
             rating = rating_el.get_text(strip=True) if rating_el else ""
 
+            # Product URL
+            link_el = item.select_one("h2 a, a.a-link-normal[href*='/dp/']")
+            product_url = search_url
+            if link_el and link_el.get("href"):
+                href = link_el["href"]
+                if href.startswith("/"):
+                    href = f"https://www.amazon.ca{href}"
+                product_url = href
+
             parts = [p for p in [title, price, rating] if p]
             raw_text = " | ".join(parts)
 
@@ -348,7 +464,7 @@ class AmazonScraper(WebScraper):
 
             chunks.append({
                 "raw_text": raw_text,
-                "url": search_url,
+                "url": product_url,
                 "image_urls": [],
             })
 
@@ -374,6 +490,7 @@ class EmailTrendsScraper(WebScraper):
 # ---------------------------------------------------------------------------
 
 _SEED_SOURCES = [
+    # ── WORKING SOURCES ──────────────────────────────────────────────
     (
         "shopify",
         "LDAS Shopify Products",
@@ -384,93 +501,82 @@ _SEED_SOURCES = [
     (
         "web",
         "LDAS Blog",
-        "https://ldas.ca/blogs",
+        "https://ldas.ca/blogs/news",
         "daily",
         {
-            "item_selector": "article",
-            "title_selector": "h2",
+            "item_selector": "blog-post-card, .blog-post-card",
+            "title_selector": ".blog-post-card__info a, a",
             "content_selector": "p",
             "max_pages": 3,
         },
     ),
     (
-        "amazon",
-        "Amazon.ca - LDAS",
-        "LDAS Electronics",
-        "daily",
-        {},
-    ),
-    (
-        "amazon",
-        "Amazon.ca - BlueParrott",
-        "BlueParrott trucker headset",
-        "weekly",
-        {},
-    ),
-    (
-        "amazon",
-        "Amazon.ca - Jabra Trucker",
-        "Jabra trucker headset",
-        "weekly",
-        {},
-    ),
-    (
-        "amazon",
-        "Amazon.ca - Poly Trucker",
-        "Plantronics trucker headset",
-        "weekly",
-        {},
-    ),
-    (
         "web",
-        "BlueParrott Products",
-        "https://www.blueparrott.com/headsets",
+        "Jabra Office Headsets",
+        "https://www.jabra.com/business/office-headsets",
         "weekly",
         {
-            "item_selector": ".product-card",
-            "title_selector": "h3",
-            "content_selector": "p",
-            "max_pages": 2,
+            "item_selector": "h3",
+            "flat_mode": True,
+            "max_pages": 1,
         },
     ),
     (
         "web",
-        "Jabra Driver Headsets",
-        "https://www.jabra.com/business/office-headsets/jabra-perform",
+        "HP Poly Headsets",
+        "https://www.hp.com/us-en/poly/headsets.html",
         "weekly",
         {
-            "item_selector": ".product-item",
-            "title_selector": "h2",
-            "content_selector": ".product-description",
-            "max_pages": 2,
-        },
-    ),
-    (
-        "web",
-        "Really Good Emails",
-        "https://reallygoodemails.com",
-        "weekly",
-        {
-            "item_selector": ".email-card",
-            "title_selector": "h3",
-            "content_selector": "p",
-            "max_pages": 2,
-            "tags": "email_trends",
+            "item_selector": "article, .product-card, [class*='product'], [class*='card']",
+            "title_selector": "h2, h3, h4, a[href*='headset']",
+            "content_selector": "p, span, .description",
+            "max_pages": 1,
         },
     ),
     (
         "web",
         "Litmus Blog",
-        "https://www.litmus.com/blog",
+        "https://litmus.com/blog/",
         "weekly",
         {
-            "item_selector": "article",
-            "title_selector": "h2",
-            "content_selector": "p",
-            "max_pages": 3,
+            "item_selector": ".post-card",
+            "title_selector": "a",
+            "content_selector": "p, a",
+            "max_pages": 2,
             "tags": "email_trends",
         },
     ),
+    (
+        "web",
+        "Campaign Monitor Blog",
+        "https://www.campaignmonitor.com/blog/",
+        "weekly",
+        {
+            "item_selector": "article, .post-card, [class*='post'], [class*='blog-card']",
+            "title_selector": "h2 a, h3 a, .post-title a",
+            "content_selector": "p, .excerpt, .summary",
+            "max_pages": 2,
+            "tags": "email_trends",
+        },
+    ),
+    (
+        "web",
+        "Mailchimp Resources",
+        "https://mailchimp.com/resources/",
+        "weekly",
+        {
+            "item_selector": "article, .card, [class*='resource'], [class*='card']",
+            "title_selector": "h2 a, h3 a, h4 a",
+            "content_selector": "p, .description, .excerpt",
+            "max_pages": 1,
+            "tags": "email_trends",
+        },
+    ),
+    # ── DISABLED SOURCES (kept for reference) ────────────────────────
+    # Amazon.ca sources disabled: Amazon blocks VPS/datacenter IPs with 503.
+    # Would need Amazon Product Advertising API or proxy service.
+    # BlueParrott disabled: Angular SPA, products rendered via JS only.
+    # ReallyGoodEmails disabled: React SPA, content loaded via Algolia API.
 ]
 
 
@@ -489,6 +595,190 @@ def seed_scrape_sources():
             config_json=json.dumps(config),
         )
     log.info("Seeded %d scrape sources.", len(_SEED_SOURCES))
+
+
+def fix_scrape_sources():
+    """
+    One-time migration: fix broken URLs, selectors, and disable
+    sources that can't be static-scraped from a VPS.
+
+    Safe to call multiple times (idempotent checks).
+    """
+    fixes_applied = 0
+
+    # --- Fix LDAS Blog URL ---
+    for src in ScrapeSource.select().where(ScrapeSource.source_name == "LDAS Blog"):
+        new_config = {
+            "item_selector": "blog-post-card, .blog-post-card",
+            "title_selector": ".blog-post-card__info a, a",
+            "content_selector": "p",
+            "max_pages": 3,
+        }
+        if src.url != "https://ldas.ca/blogs/news" or src.config_json != json.dumps(new_config):
+            src.url = "https://ldas.ca/blogs/news"
+            src.config_json = json.dumps(new_config)
+            src.save()
+            fixes_applied += 1
+            log.info("Fixed LDAS Blog URL and selectors.")
+
+    # --- Re-enable Amazon sources (session-based approach now works) ---
+    for src in ScrapeSource.select().where(ScrapeSource.source_type == "amazon"):
+        if not src.is_active:
+            src.is_active = True
+            src.save()
+            fixes_applied += 1
+            log.info("Re-enabled Amazon source '%s' (session-based scraping).", src.source_name)
+
+    # --- Disable BlueParrott (Angular SPA, JS-rendered) ---
+    for src in ScrapeSource.select().where(
+        ScrapeSource.source_name == "BlueParrott Products"
+    ):
+        if src.is_active:
+            src.is_active = False
+            src.save()
+            fixes_applied += 1
+            log.info("Disabled BlueParrott (Angular SPA, no static HTML).")
+
+    # --- Disable ReallyGoodEmails (React SPA) ---
+    for src in ScrapeSource.select().where(
+        ScrapeSource.source_name == "Really Good Emails"
+    ):
+        if src.is_active:
+            src.is_active = False
+            src.save()
+            fixes_applied += 1
+            log.info("Disabled Really Good Emails (React SPA).")
+
+    # --- Fix Jabra URL and selectors ---
+    for src in ScrapeSource.select().where(
+        (ScrapeSource.source_name == "Jabra Driver Headsets") |
+        (ScrapeSource.source_name == "Jabra Office Headsets")
+    ):
+        src.source_name = "Jabra Office Headsets"
+        src.url = "https://www.jabra.com/business/office-headsets"
+        new_config = {
+            "item_selector": "h3",
+            "flat_mode": True,
+            "max_pages": 1,
+        }
+        if src.config_json != json.dumps(new_config):
+            src.config_json = json.dumps(new_config)
+            src.save()
+            fixes_applied += 1
+            log.info("Fixed Jabra URL and selectors.")
+
+    # --- Fix Litmus Blog selectors ---
+    for src in ScrapeSource.select().where(
+        ScrapeSource.source_name == "Litmus Blog"
+    ):
+        src.url = "https://litmus.com/blog/"
+        new_config = {
+            "item_selector": ".post-card",
+            "title_selector": "a",
+            "content_selector": "p, a",
+            "max_pages": 2,
+            "tags": "email_trends",
+        }
+        if src.config_json != json.dumps(new_config):
+            src.config_json = json.dumps(new_config)
+            src.save()
+            fixes_applied += 1
+            log.info("Fixed Litmus Blog selectors.")
+
+    # --- Add HP Poly Headsets (new source) ---
+    exists = ScrapeSource.select().where(
+        ScrapeSource.source_name == "HP Poly Headsets"
+    ).exists()
+    if not exists:
+        ScrapeSource.create(
+            source_type="web",
+            source_name="HP Poly Headsets",
+            url="https://www.hp.com/us-en/poly/headsets.html",
+            scrape_frequency="weekly",
+            is_active=True,
+            config_json=json.dumps({
+                "item_selector": "article, .product-card, [class*='product'], [class*='card']",
+                "title_selector": "h2, h3, h4, a[href*='headset']",
+                "content_selector": "p, span, .description",
+                "max_pages": 1,
+            }),
+        )
+        fixes_applied += 1
+        log.info("Added HP Poly Headsets source.")
+
+    # --- Add Campaign Monitor Blog (email trends) ---
+    exists = ScrapeSource.select().where(
+        ScrapeSource.source_name == "Campaign Monitor Blog"
+    ).exists()
+    if not exists:
+        ScrapeSource.create(
+            source_type="web",
+            source_name="Campaign Monitor Blog",
+            url="https://www.campaignmonitor.com/blog/",
+            scrape_frequency="weekly",
+            is_active=True,
+            config_json=json.dumps({
+                "item_selector": "article, .post-card, [class*='post'], [class*='blog-card']",
+                "title_selector": "h2 a, h3 a, .post-title a",
+                "content_selector": "p, .excerpt, .summary",
+                "max_pages": 2,
+                "tags": "email_trends",
+            }),
+        )
+        fixes_applied += 1
+        log.info("Added Campaign Monitor Blog source.")
+
+    # --- Add Mailchimp Resources (email trends) ---
+    exists = ScrapeSource.select().where(
+        ScrapeSource.source_name == "Mailchimp Resources"
+    ).exists()
+    if not exists:
+        ScrapeSource.create(
+            source_type="web",
+            source_name="Mailchimp Resources",
+            url="https://mailchimp.com/resources/",
+            scrape_frequency="weekly",
+            is_active=True,
+            config_json=json.dumps({
+                "item_selector": "article, .card, [class*='resource'], [class*='card']",
+                "title_selector": "h2 a, h3 a, h4 a",
+                "content_selector": "p, .description, .excerpt",
+                "max_pages": 1,
+                "tags": "email_trends",
+            }),
+        )
+        fixes_applied += 1
+        log.info("Added Mailchimp Resources source.")
+
+    # --- Reclassify existing entries with wrong entry_types ---
+    # Competitor products wrongly classified as product_catalog
+    _competitor_sources = {"HP Poly Headsets", "Jabra Office Headsets"}
+    # Email trend sources wrongly classified as blog_post
+    _email_sources = {"Litmus Blog", "Campaign Monitor Blog", "Mailchimp Resources"}
+
+    for entry in KnowledgeEntry.select():
+        try:
+            meta = json.loads(entry.metadata_json or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        source_name = meta.get("source_name", "")
+        changed = False
+
+        if source_name in _competitor_sources and entry.entry_type != "competitor_intel":
+            entry.entry_type = "competitor_intel"
+            changed = True
+
+        if source_name in _email_sources and entry.entry_type not in ("email_design_intel",):
+            entry.entry_type = "email_design_intel"
+            changed = True
+
+        if changed:
+            entry.save()
+            fixes_applied += 1
+
+    log.info("Source fix migration complete: %d changes applied.", fixes_applied)
+    return fixes_applied
 
 
 # ---------------------------------------------------------------------------
@@ -618,10 +908,12 @@ def run_knowledge_enrichment():
     Main entry point for the enrichment pipeline.
 
     1. Seeds scrape sources if the table is empty.
-    2. Loads recent rejection context.
-    3. Runs each eligible active source (respecting frequency).
+    2. Applies source fixes (URL/selector corrections, new sources).
+    3. Loads recent rejection context.
+    4. Runs each eligible active source (respecting frequency).
     """
     seed_scrape_sources()
+    fix_scrape_sources()
 
     # Load last 50 rejections for AI context
     rejections = list(

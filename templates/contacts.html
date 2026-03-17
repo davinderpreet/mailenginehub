@@ -158,7 +158,7 @@
             {{ 'Yes' if c.sms_consent else 'No' }}
           </span>
         </td>
-        <td>{{ c.created_at.strftime('%b %d, %Y') }}</td>
+        <td>{{ c.created_at|et("%b %d, %Y") }}</td>
       </tr>
       {% endfor %}
       </tbody>

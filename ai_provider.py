@@ -119,12 +119,86 @@ class OpenAIProvider(AIProvider):
 
 
 # ---------------------------------------------------------------------------
+# OpenRouter (OpenAI-compatible API — supports 200+ models)
+# ---------------------------------------------------------------------------
+
+class OpenRouterProvider(AIProvider):
+    """OpenRouter API — OpenAI-compatible endpoint for any model."""
+
+    OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+    def __init__(self, api_key: str, model_id: str):
+        self.api_key = api_key
+        self.model_id = model_id
+
+    # Reasoning models (like Kimi K2.5) use extra tokens for thinking,
+    # so we multiply the requested max_tokens to ensure the actual
+    # answer content gets generated after the reasoning phase.
+    REASONING_TOKEN_MULTIPLIER = 8
+
+    def complete(self, system_prompt: str, user_prompt: str, max_tokens: int = 2048) -> str:
+        try:
+            import openai
+        except ImportError:
+            raise AIProviderError(
+                "The 'openai' package is not installed. "
+                "Install it with: pip install openai",
+                provider="openrouter",
+                model_id=self.model_id,
+            )
+
+        try:
+            # Reasoning models need more tokens (thinking + answer).
+            # Small requests (256-512) need proportionally more headroom.
+            effective_tokens = max(max_tokens * self.REASONING_TOKEN_MULTIPLIER, 4096)
+
+            client = openai.OpenAI(
+                api_key=self.api_key,
+                base_url=self.OPENROUTER_BASE_URL,
+            )
+            response = client.chat.completions.create(
+                model=self.model_id,
+                max_tokens=effective_tokens,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            content = response.choices[0].message.content
+            if content is None:
+                # Reasoning models may store answer in model_extra
+                msg = response.choices[0].message
+                extra = getattr(msg, 'model_extra', {}) or {}
+                reasoning = extra.get('reasoning', '')
+                if reasoning:
+                    log.info("Kimi/reasoning model: content was None, "
+                             "extracting from reasoning (%d chars)", len(reasoning))
+                    # Try to extract JSON from reasoning text
+                    import re
+                    json_match = re.search(r'(\[[\s\S]*?\]|\{[\s\S]*?\})\s*$', reasoning)
+                    if json_match:
+                        content = json_match.group(1)
+                    else:
+                        content = reasoning
+                else:
+                    content = ""
+            return content
+        except Exception as exc:
+            raise AIProviderError(
+                f"OpenRouter API error: {exc}",
+                provider="openrouter",
+                model_id=self.model_id,
+            ) from exc
+
+
+# ---------------------------------------------------------------------------
 # Provider registry
 # ---------------------------------------------------------------------------
 
 _PROVIDERS = {
     "anthropic": AnthropicProvider,
     "openai": OpenAIProvider,
+    "openrouter": OpenRouterProvider,
 }
 
 # Fallback defaults when no AIModelConfig row exists

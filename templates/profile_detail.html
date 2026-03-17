@@ -277,8 +277,8 @@
           ("Avg Days Between Orders", (profile.avg_days_between_orders|int|string + "d") if profile.avg_days_between_orders > 0 else "Once"),
           ("Items Bought", profile.total_items_bought),
           ("Discount Rate", "%.0f%%"|format(profile.discount_sensitivity * 100)),
-          ("First Order", profile.first_order_at.strftime("%b %d, %Y") if profile.first_order_at else "—"),
-          ("Last Order", profile.last_order_at.strftime("%b %d, %Y") if profile.last_order_at else "—"),
+          ("First Order", profile.first_order_at|et("%b %d, %Y") if profile.first_order_at else "—"),
+          ("Last Order", profile.last_order_at|et("%b %d, %Y") if profile.last_order_at else "—"),
         ] %}
         {% for label, value in stats %}
         <div style="display:flex; justify-content:space-between; align-items:center;
@@ -660,7 +660,7 @@
         <div>
           <div class="order-num">#{{ o.order_number }}</div>
           <div class="order-date">
-            {{ o.ordered_at.strftime('%b %d, %Y') if o.ordered_at else '—' }}
+            {{ o.ordered_at|et("%b %d, %Y") if o.ordered_at else '—' }}
           </div>
         </div>
         <div class="order-product">
@@ -745,7 +745,7 @@
               {% endif %}
             </div>
             <div style="font-size:11.5px; color:var(--text3); margin-top:2px;">
-              {{ e.sent_at.strftime('%Y-%m-%d %H:%M') if e.sent_at else '—' }}
+              {{ e.sent_at|et("%b %d, %I:%M %p") if e.sent_at else '—' }}
             </div>
           </div>
           <div style="display:flex; gap:6px; align-items:center;">
@@ -1019,7 +1019,7 @@
           <div style="background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px; text-align:center;">
             <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--text3); margin-bottom:6px;">Next Order</div>
             {% if profile.predicted_next_order_date %}
-            <div style="font-size:15px; font-weight:700; color:var(--cyan);">{{ profile.predicted_next_order_date.strftime('%b %d') }}</div>
+            <div style="font-size:15px; font-weight:700; color:var(--cyan);">{{ profile.predicted_next_order_date|et("%b %d") }}</div>
             <div style="font-size:11px; color:var(--text3); margin-top:3px;">predicted</div>
             {% else %}
             <div style="font-size:15px; font-weight:700; color:var(--text3);">—</div>
@@ -1066,7 +1066,7 @@
               <span style="background:rgba(124,58,237,0.12); color:var(--purple2); padding:3px 10px; border-radius:6px; font-size:11px; font-weight:600;">Intent</span>
             {% endif %}
             <span style="font-size:12px; color:var(--text2);">{{ trigger.trigger_type|replace('_', ' ')|title }}</span>
-            <span style="font-size:11px; color:var(--text3); margin-left:auto;">{{ trigger.detected_at.strftime('%b %d, %H:%M') if trigger.detected_at else '' }}</span>
+            <span style="font-size:11px; color:var(--text3); margin-left:auto;">{{ trigger.detected_at|et("%b %d, %I:%M %p") if trigger.detected_at else '' }}</span>
           </div>
           {% endfor %}
         </div>
@@ -1241,8 +1241,8 @@
 
           <!-- Time -->
           <div style="font-size:11.5px; color:var(--text3); text-align:right; flex-shrink:0;">
-            {{ a.occurred_at.strftime('%b %d') if a.occurred_at else '—' }}<br>
-            <span style="font-size:10.5px;">{{ a.occurred_at.strftime('%H:%M') if a.occurred_at else '' }}</span>
+            {{ a.occurred_at|et("%b %d") if a.occurred_at else '—' }}<br>
+            <span style="font-size:10.5px;">{{ a.occurred_at|et("%I:%M %p") if a.occurred_at else '' }}</span>
           </div>
 
         </div>

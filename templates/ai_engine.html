@@ -308,7 +308,7 @@
             {% endif %}
           </td>
           <td style="color:var(--text2);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ e.subject }}</td>
-          <td style="color:var(--text3);font-size:12px;">{{ e.generated_at.strftime("%b %d, %H:%M") if e.generated_at else "—" }}</td>
+          <td style="color:var(--text3);font-size:12px;">{{ e.generated_at|et("%b %d, %I:%M %p") if e.generated_at else "—" }}</td>
           <td>
             {% if e.sent %}<span style="color:var(--green);font-weight:600;">✓ sent</span>
             {% else %}<span style="color:var(--text3);">preview</span>{% endif %}
@@ -386,7 +386,7 @@
           {% elif d.status == "failed" %}<span style="color:var(--red);font-weight:600;">✗ failed</span>
           {% else %}<span style="color:var(--text3);">skipped</span>{% endif %}
         </td>
-        <td style="color:var(--text3);">{{ d.sent_at.strftime("%m/%d %H:%M") if d.sent_at else "—" }}</td>
+        <td style="color:var(--text3);">{{ d.sent_at|et("%m/%d %I:%M %p") if d.sent_at else "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>

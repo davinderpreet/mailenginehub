@@ -6,10 +6,29 @@
 <div style="display:flex;gap:12px;align-items:center;margin-bottom:24px;">
   <a href="/studio" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Back to Studio</a>
   <div style="flex:1;"></div>
-  {% if entries %}
-  <span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(245,158,11,0.15);color:var(--amber);">{{ entries|length }} awaiting review</span>
+  {% if all_count > 0 %}
+  <span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(245,158,11,0.15);color:var(--amber);">{{ all_count }} awaiting review</span>
   {% endif %}
 </div>
+
+<!-- ── Section Filter Tabs ───────────────────────────── -->
+{% if all_count > 0 %}
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;">
+  <a href="/studio/knowledge/pending" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:10px;font-size:12.5px;font-weight:600;text-decoration:none;{% if not current_section %}background:var(--purple);color:#fff;{% else %}background:var(--surface);color:var(--text2);border:1px solid var(--border2);{% endif %}">
+    <i class="fas fa-layer-group" style="font-size:11px;"></i> All
+    <span style="font-size:10px;opacity:0.7;">{{ all_count }}</span>
+  </a>
+  {% for sec in sections %}
+  {% if section_counts[sec.key] > 0 %}
+  <a href="/studio/knowledge/pending?section={{ sec.key }}" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:10px;font-size:12.5px;font-weight:600;text-decoration:none;{% if current_section == sec.key %}background:var(--purple);color:#fff;{% else %}background:var(--surface);color:var(--text2);border:1px solid var(--border2);{% endif %}">
+    <i class="{{ sec.icon }}" style="font-size:11px;{% if current_section != sec.key %}color:{{ sec.color }};{% endif %}"></i>
+    {{ sec.label }}
+    <span style="display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700;{% if current_section == sec.key %}background:rgba(255,255,255,0.2);{% else %}background:var(--surface2);color:var(--text3);{% endif %}">{{ section_counts[sec.key] }}</span>
+  </a>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
 
 {% if entries %}
 <div style="display:flex;flex-direction:column;gap:16px;">
@@ -20,19 +39,28 @@
     <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;">
       <!-- Entry type badge -->
       {% if entry.entry_type == 'product_catalog' %}
-      <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(124,58,237,0.15);color:var(--purple);flex-shrink:0;">Product</span>
+      <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(124,58,237,0.15);color:var(--purple);flex-shrink:0;"><i class="fas fa-lock" style="font-size:8px;margin-right:3px;"></i>Product</span>
       {% elif entry.entry_type == 'brand_copy' %}
       <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(236,72,153,0.15);color:var(--pink);flex-shrink:0;">Brand</span>
       {% elif entry.entry_type == 'blog_post' %}
-      <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(6,182,212,0.15);color:var(--cyan);flex-shrink:0;">Blog</span>
+      <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(236,72,153,0.08);color:var(--pink);flex-shrink:0;">Blog</span>
       {% elif entry.entry_type == 'competitor_intel' %}
       <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(245,158,11,0.15);color:var(--amber);flex-shrink:0;">Competitor</span>
+      {% elif entry.entry_type == 'email_design_intel' %}
+      <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(6,182,212,0.15);color:var(--cyan);flex-shrink:0;">Email Intel</span>
       {% elif entry.entry_type == 'faq' %}
       <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(16,185,129,0.15);color:var(--green);flex-shrink:0;">FAQ</span>
       {% elif entry.entry_type == 'testimonial' %}
-      <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(236,72,153,0.15);color:var(--pink);flex-shrink:0;">Testimonial</span>
+      <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(16,185,129,0.15);color:var(--green);flex-shrink:0;">Testimonial</span>
       {% else %}
       <span style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:var(--surface2);color:var(--text2);flex-shrink:0;">{{ entry.entry_type }}</span>
+      {% endif %}
+
+      <!-- Source badge -->
+      {% if meta.source_name %}
+      <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:10px;font-weight:600;background:var(--surface2);color:var(--text3);flex-shrink:0;">
+        <i class="fas fa-satellite-dish" style="font-size:8px;margin-right:3px;"></i>{{ meta.source_name }}
+      </span>
       {% endif %}
 
       <div style="flex:1;">
@@ -53,10 +81,22 @@
       {% endif %}
     </div>
 
+    <!-- Image preview (if available) -->
+    {% if meta.image_urls and meta.image_urls|length > 0 %}
+    <div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;">
+      {% for img_url in meta.image_urls[:3] %}
+      <img src="{{ img_url }}" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--border);" onerror="this.style.display='none'">
+      {% endfor %}
+      {% if meta.image_urls|length > 3 %}
+      <span style="display:flex;align-items:center;justify-content:center;width:80px;height:80px;border-radius:8px;background:var(--surface2);color:var(--text3);font-size:12px;font-weight:600;">+{{ meta.image_urls|length - 3 }}</span>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <!-- Content preview -->
     <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;">
       <div style="font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Content Preview</div>
-      <p style="font-size:13px;color:var(--text2);margin:0;line-height:1.6;">{{ entry.content[:200] }}{% if entry.content|length > 200 %}…{% endif %}</p>
+      <p style="font-size:13px;color:var(--text2);margin:0;line-height:1.6;">{{ entry.content[:300] }}{% if entry.content|length > 300 %}...{% endif %}</p>
     </div>
 
     <!-- AI reasoning -->
@@ -82,7 +122,7 @@
           <i class="fas fa-times"></i> Reject
         </button>
       </form>
-      <span style="font-size:11.5px;color:var(--text3);margin-left:auto;">Added {{ entry.created_at.strftime('%b %d, %Y at %H:%M') if entry.created_at else '—' }}</span>
+      <span style="font-size:11.5px;color:var(--text3);margin-left:auto;">Added {{ entry.created_at|et("%b %d, %Y at %I:%M %p") if entry.created_at else '—' }}</span>
     </div>
   </div>
   {% endfor %}
@@ -92,8 +132,8 @@
 <div class="card">
   <div class="empty-state" style="padding:60px 40px;">
     <i class="fas fa-inbox" style="color:var(--text3);"></i>
-    <h3>All caught up</h3>
-    <p style="color:var(--text3);margin-top:6px;">No entries waiting for review. The AI enrichment pipeline will stage new entries here when it runs.</p>
+    <h3>{% if current_section %}No pending entries in this section{% else %}All caught up{% endif %}</h3>
+    <p style="color:var(--text3);margin-top:6px;">{% if current_section %}Try checking another section or wait for the next enrichment run.{% else %}No entries waiting for review. The AI enrichment pipeline will stage new entries here when it runs.{% endif %}</p>
     <a href="/studio/sources" class="btn btn-outline btn-sm" style="margin-top:16px;"><i class="fas fa-database"></i> Manage Sources</a>
   </div>
 </div>

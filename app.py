@@ -43,6 +43,23 @@ def _fromjson(s):
     try: return json.loads(s)
     except: return []
 
+# ── Toronto / Eastern Time filter ──
+from zoneinfo import ZoneInfo
+_ET = ZoneInfo("America/Toronto")
+_UTC = ZoneInfo("UTC")
+
+@app.template_filter("et")
+def _format_eastern(dt, fmt="%b %d, %Y %I:%M %p"):
+    """Convert naive-UTC datetime to Toronto/Eastern and format with AM/PM."""
+    if not dt:
+        return ""
+    try:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_UTC)
+        return dt.astimezone(_ET).strftime(fmt)
+    except Exception:
+        return str(dt)
+
 # ─────────────────────────────────
 #  HTTP BASIC AUTH
 # ─────────────────────────────────
@@ -5507,6 +5524,32 @@ def _recalculate_deliverability_scores():
         print("[OK] Deliverability scores recalculated")
     except Exception as e:
         print(f"[ERROR] Deliverability score recalc: {e}")
+
+
+# ─────────────────────────────────
+#  SYSTEM MAP
+# ─────────────────────────────────
+
+@app.route("/system-map")
+def system_map():
+    return render_template("system_map.html")
+
+@app.route("/api/system-map/data")
+def system_map_api():
+    from system_map_data import build_system_map_nodes, build_system_map_edges
+    nodes = build_system_map_nodes()
+    edges = build_system_map_edges()
+    from zoneinfo import ZoneInfo
+    now_et = datetime.now(ZoneInfo("UTC")).astimezone(ZoneInfo("America/Toronto"))
+    return jsonify({
+        "nodes": nodes,
+        "edges": edges,
+        "meta": {
+            "updated_at": now_et.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "total_nodes": len(nodes),
+            "total_edges": len(edges)
+        }
+    })
 
 # ─────────────────────────────────
 #  START BACKGROUND SCHEDULER

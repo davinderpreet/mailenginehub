@@ -341,8 +341,8 @@
 
         <!-- Time -->
         <div class="feed-time">
-          {{ item.occurred_at.strftime('%b %d') if item.occurred_at else '—' }}<br>
-          <span style="font-size:11px;">{{ item.occurred_at.strftime('%H:%M') if item.occurred_at else '' }}</span>
+          {{ item.occurred_at|et("%b %d") if item.occurred_at else '—' }}<br>
+          <span style="font-size:11px;">{{ item.occurred_at|et("%I:%M %p") if item.occurred_at else '' }}</span>
         </div>
       </div>
       {% endfor %}

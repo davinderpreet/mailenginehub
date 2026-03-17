@@ -19,13 +19,38 @@
   </div>
 </div>
 
-<!-- ── Type Filter Tabs ──────────────────────────────── -->
+<!-- ── Section Tabs ──────────────────────────────────── -->
 <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;">
-  <a href="/studio/knowledge" style="display:inline-block;padding:7px 16px;border-radius:8px;font-size:12.5px;font-weight:600;text-decoration:none;{% if not current_type %}background:var(--purple);color:#fff;{% else %}background:var(--surface);color:var(--text2);border:1px solid var(--border2);{% endif %}">All</a>
-  {% for etype in entry_types %}
-  <a href="/studio/knowledge?type={{ etype }}" style="display:inline-block;padding:7px 16px;border-radius:8px;font-size:12.5px;font-weight:600;text-decoration:none;{% if current_type == etype %}background:var(--purple);color:#fff;{% else %}background:var(--surface);color:var(--text2);border:1px solid var(--border2);{% endif %}">{{ etype.replace('_', ' ')|title }}</a>
+  <a href="/studio/knowledge" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:10px;font-size:12.5px;font-weight:600;text-decoration:none;{% if not current_section and not current_type %}background:var(--purple);color:#fff;{% else %}background:var(--surface);color:var(--text2);border:1px solid var(--border2);{% endif %}">
+    <i class="fas fa-layer-group" style="font-size:11px;"></i> All
+    <span style="font-size:10px;opacity:0.7;">{{ entries|length if not current_section and not current_type else '' }}</span>
+  </a>
+  {% for sec in sections %}
+  <a href="/studio/knowledge?section={{ sec.key }}" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:10px;font-size:12.5px;font-weight:600;text-decoration:none;{% if current_section == sec.key %}background:var(--purple);color:#fff;{% else %}background:var(--surface);color:var(--text2);border:1px solid var(--border2);{% endif %}">
+    <i class="{{ sec.icon }}" style="font-size:11px;{% if current_section != sec.key %}color:{{ sec.color }};{% endif %}"></i>
+    {{ sec.label }}
+    {% if section_counts[sec.key] > 0 %}
+    <span style="display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700;{% if current_section == sec.key %}background:rgba(255,255,255,0.2);{% else %}background:var(--surface2);color:var(--text3);{% endif %}">{{ section_counts[sec.key] }}</span>
+    {% endif %}
+  </a>
   {% endfor %}
 </div>
+
+<!-- ── Section Description ───────────────────────────── -->
+{% if current_section %}
+{% set active_sec = sections|selectattr('key', 'equalto', current_section)|first %}
+{% if active_sec %}
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px;">
+  <i class="{{ active_sec.icon }}" style="color:{{ active_sec.color }};font-size:14px;"></i>
+  <span style="font-size:13px;color:var(--text2);">{{ active_sec.description }}</span>
+  {% if active_sec.key == 'products' %}
+  <span style="margin-left:auto;display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(124,58,237,0.1);color:var(--purple);">
+    <i class="fas fa-lock" style="font-size:9px;"></i> Shopify Only
+  </span>
+  {% endif %}
+</div>
+{% endif %}
+{% endif %}
 
 <!-- ── Add Entry Form ────────────────────────────────── -->
 <div class="card" style="margin-bottom:20px;">
@@ -35,14 +60,23 @@
   </div>
   <div id="addEntryForm" style="display:none;">
     <div class="card-body">
-      <form method="POST" action="/studio/knowledge">
+      <form method="POST" action="/studio/knowledge/add">
         <div style="display:grid;grid-template-columns:1fr 2fr;gap:16px;margin-bottom:16px;">
           <div>
             <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Entry Type</label>
             <select name="entry_type" required style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
-              {% for etype in entry_types %}
-              <option value="{{ etype }}">{{ etype.replace('_', ' ')|title }}</option>
-              {% endfor %}
+              <optgroup label="Brand & Blog">
+                <option value="brand_copy">Brand Copy</option>
+                <option value="blog_post">Blog Post</option>
+              </optgroup>
+              <optgroup label="Social Proof">
+                <option value="testimonial">Testimonial</option>
+                <option value="faq">FAQ</option>
+              </optgroup>
+              <optgroup label="Intelligence">
+                <option value="competitor_intel">Competitor Intel</option>
+                <option value="email_design_intel">Email Design Intel</option>
+              </optgroup>
             </select>
           </div>
           <div>
@@ -53,6 +87,14 @@
         <div style="margin-bottom:16px;">
           <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Content</label>
           <textarea name="content" required rows="5" placeholder="Paste your content here..." style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;resize:vertical;"></textarea>
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-size:12.5px;font-weight:600;color:var(--text2);margin-bottom:7px;letter-spacing:0.3px;">Image URL <span style="font-weight:400;color:var(--text3);">(optional — for testimonials/FAQs)</span></label>
+          <input type="url" name="image_url" placeholder="https://example.com/photo.jpg" style="width:100%;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;color:var(--text);font-size:14px;font-family:inherit;">
+        </div>
+        <div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:var(--text3);">
+          <i class="fas fa-info-circle" style="color:var(--amber);margin-right:6px;"></i>
+          <strong>Note:</strong> LDAS Products are synced automatically from Shopify. Use this form for brand copy, testimonials, FAQs, and intel entries only.
         </div>
         <button type="submit" style="padding:10px 24px;background:linear-gradient(135deg, var(--purple), #5b21b6);color:#fff;border:none;border-radius:10px;font-weight:600;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;box-shadow:0 4px 15px rgba(124,58,237,0.35);font-family:inherit;">
           <i class="fas fa-plus"></i> Add Entry
@@ -76,33 +118,41 @@
           <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Type</th>
           <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Title</th>
           <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Content Preview</th>
-          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Created</th>
+          <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Source</th>
           <th style="padding:12px 16px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);border-bottom:1px solid var(--border);font-weight:600;">Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for entry in entries %}
+        {% set meta = entry.metadata_json | fromjson if entry.metadata_json else {} %}
         <tr style="border-bottom:1px solid var(--border);">
           <td style="padding:14px 16px;font-size:13.5px;">
             {% if entry.entry_type == 'product_catalog' %}
-            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(124,58,237,0.15);color:var(--purple);">Product</span>
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(124,58,237,0.15);color:var(--purple);"><i class="fas fa-lock" style="font-size:8px;margin-right:3px;"></i>Product</span>
             {% elif entry.entry_type == 'brand_copy' %}
             <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(236,72,153,0.15);color:var(--pink);">Brand</span>
             {% elif entry.entry_type == 'blog_post' %}
-            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(6,182,212,0.15);color:var(--cyan);">Blog</span>
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(236,72,153,0.08);color:var(--pink);">Blog</span>
             {% elif entry.entry_type == 'competitor_intel' %}
             <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.15);color:var(--amber);">Competitor</span>
+            {% elif entry.entry_type == 'email_design_intel' %}
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(6,182,212,0.15);color:var(--cyan);">Email Intel</span>
             {% elif entry.entry_type == 'faq' %}
             <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(16,185,129,0.15);color:var(--green);">FAQ</span>
             {% elif entry.entry_type == 'testimonial' %}
-            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(236,72,153,0.15);color:var(--pink);">Testimonial</span>
+            <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(16,185,129,0.15);color:var(--green);">Testimonial</span>
             {% else %}
             <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text2);">{{ entry.entry_type }}</span>
             {% endif %}
           </td>
-          <td style="padding:14px 16px;font-size:13.5px;font-weight:600;color:var(--text);">{{ entry.title }}</td>
+          <td style="padding:14px 16px;font-size:13.5px;font-weight:600;color:var(--text);max-width:220px;">
+            {{ entry.title }}
+            {% if meta.image_urls and meta.image_urls|length > 0 %}
+            <i class="fas fa-image" style="color:var(--text3);font-size:10px;margin-left:5px;" title="Has image"></i>
+            {% endif %}
+          </td>
           <td style="padding:14px 16px;font-size:13px;color:var(--text2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ entry.content[:100] }}{% if entry.content|length > 100 %}...{% endif %}</td>
-          <td style="padding:14px 16px;font-size:12px;color:var(--text3);">{{ entry.created_at.strftime('%b %d, %Y') if entry.created_at else '—' }}</td>
+          <td style="padding:14px 16px;font-size:11.5px;color:var(--text3);">{{ meta.source_name or 'Manual' }}</td>
           <td style="padding:14px 16px;font-size:13.5px;">
             <div style="display:flex;gap:6px;">
               <button onclick="openEditModal({{ entry.id }}, '{{ entry.entry_type }}', '{{ entry.title|e }}', '{{ entry.content|e|truncate(500) }}', {{ 'true' if entry.is_active else 'false' }})" class="btn btn-outline btn-sm" style="padding:5px 10px;">
@@ -123,8 +173,8 @@
   {% else %}
   <div class="empty-state" style="padding:40px;">
     <i class="fas fa-book"></i>
-    <h3>No knowledge entries yet</h3>
-    <p style="color:var(--text3);margin-top:4px;">Add product info, brand copy, and more to power AI template generation.</p>
+    <h3>No knowledge entries{% if current_section %} in this section{% endif %}</h3>
+    <p style="color:var(--text3);margin-top:4px;">{% if current_section == 'products' %}Products are synced automatically from Shopify.{% else %}Add entries manually or let the AI enrichment pipeline populate them.{% endif %}</p>
   </div>
   {% endif %}
 </div>

@@ -42,7 +42,7 @@
           <span style="display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;background:rgba(245,158,11,0.15);color:var(--amber);">{{ job.status }}</span>
           {% endif %}
         </td>
-        <td style="padding:14px 16px;font-size:12px;color:var(--text3);">{{ job.created_at.strftime('%b %d, %H:%M') if job.created_at else '—' }}</td>
+        <td style="padding:14px 16px;font-size:12px;color:var(--text3);">{{ job.created_at|et("%b %d, %I:%M %p") if job.created_at else '—' }}</td>
         <td style="padding:14px 16px;font-size:13.5px;">
           <a href="/studio/jobs/{{ job.id }}" style="color:var(--purple);text-decoration:none;font-weight:600;font-size:13px;">View</a>
         </td>

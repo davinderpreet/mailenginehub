@@ -19,12 +19,12 @@ BRAND_NAME = "LDAS Electronics"
 BRAND_URL = "https://ldas.ca"
 BRAND_COLOR = "#063cff"           # LDAS primary blue
 BRAND_COLOR_DARK = "#0532d4"      # Darker blue
-HEADER_BG = "#0a0a0a"            # Dark header (matches ldas.ca)
+HEADER_BG = "#080a16"            # Deep dark header
 TEXT_DARK = "#1a1a2e"
-TEXT_MID = "#4a5568"
-TEXT_LIGHT = "#718096"
-BG_OUTER = "#f4f4f8"
-BG_BODY = "#ffffff"
+TEXT_MID = "#888888"
+TEXT_LIGHT = "#555555"
+BG_OUTER = "#060810"             # Near-black outer
+BG_BODY = "#0d1020"              # Deep navy body — unified with block_registry DESIGN
 LOGO_URL = "https://ldas.ca/cdn/shop/files/Untitled_design_Logo.png?v=1758142321&width=300"
 
 # CAN-SPAM physical mailing address (REQUIRED)
@@ -63,10 +63,10 @@ def wrap_email(body_html, preview_text="", unsubscribe_url="{{unsubscribe_url}}"
     .hide-mobile { display: none !important; }
   }
   @media (prefers-color-scheme: dark) {
-    .email-outer { background-color: #1a1a2e !important; }
-    .email-body { background-color: #16162a !important; }
+    .email-outer { background-color: #060810 !important; }
+    .email-body { background-color: #0d1020 !important; }
     .dark-invert { color: #e2e8f0 !important; }
-    .dark-bg { background-color: #1e1e3a !important; }
+    .dark-bg { background-color: #0d1020 !important; }
   }
 </style>
 </head>
@@ -78,14 +78,14 @@ def wrap_email(body_html, preview_text="", unsubscribe_url="{{unsubscribe_url}}"
 </div>
 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="email-outer" style="background:''' + BG_OUTER + ''';padding:0;">
-<tr><td align="center" style="padding:24px 8px;">
+<tr><td align="center" style="padding:0;">
 
-  <!-- Container -->
-  <table role="presentation" class="email-container" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:''' + BG_BODY + ''';border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <!-- Container — unified dark gradient, edge-to-edge -->
+  <table role="presentation" class="email-container" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#0d1020;">
 
-    <!-- Header: LDAS Brand — Dark background with white logo -->
+    <!-- Header: LDAS Brand — subtle blue ambient glow behind logo -->
     <tr>
-      <td style="background:''' + HEADER_BG + ''';padding:22px 30px;text-align:center;">
+      <td style="background:''' + HEADER_BG + ''';padding:32px 30px 28px;text-align:center;background-image:radial-gradient(ellipse at 50% 140%, rgba(6,60,255,0.12) 0%, transparent 65%);">
         <a href="''' + BRAND_URL + '''" style="text-decoration:none;">
           <img src="''' + LOGO_URL + '''" alt="''' + BRAND_NAME + '''" width="140" style="display:inline-block;max-width:140px;height:auto;" />
         </a>
@@ -95,21 +95,29 @@ def wrap_email(body_html, preview_text="", unsubscribe_url="{{unsubscribe_url}}"
     <!-- Body Content -->
     ''' + body_html + '''
 
-    <!-- Footer: CAN-SPAM Compliant -->
+    <!-- Footer: CAN-SPAM Compliant — Dark theme -->
     <tr>
-      <td style="background:#f8f8fc;padding:28px 30px;text-align:center;border-top:1px solid #eeeef2;">
-        <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:''' + TEXT_MID + ''';">
+      <td style="background:#0a0d1a;padding:32px 30px 28px;text-align:center;border-top:1px solid rgba(255,255,255,0.05);">
+        <!-- Social links row -->
+        <p style="margin:0 0 16px;font-size:12px;">
+          <a href="https://www.instagram.com/ldas.ca/" style="color:#888888;text-decoration:none;">Instagram</a>
+          &nbsp;<span style="color:#333333;">&nbsp;|&nbsp;</span>&nbsp;
+          <a href="https://www.facebook.com/ldas.ca/" style="color:#888888;text-decoration:none;">Facebook</a>
+          &nbsp;<span style="color:#333333;">&nbsp;|&nbsp;</span>&nbsp;
+          <a href="https://www.youtube.com/@ldas_electronics" style="color:#888888;text-decoration:none;">YouTube</a>
+        </p>
+        <p style="margin:0 0 6px;font-size:12px;font-weight:600;color:''' + TEXT_MID + ''';">
           ''' + BRAND_NAME + '''
         </p>
-        <p style="margin:0 0 10px;font-size:12px;color:''' + TEXT_LIGHT + ''';">
+        <p style="margin:0 0 10px;font-size:11px;color:''' + TEXT_LIGHT + ''';">
           ''' + html_mod.escape(PHYSICAL_ADDRESS) + '''
         </p>
-        <p style="margin:0 0 10px;font-size:12px;color:''' + TEXT_LIGHT + ''';">
-          <a href="''' + BRAND_URL + '''" style="color:''' + BRAND_COLOR + ''';text-decoration:none;">Shop</a>
-          &nbsp;&bull;&nbsp;
-          <a href="''' + unsubscribe_url + '''" style="color:''' + TEXT_LIGHT + ''';text-decoration:underline;">Unsubscribe</a>
+        <p style="margin:0 0 10px;font-size:11px;color:''' + TEXT_LIGHT + ''';">
+          <a href="''' + BRAND_URL + '''" style="color:''' + BRAND_COLOR + ''';text-decoration:none;">Shop ldas.ca</a>
+          &nbsp;<span style="color:#333333;">&bull;</span>&nbsp;
+          <a href="''' + unsubscribe_url + '''" style="color:#555555;text-decoration:underline;">Unsubscribe</a>
         </p>
-        <p style="margin:0;font-size:11px;color:#a0aec0;">
+        <p style="margin:0;font-size:10px;color:#333333;">
           You received this email because you subscribed at ldas.ca.
         </p>
       </td>

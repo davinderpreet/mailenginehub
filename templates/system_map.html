@@ -1,0 +1,904 @@
+{% extends "base.html" %}
+{% block title %}System Map — MailEngineHub{% endblock %}
+{% block page_title %}System Architecture{% endblock %}
+
+{% block extra_head %}
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+.smap-wrapper { margin: -28px -32px; position: relative; overflow: hidden; }
+
+/* ── Controls ── */
+.smap-controls {
+    position: sticky; top: 64px; z-index: 40; height: 50px;
+    display: flex; align-items: center; gap: 10px; padding: 0 16px;
+    background: rgba(7,9,26,0.92); backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+}
+.smap-pills { display: flex; gap: 6px; flex-shrink: 0; }
+.smap-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 12px; border-radius: 20px; font-size: 11.5px;
+    font-weight: 600; cursor: pointer; border: 1px solid transparent;
+    transition: all 0.2s; user-select: none; white-space: nowrap;
+}
+.smap-pill .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.smap-pill.active { border-color: currentColor; }
+.smap-pill.inactive { opacity: 0.35; background: transparent !important; border-color: var(--border); color: var(--text3); }
+.smap-search {
+    display: flex; align-items: center; gap: 6px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px;
+    margin-left: auto; flex-shrink: 0;
+}
+.smap-search i { color: var(--text3); font-size: 12px; }
+.smap-search input {
+    background: none; border: none; outline: none; color: var(--text);
+    font-size: 12px; width: 140px; font-family: inherit;
+}
+.smap-search input::placeholder { color: var(--text3); }
+.smap-reset-btn {
+    display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px;
+    border-radius: 8px; font-size: 11.5px; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text2);
+    transition: all 0.2s; flex-shrink: 0;
+}
+.smap-reset-btn:hover { background: var(--surface2); color: var(--text); }
+.smap-live {
+    display: flex; align-items: center; gap: 6px; font-size: 11px;
+    color: var(--text3); flex-shrink: 0; margin-left: 8px;
+}
+.smap-live-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 6px var(--green); animation: smap-pulse 2s ease-in-out infinite;
+}
+@keyframes smap-pulse {
+    0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+}
+
+/* ── Canvas ── */
+.smap-canvas { width: 100%; height: calc(100vh - 115px); background: var(--bg); display: block; }
+
+/* ── Loading / Error ── */
+.smap-loading, .smap-error {
+    position: absolute; top: 50px; left: 0; right: 0; bottom: 0;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 16px; z-index: 20; background: var(--bg);
+}
+.smap-loading.hidden, .smap-error.hidden { display: none; }
+.smap-spinner {
+    width: 40px; height: 40px; border: 3px solid var(--border2);
+    border-top-color: var(--purple); border-radius: 50%;
+    animation: smap-spin 0.8s linear infinite;
+}
+@keyframes smap-spin { to { transform: rotate(360deg); } }
+.smap-loading-text { color: var(--text2); font-size: 14px; }
+.smap-error-text { color: var(--red); font-size: 14px; }
+
+/* ── Node cards ── */
+.smap-node {
+    border: 1px solid; border-radius: 10px; padding: 8px 10px; cursor: pointer;
+    transition: box-shadow 0.2s, border-color 0.2s; overflow: hidden;
+    height: 100%; display: flex; flex-direction: column; justify-content: center;
+}
+.smap-node:hover { box-shadow: 0 0 16px rgba(255,255,255,0.08); }
+.smap-node-header { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+.smap-node-header i { font-size: 11px; flex-shrink: 0; }
+.smap-node-label {
+    font-size: 10.5px; font-weight: 600; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2;
+}
+.smap-node-stats {
+    font-size: 9.5px; color: var(--text3); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; margin-top: 2px;
+}
+.smap-node.mini { padding: 5px 8px; }
+.smap-node.mini .smap-node-label { font-size: 9.5px; }
+.smap-node.mini .smap-node-stats { font-size: 8.5px; }
+
+/* ── Detail panel ── */
+.smap-detail {
+    position: absolute; right: 0; top: 50px; width: 350px;
+    height: calc(100% - 50px); background: var(--bg);
+    border-left: 1px solid var(--border); z-index: 30;
+    transform: translateX(100%); transition: transform 0.2s ease;
+    overflow-y: auto; padding: 24px;
+}
+.smap-detail.open { transform: translateX(0); }
+.smap-detail-close {
+    position: absolute; top: 16px; right: 16px; width: 32px; height: 32px;
+    border-radius: 8px; background: var(--surface); border: 1px solid var(--border);
+    color: var(--text2); cursor: pointer; display: flex; align-items: center;
+    justify-content: center; font-size: 14px; transition: all 0.2s;
+}
+.smap-detail-close:hover { background: var(--surface2); color: var(--text); }
+.smap-detail-icon {
+    width: 48px; height: 48px; border-radius: 14px; display: flex;
+    align-items: center; justify-content: center; font-size: 22px; margin-bottom: 14px;
+}
+.smap-detail-label { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+.smap-detail-cat {
+    display: inline-block; padding: 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; margin-bottom: 20px;
+}
+.smap-detail h4 {
+    font-size: 11px; font-weight: 700; color: var(--text3);
+    text-transform: uppercase; letter-spacing: 1px; margin: 20px 0 10px;
+}
+.smap-detail-stats { display: flex; flex-direction: column; gap: 8px; }
+.smap-detail-stat {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12.5px;
+}
+.smap-detail-stat-key { color: var(--text2); text-transform: capitalize; }
+.smap-detail-stat-val { color: var(--text); font-weight: 600; }
+.smap-detail-conn {
+    display: flex; align-items: center; gap: 8px; padding: 6px 0;
+    font-size: 12.5px; color: var(--text2);
+}
+.smap-detail-conn .conn-name { color: var(--text); font-weight: 500; }
+.smap-detail-conn .conn-badge {
+    font-size: 9.5px; padding: 1px 6px; border-radius: 10px;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text3); font-weight: 600;
+}
+.smap-detail-link {
+    display: inline-flex; align-items: center; gap: 7px; padding: 9px 18px;
+    border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;
+    border: none; text-decoration: none;
+    background: linear-gradient(135deg, var(--purple), #5b21b6); color: #fff;
+    box-shadow: 0 4px 15px var(--purple-glow); margin-top: 16px; transition: all 0.2s;
+}
+.smap-detail-link:hover { transform: translateY(-1px); color: #fff; }
+
+/* ── Tooltip ── */
+.smap-edge-tooltip {
+    position: fixed; padding: 6px 10px; background: var(--bg2);
+    border: 1px solid var(--border2); border-radius: 8px; font-size: 11px;
+    color: var(--text); pointer-events: none; z-index: 100; white-space: nowrap; display: none;
+}
+
+/* ── Flow pulse ── */
+@keyframes smap-flow-pulse {
+    0% { offset-distance: 0%; opacity: 0; }
+    5% { opacity: 1; }
+    95% { opacity: 1; }
+    100% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes smap-dash-flow { to { stroke-dashoffset: -20; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="smap-wrapper">
+    <div class="smap-controls">
+        <div class="smap-pills" id="smapPills"></div>
+        <div class="smap-search">
+            <i class="fas fa-search"></i>
+            <input type="text" id="smapSearch" placeholder="Search nodes...">
+        </div>
+        <button class="smap-reset-btn" id="smapReset"><i class="fas fa-undo"></i> Reset</button>
+        <div class="smap-live">
+            <div class="smap-live-dot"></div>
+            <span id="smapLiveText">Live</span>
+        </div>
+    </div>
+
+    <svg class="smap-canvas" id="smapSvg"></svg>
+
+    <div class="smap-loading" id="smapLoading">
+        <div class="smap-spinner"></div>
+        <div class="smap-loading-text">Loading system map...</div>
+    </div>
+    <div class="smap-error hidden" id="smapError">
+        <i class="fas fa-exclamation-triangle" style="font-size:32px;color:var(--red);opacity:0.6;"></i>
+        <div class="smap-error-text">Failed to load system map</div>
+        <button class="btn btn-outline btn-sm" id="smapRetry"><i class="fas fa-redo"></i> Retry</button>
+    </div>
+
+    <div class="smap-detail" id="smapDetail">
+        <button class="smap-detail-close" id="smapDetailClose"><i class="fas fa-xmark"></i></button>
+        <div id="smapDetailContent"></div>
+    </div>
+    <div class="smap-edge-tooltip" id="smapEdgeTooltip"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function() {
+    "use strict";
+
+    /* ══════════════════════════════════════════════════════
+       CONFIG
+       ══════════════════════════════════════════════════════ */
+
+    const COLORS = {
+        external: "#f59e0b", webhook: "#ec4899", data: "#06b6d4",
+        intelligence: "#7c3aed", execution: "#10b981", content: "#a855f7",
+        learning: "#ef4444", database: "rgba(255,255,255,0.35)"
+    };
+
+    const CAT_LABELS = {
+        external: "Sources", webhook: "Webhooks & Triggers",
+        data: "Data & Enrichment", intelligence: "Intelligence",
+        content: "Content", execution: "Execution",
+        learning: "Learning & Tracking", database: "Database Tables"
+    };
+
+    // ── S-curve layout: 3 rows × 3 cols ──
+    // Row 1: L→R   Sources → Webhooks → Data
+    // Row 2: R→L   Intelligence → Content → Execution
+    // Row 3: L→R   Learning → Database
+    const POOL_GRID = [
+        ["external",  "webhook",  "data"],
+        ["execution", "content",  "intelligence"],
+        ["learning",  "database",  null]
+    ];
+
+    // Flow order (1-8), descriptions, and step metadata
+    const STEP_META = {
+        external:     { step: 1, desc: "External data inputs",       phase: "INGESTION" },
+        webhook:      { step: 2, desc: "Receive & route events",     phase: "INGESTION" },
+        data:         { step: 3, desc: "Enrich & sync contacts",     phase: "INGESTION" },
+        intelligence: { step: 4, desc: "Score, decide & plan",       phase: "PROCESSING" },
+        content:      { step: 5, desc: "Create email content",       phase: "PROCESSING" },
+        execution:    { step: 6, desc: "Send through pipeline",      phase: "DELIVERY" },
+        learning:     { step: 7, desc: "Track engagement",           phase: "FEEDBACK" },
+        database:     { step: 8, desc: "Persistent storage",         phase: "FEEDBACK" }
+    };
+
+    // Flow connectors between pools (in flow order)
+    const FLOW_CONNECTORS = [
+        { from: "external",     to: "webhook",      label: "triggers",  dir: "right" },
+        { from: "webhook",      to: "data",          label: "processes", dir: "right" },
+        { from: "data",         to: "intelligence",  label: "analyzes",  dir: "down" },
+        { from: "intelligence", to: "content",       label: "decides",   dir: "left" },
+        { from: "content",      to: "execution",     label: "sends",     dir: "left" },
+        { from: "execution",    to: "learning",      label: "tracks",    dir: "down" },
+        { from: "learning",     to: "database",      label: "stores",    dir: "right" }
+    ];
+
+    // Phase labels for each row
+    const ROW_PHASES = [
+        { label: "INGESTION",  icon: "fa-download",    color: "#06b6d4" },
+        { label: "PROCESSING & DELIVERY", icon: "fa-cogs", color: "#7c3aed" },
+        { label: "FEEDBACK & STORAGE", icon: "fa-chart-line", color: "#ef4444" }
+    ];
+
+    // Layout constants
+    const NODE_W = 154, NODE_H = 56;
+    const MINI_W = 126, MINI_H = 42;
+    const NODE_GAP_X = 14, NODE_GAP_Y = 12;
+    const POOL_PAD = 20, POOL_HEADER_H = 58;
+    const POOL_GAP_X = 80, POOL_GAP_Y = 70;
+    const CANVAS_PAD = 70;
+    const PHASE_LABEL_W = 50;
+
+    /* ══════════════════════════════════════════════════════
+       STATE
+       ══════════════════════════════════════════════════════ */
+
+    let graphData = null, lastFetchTime = Date.now();
+    let activeCategories = new Set(Object.keys(COLORS));
+    let searchTerm = "", selectedNodeId = null, zoomBehavior = null;
+    let poolRects = {};
+
+    /* ══════════════════════════════════════════════════════
+       DOM
+       ══════════════════════════════════════════════════════ */
+
+    const svgEl = document.getElementById("smapSvg");
+    const loadingEl = document.getElementById("smapLoading");
+    const errorEl = document.getElementById("smapError");
+    const detailEl = document.getElementById("smapDetail");
+    const detailContent = document.getElementById("smapDetailContent");
+    const edgeTooltip = document.getElementById("smapEdgeTooltip");
+
+    /* ══════════════════════════════════════════════════════
+       HELPERS
+       ══════════════════════════════════════════════════════ */
+
+    function hexToRgb(hex) {
+        if (hex.startsWith("rgba")) {
+            const m = hex.match(/[\d.]+/g);
+            return m ? { r: +m[0], g: +m[1], b: +m[2] } : { r: 255, g: 255, b: 255 };
+        }
+        const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return r ? { r: parseInt(r[1],16), g: parseInt(r[2],16), b: parseInt(r[3],16) } : { r:255, g:255, b:255 };
+    }
+
+    function formatStats(stats) {
+        if (!stats || Object.keys(stats).length === 0) return "\u2014";
+        return Object.entries(stats).slice(0,2).map(([k,v]) =>
+            (v === null || v === undefined) ? "\u2014" : (typeof v === "number" ? v.toLocaleString() : v)
+        ).join(" \u00b7 ");
+    }
+    function formatStatLabel(k) { return k.replace(/_/g," ").replace(/\b\w/g, c => c.toUpperCase()); }
+    function formatStatValue(v) { return (v === null || v === undefined) ? "\u2014" : (typeof v === "number" ? v.toLocaleString() : String(v)); }
+    function timeAgo(ts) {
+        const s = Math.floor((Date.now()-ts)/1000);
+        if (s < 5) return "just now"; if (s < 60) return s+"s ago";
+        if (s < 3600) return Math.floor(s/60)+"m ago"; return Math.floor(s/3600)+"h ago";
+    }
+    function escapeHtml(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+    /* ══════════════════════════════════════════════════════
+       LAYOUT ENGINE — S-curve pool placement
+       ══════════════════════════════════════════════════════ */
+
+    function computeLayout(nodes) {
+        const groups = {};
+        for (const cat of Object.keys(CAT_LABELS)) groups[cat] = [];
+        nodes.forEach(n => { if (groups[n.category]) groups[n.category].push(n); });
+
+        // Compute each pool's grid dimensions
+        const poolInfo = {};
+        for (const cat of Object.keys(CAT_LABELS)) {
+            const cn = groups[cat], count = cn.length;
+            const isMini = (cat === "database");
+            const nw = isMini ? MINI_W : NODE_W;
+            const nh = isMini ? MINI_H : NODE_H;
+            let cols = count <= 2 ? 1 : count <= 6 ? 2 : count <= 12 ? 3 : 4;
+            const rows = Math.ceil(count / cols);
+            const w = cols * nw + (cols-1) * NODE_GAP_X + POOL_PAD * 2;
+            const h = POOL_HEADER_H + rows * nh + (rows-1) * NODE_GAP_Y + POOL_PAD * 2;
+            poolInfo[cat] = { w, h, cols, nw, nh, nodes: cn };
+        }
+
+        // Column widths = max across all rows for that col
+        const colWidths = [0, 0, 0];
+        for (let r = 0; r < 3; r++) {
+            for (let c = 0; c < 3; c++) {
+                const cat = POOL_GRID[r][c];
+                if (cat) colWidths[c] = Math.max(colWidths[c], poolInfo[cat].w);
+            }
+        }
+
+        // Row heights
+        const rowHeights = [0, 0, 0];
+        for (let r = 0; r < 3; r++) {
+            for (let c = 0; c < 3; c++) {
+                const cat = POOL_GRID[r][c];
+                if (cat) rowHeights[r] = Math.max(rowHeights[r], poolInfo[cat].h);
+            }
+        }
+
+        // Position pools
+        const rects = {};
+        let curY = CANVAS_PAD + 30; // extra top for phase labels
+        for (let r = 0; r < 3; r++) {
+            let curX = CANVAS_PAD + PHASE_LABEL_W;
+            for (let c = 0; c < 3; c++) {
+                const cat = POOL_GRID[r][c];
+                if (cat) {
+                    const info = poolInfo[cat];
+                    const ox = (colWidths[c] - info.w) / 2;
+                    rects[cat] = {
+                        x: curX + ox, y: curY, w: info.w, h: info.h,
+                        cols: info.cols, nw: info.nw, nh: info.nh, nodes: info.nodes,
+                        gridRow: r, gridCol: c
+                    };
+                }
+                curX += colWidths[c] + POOL_GAP_X;
+            }
+            curY += rowHeights[r] + POOL_GAP_Y;
+        }
+
+        // Position nodes inside pools
+        for (const [cat, rect] of Object.entries(rects)) {
+            rect.nodes.forEach((node, i) => {
+                const col = i % rect.cols;
+                const row = Math.floor(i / rect.cols);
+                node.x = rect.x + POOL_PAD + col * (rect.nw + NODE_GAP_X) + rect.nw / 2;
+                node.y = rect.y + POOL_HEADER_H + POOL_PAD + row * (rect.nh + NODE_GAP_Y) + rect.nh / 2;
+                node._w = rect.nw;
+                node._h = rect.nh;
+            });
+        }
+
+        const totalW = CANVAS_PAD * 2 + PHASE_LABEL_W + colWidths.reduce((a,b) => a+b, 0) + POOL_GAP_X * 2;
+        const totalH = curY + CANVAS_PAD;
+
+        return { rects, totalW, totalH, rowHeights, colWidths };
+    }
+
+    /* ══════════════════════════════════════════════════════
+       EDGE PATHS
+       ══════════════════════════════════════════════════════ */
+
+    function edgePath(d) {
+        const sx = d.source.x, sy = d.source.y, tx = d.target.x, ty = d.target.y;
+        const dx = tx-sx, dy = ty-sy;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 1) return `M${sx},${sy}L${tx},${ty}`;
+        const curve = Math.min(dist * 0.12, 40);
+        const mx = (sx+tx)/2, my = (sy+ty)/2;
+        const nx = -dy/dist, ny = dx/dist;
+        return `M${sx},${sy} Q${mx + nx*curve},${my + ny*curve} ${tx},${ty}`;
+    }
+
+    /* ══════════════════════════════════════════════════════
+       FLOW CONNECTOR PATHS (between pools)
+       ══════════════════════════════════════════════════════ */
+
+    function connectorPath(fc, rects) {
+        const a = rects[fc.from], b = rects[fc.to];
+        if (!a || !b) return null;
+
+        let sx, sy, tx, ty;
+        if (fc.dir === "right") {
+            sx = a.x + a.w; sy = a.y + a.h / 2;
+            tx = b.x;       ty = b.y + b.h / 2;
+        } else if (fc.dir === "left") {
+            sx = a.x;       sy = a.y + a.h / 2;
+            tx = b.x + b.w; ty = b.y + b.h / 2;
+        } else { // down
+            sx = a.x + a.w / 2; sy = a.y + a.h;
+            tx = b.x + b.w / 2; ty = b.y;
+        }
+
+        const mx = (sx + tx) / 2, my = (sy + ty) / 2;
+        if (fc.dir === "down") {
+            return { path: `M${sx},${sy} C${sx},${my} ${tx},${my} ${tx},${ty}`, mx, my, sx, sy, tx, ty };
+        }
+        return { path: `M${sx},${sy} C${mx},${sy} ${mx},${ty} ${tx},${ty}`, mx, my, sx, sy, tx, ty };
+    }
+
+    /* ══════════════════════════════════════════════════════
+       FILTER PILLS
+       ══════════════════════════════════════════════════════ */
+
+    function buildPills() {
+        const el = document.getElementById("smapPills");
+        el.innerHTML = "";
+        for (const [cat, color] of Object.entries(COLORS)) {
+            const pill = document.createElement("div");
+            const on = activeCategories.has(cat);
+            pill.className = "smap-pill " + (on ? "active" : "inactive");
+            const rgb = hexToRgb(color);
+            if (on) {
+                pill.style.background = `rgba(${rgb.r},${rgb.g},${rgb.b},0.12)`;
+                pill.style.color = color;
+                pill.style.borderColor = `rgba(${rgb.r},${rgb.g},${rgb.b},0.35)`;
+            }
+            pill.innerHTML = `<span class="dot" style="background:${color}"></span>${CAT_LABELS[cat]}`;
+            pill.addEventListener("click", () => {
+                if (activeCategories.has(cat)) activeCategories.delete(cat); else activeCategories.add(cat);
+                buildPills(); applyFilters();
+            });
+            el.appendChild(pill);
+        }
+    }
+
+    function applyFilters() {
+        if (!graphData) return;
+        const term = searchTerm.toLowerCase().trim();
+        const searching = term.length > 0;
+        const visibleIds = new Set();
+
+        graphData.nodes.forEach(n => {
+            n._visible = activeCategories.has(n.category);
+            if (n._visible) visibleIds.add(n.id);
+            n._searchMatch = !searching || n.label.toLowerCase().includes(term);
+        });
+
+        d3.selectAll(".smap-pool-g").each(function() {
+            d3.select(this).style("opacity", activeCategories.has(d3.select(this).attr("data-cat")) ? 1 : 0.06);
+        });
+        d3.selectAll(".smap-node-g").each(function(d) {
+            d3.select(this).style("opacity", !d._visible ? 0.05 : (searching && !d._searchMatch) ? 0.12 : 1);
+        });
+        d3.selectAll(".smap-edge").each(function(d) {
+            const si = typeof d.source === "object" ? d.source.id : d.source;
+            const ti = typeof d.target === "object" ? d.target.id : d.target;
+            const vis = visibleIds.has(si) && visibleIds.has(ti);
+            d3.select(this).style("display", vis ? null : "none").style("opacity", searching ? 0.05 : null);
+        });
+    }
+
+    /* ══════════════════════════════════════════════════════
+       DETAIL PANEL
+       ══════════════════════════════════════════════════════ */
+
+    function openDetail(node) {
+        selectedNodeId = node.id;
+        const color = COLORS[node.category] || "#fff";
+        const rgb = hexToRgb(color);
+        const meta = STEP_META[node.category] || {};
+
+        let html = `<div class="smap-detail-icon" style="background:rgba(${rgb.r},${rgb.g},${rgb.b},0.15);color:${color};"><i class="fas ${node.icon||'fa-circle-nodes'}"></i></div>`;
+        html += `<div class="smap-detail-label">${escapeHtml(node.label)}</div>`;
+        html += `<div class="smap-detail-cat" style="background:rgba(${rgb.r},${rgb.g},${rgb.b},0.12);color:${color};border:1px solid rgba(${rgb.r},${rgb.g},${rgb.b},0.3);">Step ${meta.step || "?"} \u00b7 ${CAT_LABELS[node.category]||node.category}</div>`;
+
+        if (node.stats && Object.keys(node.stats).length > 0) {
+            html += `<h4>Statistics</h4><div class="smap-detail-stats">`;
+            for (const [k,v] of Object.entries(node.stats)) {
+                html += `<div class="smap-detail-stat"><span class="smap-detail-stat-key">${formatStatLabel(k)}</span><span class="smap-detail-stat-val">${formatStatValue(v)}</span></div>`;
+            }
+            html += `</div>`;
+        }
+
+        if (graphData) {
+            const inb = [], out = [];
+            graphData.edges.forEach(e => {
+                const si = typeof e.source==="object" ? e.source.id : e.source;
+                const ti = typeof e.target==="object" ? e.target.id : e.target;
+                if (ti === node.id) { const s = graphData.nodes.find(n=>n.id===si); if(s) inb.push({name:s.label,type:e.type||"realtime"}); }
+                if (si === node.id) { const t = graphData.nodes.find(n=>n.id===ti); if(t) out.push({name:t.label,type:e.type||"realtime"}); }
+            });
+            if (inb.length) {
+                html += `<h4>Inbound (${inb.length})</h4>`;
+                inb.forEach(c => { html += `<div class="smap-detail-conn"><i class="fas fa-arrow-right" style="color:var(--text3);font-size:10px;"></i> <span class="conn-name">${escapeHtml(c.name)}</span><span class="conn-badge">${c.type}</span></div>`; });
+            }
+            if (out.length) {
+                html += `<h4>Outbound (${out.length})</h4>`;
+                out.forEach(c => { html += `<div class="smap-detail-conn"><i class="fas fa-arrow-left" style="color:var(--text3);font-size:10px;"></i> <span class="conn-name">${escapeHtml(c.name)}</span><span class="conn-badge">${c.type}</span></div>`; });
+            }
+        }
+        if (node.link) html += `<a href="${escapeHtml(node.link)}" class="smap-detail-link"><i class="fas fa-arrow-up-right-from-square"></i> Open Dashboard</a>`;
+
+        detailContent.innerHTML = html;
+        detailEl.classList.add("open");
+        highlightConnections(node.id);
+    }
+
+    function closeDetail() { detailEl.classList.remove("open"); selectedNodeId = null; clearHighlight(); }
+
+    function highlightConnections(nodeId) {
+        d3.selectAll(".smap-edge").each(function(d) {
+            const si = typeof d.source==="object" ? d.source.id : d.source;
+            const ti = typeof d.target==="object" ? d.target.id : d.target;
+            d3.select(this).style("opacity", (si===nodeId||ti===nodeId) ? 0.85 : 0.04);
+        });
+    }
+    function clearHighlight() {
+        if (searchTerm.trim().length > 0) applyFilters();
+        else d3.selectAll(".smap-edge").style("opacity", null);
+    }
+
+    /* ══════════════════════════════════════════════════════
+       BUILD GRAPH
+       ══════════════════════════════════════════════════════ */
+
+    function buildGraph(data) {
+        graphData = data;
+        const nodes = data.nodes, edges = data.edges;
+        const nodeMap = {};
+        nodes.forEach(n => { nodeMap[n.id] = n; });
+        edges.forEach(e => {
+            if (typeof e.source === "string") e.source = nodeMap[e.source] || e.source;
+            if (typeof e.target === "string") e.target = nodeMap[e.target] || e.target;
+        });
+
+        const layout = computeLayout(nodes);
+        poolRects = layout.rects;
+
+        const svg = d3.select("#smapSvg");
+        svg.selectAll("*").remove();
+        const viewW = svgEl.clientWidth, viewH = svgEl.clientHeight;
+
+        // Defs
+        const defs = svg.append("defs");
+        Object.entries(COLORS).forEach(([cat, color]) => {
+            defs.append("marker").attr("id","arrow-"+cat)
+                .attr("viewBox","0 0 10 10").attr("refX",10).attr("refY",5)
+                .attr("markerWidth",5).attr("markerHeight",5).attr("orient","auto-start-reverse")
+                .append("path").attr("d","M 0 0 L 10 5 L 0 10 z").attr("fill",color).attr("opacity",0.5);
+        });
+        // Large flow arrow marker
+        defs.append("marker").attr("id","flow-arrow")
+            .attr("viewBox","0 0 12 12").attr("refX",12).attr("refY",6)
+            .attr("markerWidth",8).attr("markerHeight",8).attr("orient","auto")
+            .append("path").attr("d","M 0 0 L 12 6 L 0 12 z").attr("fill","rgba(255,255,255,0.5)");
+
+        const container = svg.append("g").attr("class","smap-container");
+        zoomBehavior = d3.zoom().scaleExtent([0.2,3]).on("zoom", e => container.attr("transform", e.transform));
+        svg.call(zoomBehavior);
+        svg.on("click", e => { if (e.target === svgEl) closeDetail(); });
+
+        // ── Phase row labels ──
+        const phaseG = container.append("g").attr("class","smap-phases");
+        for (let r = 0; r < 3; r++) {
+            const ph = ROW_PHASES[r];
+            // Find the row's y range from pools
+            let minY = Infinity, maxY = 0;
+            for (let c = 0; c < 3; c++) {
+                const cat = POOL_GRID[r][c];
+                if (cat && poolRects[cat]) {
+                    minY = Math.min(minY, poolRects[cat].y);
+                    maxY = Math.max(maxY, poolRects[cat].y + poolRects[cat].h);
+                }
+            }
+            const cy = (minY + maxY) / 2;
+            const lx = CANVAS_PAD + 10;
+
+            // Rotated phase label
+            phaseG.append("text")
+                .attr("x", lx).attr("y", cy)
+                .attr("text-anchor", "middle")
+                .attr("dominant-baseline", "central")
+                .attr("transform", `rotate(-90, ${lx}, ${cy})`)
+                .attr("fill", ph.color).attr("font-size", "11px")
+                .attr("font-weight", "800").attr("letter-spacing", "2px")
+                .attr("opacity", 0.4)
+                .text(ph.label);
+        }
+
+        // ── Pool backgrounds ──
+        const poolG = container.append("g").attr("class","smap-pools");
+        for (const [cat, rect] of Object.entries(poolRects)) {
+            const color = COLORS[cat] || "#fff";
+            const rgb = hexToRgb(color);
+            const meta = STEP_META[cat] || {};
+            const g = poolG.append("g").attr("class","smap-pool-g").attr("data-cat", cat);
+
+            // Pool bg
+            g.append("rect")
+                .attr("x",rect.x).attr("y",rect.y).attr("width",rect.w).attr("height",rect.h)
+                .attr("rx",16).attr("fill",`rgba(${rgb.r},${rgb.g},${rgb.b},0.03)`)
+                .attr("stroke",`rgba(${rgb.r},${rgb.g},${rgb.b},0.15)`).attr("stroke-width",1);
+
+            // Header bg
+            g.append("rect")
+                .attr("x",rect.x).attr("y",rect.y).attr("width",rect.w).attr("height",POOL_HEADER_H)
+                .attr("rx",16).attr("fill",`rgba(${rgb.r},${rgb.g},${rgb.b},0.06)`);
+            g.append("rect")
+                .attr("x",rect.x).attr("y",rect.y+POOL_HEADER_H-16).attr("width",rect.w).attr("height",16)
+                .attr("fill",`rgba(${rgb.r},${rgb.g},${rgb.b},0.06)`);
+
+            // Step number circle
+            const circleX = rect.x + 24, circleY = rect.y + 20;
+            g.append("circle")
+                .attr("cx", circleX).attr("cy", circleY).attr("r", 13)
+                .attr("fill", color).attr("opacity", 0.9);
+            g.append("text")
+                .attr("x", circleX).attr("y", circleY + 1)
+                .attr("text-anchor","middle").attr("dominant-baseline","central")
+                .attr("fill","#fff").attr("font-size","11px").attr("font-weight","800")
+                .text(meta.step || "?");
+
+            // Pool label
+            g.append("text")
+                .attr("x", rect.x + 44).attr("y", rect.y + 17)
+                .attr("fill", color).attr("font-size","12.5px").attr("font-weight","700")
+                .text(CAT_LABELS[cat]);
+
+            // Pool description
+            g.append("text")
+                .attr("x", rect.x + 44).attr("y", rect.y + 32)
+                .attr("fill",`rgba(${rgb.r},${rgb.g},${rgb.b},0.5)`)
+                .attr("font-size","10px").attr("font-weight","500")
+                .text(meta.desc || "");
+
+            // Node count
+            g.append("text")
+                .attr("x", rect.x + rect.w - 14).attr("y", rect.y + 24)
+                .attr("text-anchor","end").attr("dominant-baseline","central")
+                .attr("fill",`rgba(${rgb.r},${rgb.g},${rgb.b},0.35)`)
+                .attr("font-size","11px").attr("font-weight","600")
+                .text(rect.nodes.length + " nodes");
+        }
+
+        // ── Flow connectors (prominent arrows between pools) ──
+        const flowG = container.append("g").attr("class","smap-flow-connectors");
+
+        // Build the full flow path for the animated pulse
+        let fullFlowPoints = [];
+
+        FLOW_CONNECTORS.forEach(fc => {
+            const cp = connectorPath(fc, poolRects);
+            if (!cp) return;
+
+            // Connector line
+            flowG.append("path")
+                .attr("d", cp.path)
+                .attr("fill","none")
+                .attr("stroke","rgba(255,255,255,0.12)")
+                .attr("stroke-width", 3)
+                .attr("stroke-dasharray","8,6")
+                .style("animation","smap-dash-flow 1.5s linear infinite")
+                .attr("marker-end","url(#flow-arrow)");
+
+            // Label background + text
+            const lx = cp.mx, ly = cp.my;
+            const labelW = fc.label.length * 6.5 + 16;
+            flowG.append("rect")
+                .attr("x", lx - labelW/2).attr("y", ly - 10)
+                .attr("width", labelW).attr("height", 20)
+                .attr("rx", 10)
+                .attr("fill","rgba(7,9,26,0.85)")
+                .attr("stroke","rgba(255,255,255,0.1)")
+                .attr("stroke-width", 1);
+            flowG.append("text")
+                .attr("x", lx).attr("y", ly + 1)
+                .attr("text-anchor","middle").attr("dominant-baseline","central")
+                .attr("fill","rgba(255,255,255,0.55)")
+                .attr("font-size","10px").attr("font-weight","600")
+                .attr("letter-spacing","0.5px")
+                .text(fc.label);
+
+            fullFlowPoints.push({ x: cp.sx, y: cp.sy }, { x: cp.tx, y: cp.ty });
+        });
+
+        // ── Animated flow pulse dots ──
+        // Create a path element for the full S-curve flow
+        if (fullFlowPoints.length >= 2) {
+            let flowPath = `M${fullFlowPoints[0].x},${fullFlowPoints[0].y}`;
+            for (let i = 1; i < fullFlowPoints.length; i++) {
+                const p = fullFlowPoints[i];
+                flowPath += ` L${p.x},${p.y}`;
+            }
+            const fpEl = flowG.append("path")
+                .attr("d", flowPath)
+                .attr("fill","none")
+                .attr("stroke","none")
+                .attr("id","smap-flow-motion-path");
+
+            // Animated pulse dot
+            for (let i = 0; i < 3; i++) {
+                const dot = flowG.append("circle")
+                    .attr("r", 4)
+                    .attr("fill","rgba(255,255,255,0.6)")
+                    .style("filter","drop-shadow(0 0 4px rgba(255,255,255,0.4))");
+
+                dot.append("animateMotion")
+                    .attr("dur", "12s")
+                    .attr("repeatCount","indefinite")
+                    .attr("begin", (i * 4) + "s")
+                    .append("mpath")
+                    .attr("href","#smap-flow-motion-path");
+            }
+        }
+
+        // ── Data edges (subtle) ──
+        const edgeG = container.append("g").attr("class","smap-edges");
+        edgeG.selectAll("path")
+            .data(edges.filter(e => typeof e.source === "object" && typeof e.target === "object"))
+            .join("path")
+            .attr("class","smap-edge")
+            .attr("fill","none")
+            .attr("d", d => edgePath(d))
+            .each(function(d) {
+                const el = d3.select(this);
+                const color = COLORS[d.source.category] || "#fff";
+                const type = d.type || "realtime";
+                el.attr("stroke", color).attr("marker-end","url(#arrow-"+d.source.category+")");
+                const ops = { realtime: [1.5, 0.15], scheduled: [1.2, 0.1], continuous: [1.2, 0.1], feedback: [1, 0.07] };
+                const [sw, so] = ops[type] || [1.5, 0.15];
+                el.attr("stroke-width", sw).attr("stroke-opacity", so);
+                if (type === "scheduled") el.attr("stroke-dasharray","5,5");
+                if (type === "continuous") el.attr("stroke-dasharray","2,4");
+            })
+            .on("mouseenter", function(event, d) {
+                edgeTooltip.textContent = `${d.source.label} \u2192 ${d.target.label}: ${d.tooltip || d.type}`;
+                edgeTooltip.style.display = "block";
+                d3.select(this).attr("stroke-opacity",0.7).attr("stroke-width",2.5);
+            })
+            .on("mousemove", function(event) {
+                edgeTooltip.style.left = (event.clientX+12)+"px";
+                edgeTooltip.style.top = (event.clientY-8)+"px";
+            })
+            .on("mouseleave", function(event, d) {
+                edgeTooltip.style.display = "none";
+                const ops = { realtime: 0.15, scheduled: 0.1, continuous: 0.1, feedback: 0.07 };
+                d3.select(this).attr("stroke-opacity", ops[d.type] || 0.15).attr("stroke-width", d.type==="feedback" ? 1 : 1.5);
+            });
+
+        // ── Nodes ──
+        const nodeG = container.append("g").attr("class","smap-nodes");
+        nodeG.selectAll("g").data(nodes).join("g")
+            .attr("class","smap-node-g")
+            .attr("transform", d => `translate(${d.x},${d.y})`)
+            .each(function(d) {
+                const g = d3.select(this);
+                const isMini = d.category === "database";
+                const w = d._w || (isMini ? MINI_W : NODE_W);
+                const h = d._h || (isMini ? MINI_H : NODE_H);
+                const color = COLORS[d.category] || "#fff";
+                const rgb = hexToRgb(color);
+
+                const fo = g.append("foreignObject").attr("width",w).attr("height",h).attr("x",-w/2).attr("y",-h/2);
+                const div = fo.append("xhtml:div")
+                    .attr("class","smap-node"+(isMini?" mini":""))
+                    .style("border-color",`rgba(${rgb.r},${rgb.g},${rgb.b},0.25)`)
+                    .style("background",`rgba(${rgb.r},${rgb.g},${rgb.b},0.06)`);
+
+                const hdr = div.append("xhtml:div").attr("class","smap-node-header");
+                hdr.append("xhtml:i").attr("class","fas "+(d.icon||"fa-circle-nodes")).style("color",color);
+                hdr.append("xhtml:span").attr("class","smap-node-label").text(d.label);
+                div.append("xhtml:div").attr("class","smap-node-stats").attr("data-node-id",d.id).text(formatStats(d.stats));
+
+                div.on("mouseenter", function() {
+                    d3.select(this).style("border-color",color).style("box-shadow",`0 0 20px rgba(${rgb.r},${rgb.g},${rgb.b},0.3)`);
+                    if (!selectedNodeId) highlightConnections(d.id);
+                });
+                div.on("mouseleave", function() {
+                    d3.select(this).style("border-color",`rgba(${rgb.r},${rgb.g},${rgb.b},0.25)`).style("box-shadow",null);
+                    if (!selectedNodeId) clearHighlight();
+                });
+                div.on("click", function(event) { event.stopPropagation(); openDetail(d); });
+            });
+
+        // ── Zoom to fit ──
+        const scale = Math.min(viewW / layout.totalW, viewH / layout.totalH, 1) * 0.92;
+        const tx = (viewW - layout.totalW * scale) / 2;
+        const ty = (viewH - layout.totalH * scale) / 2;
+        svg.call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+
+        loadingEl.classList.add("hidden");
+    }
+
+    /* ══════════════════════════════════════════════════════
+       UPDATE STATS
+       ══════════════════════════════════════════════════════ */
+
+    function updateStats(data) {
+        if (!graphData) return;
+        const nm = {}; data.nodes.forEach(n => { nm[n.id] = n.stats; });
+        graphData.nodes.forEach(n => { if (nm[n.id]) n.stats = nm[n.id]; });
+        document.querySelectorAll("[data-node-id]").forEach(el => {
+            const node = graphData.nodes.find(n => n.id === el.getAttribute("data-node-id"));
+            if (node) el.textContent = formatStats(node.stats);
+        });
+        if (selectedNodeId) {
+            const node = graphData.nodes.find(n => n.id === selectedNodeId);
+            if (node) openDetail(node);
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       FETCH + POLL
+       ══════════════════════════════════════════════════════ */
+
+    async function fetchData(initial) {
+        try {
+            const resp = await fetch("/api/system-map/data");
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            const data = await resp.json();
+            lastFetchTime = Date.now();
+            if (initial) { buildGraph(data); buildPills(); }
+            else updateStats(data);
+        } catch (err) {
+            console.warn("System map fetch error:", err);
+            if (initial) { loadingEl.classList.add("hidden"); errorEl.classList.remove("hidden"); }
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       EVENTS
+       ══════════════════════════════════════════════════════ */
+
+    document.getElementById("smapSearch").addEventListener("keyup", function() { searchTerm = this.value; applyFilters(); });
+
+    document.getElementById("smapReset").addEventListener("click", () => {
+        searchTerm = ""; document.getElementById("smapSearch").value = "";
+        activeCategories = new Set(Object.keys(COLORS));
+        buildPills(); applyFilters(); closeDetail();
+        if (zoomBehavior && graphData) {
+            const layout = computeLayout(graphData.nodes);
+            const vw = svgEl.clientWidth, vh = svgEl.clientHeight;
+            const s = Math.min(vw/layout.totalW, vh/layout.totalH, 1) * 0.92;
+            d3.select("#smapSvg").transition().duration(500).call(
+                zoomBehavior.transform, d3.zoomIdentity.translate((vw-layout.totalW*s)/2, (vh-layout.totalH*s)/2).scale(s)
+            );
+        }
+    });
+
+    document.getElementById("smapDetailClose").addEventListener("click", closeDetail);
+    document.addEventListener("keydown", e => { if (e.key==="Escape") closeDetail(); });
+    document.getElementById("smapRetry").addEventListener("click", () => {
+        errorEl.classList.add("hidden"); loadingEl.classList.remove("hidden"); fetchData(true);
+    });
+
+    /* ══════════════════════════════════════════════════════
+       INIT
+       ══════════════════════════════════════════════════════ */
+
+    fetchData(true).then(() => {
+        setInterval(() => fetchData(false), 30000);
+        setInterval(() => { document.getElementById("smapLiveText").textContent = "Live \u00b7 " + timeAgo(lastFetchTime); }, 5000);
+    });
+
+})();
+</script>
+{% endblock %}

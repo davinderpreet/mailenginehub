@@ -81,18 +81,88 @@ def dashboard():
 #  KNOWLEDGE BASE
 # ─────────────────────────────────
 
+# Knowledge section definitions — controls UI grouping
+KNOWLEDGE_SECTIONS = [
+    {
+        "key": "products",
+        "label": "LDAS Products",
+        "icon": "fas fa-box",
+        "color": "var(--purple)",
+        "types": ["product_catalog"],
+        "description": "Core product catalog — Shopify sync only",
+    },
+    {
+        "key": "brand",
+        "label": "Brand & Blog",
+        "icon": "fas fa-feather-alt",
+        "color": "var(--pink)",
+        "types": ["brand_copy", "blog_post"],
+        "description": "Our voice, our content",
+    },
+    {
+        "key": "competitors",
+        "label": "Competitor Intel",
+        "icon": "fas fa-binoculars",
+        "color": "var(--amber)",
+        "types": ["competitor_intel"],
+        "description": "Jabra, Poly/HP, BlueParrott product intelligence",
+    },
+    {
+        "key": "email_intel",
+        "label": "Email Design Intel",
+        "icon": "fas fa-envelope-open-text",
+        "color": "var(--cyan)",
+        "types": ["email_design_intel"],
+        "description": "Template best practices, deliverability, trends",
+    },
+    {
+        "key": "social_proof",
+        "label": "Testimonials & FAQs",
+        "icon": "fas fa-star",
+        "color": "var(--green)",
+        "types": ["testimonial", "faq"],
+        "description": "Customer proof and answers — with images for email blocks",
+    },
+]
+
+
 @studio_bp.route("/knowledge")
 def knowledge_list():
-    """Knowledge base list, filterable by entry_type."""
+    """Knowledge base list, organized by section."""
+    section = request.args.get("section", "")
     entry_type = request.args.get("type", "")
-    query = KnowledgeEntry.select().order_by(KnowledgeEntry.updated_at.desc())
-    if entry_type:
+
+    query = (
+        KnowledgeEntry.select()
+        .where(KnowledgeEntry.is_active == True)  # noqa: E712
+        .order_by(KnowledgeEntry.updated_at.desc())
+    )
+
+    # Filter by section or specific type
+    if section:
+        sec = next((s for s in KNOWLEDGE_SECTIONS if s["key"] == section), None)
+        if sec:
+            query = query.where(KnowledgeEntry.entry_type.in_(sec["types"]))
+    elif entry_type:
         query = query.where(KnowledgeEntry.entry_type == entry_type)
+
     entries = list(query)
+
+    # Count per section for badges
+    section_counts = {}
+    for sec in KNOWLEDGE_SECTIONS:
+        section_counts[sec["key"]] = (
+            KnowledgeEntry.select()
+            .where(
+                KnowledgeEntry.is_active == True,  # noqa: E712
+                KnowledgeEntry.entry_type.in_(sec["types"]),
+            )
+            .count()
+        )
 
     entry_types = [
         "product_catalog", "brand_copy", "testimonial",
-        "blog_post", "competitor_intel", "faq",
+        "blog_post", "competitor_intel", "email_design_intel", "faq",
     ]
 
     studio = TemplateStudio()
@@ -103,6 +173,9 @@ def knowledge_list():
         entries=entries,
         entry_types=entry_types,
         current_type=entry_type,
+        current_section=section,
+        sections=KNOWLEDGE_SECTIONS,
+        section_counts=section_counts,
         score=score,
     )
 
@@ -110,10 +183,17 @@ def knowledge_list():
 @studio_bp.route("/knowledge/add", methods=["POST"])
 def knowledge_add():
     """Add a new knowledge entry."""
+    metadata = {}
+    image_url = request.form.get("image_url", "").strip()
+    if image_url:
+        metadata["image_urls"] = [image_url]
+    metadata["source_name"] = "Manual"
+
     KnowledgeEntry.create(
         entry_type=request.form.get("entry_type", "faq"),
         title=request.form.get("title", "").strip(),
         content=request.form.get("content", "").strip(),
+        metadata_json=json.dumps(metadata),
     )
     flash("Knowledge entry added.", "success")
     return redirect(url_for("studio.knowledge_list"))
@@ -321,17 +401,53 @@ def api_intelligence_score():
 
 @studio_bp.route("/knowledge/pending")
 def knowledge_pending():
-    """Show staged entries awaiting human review (is_active=False, is_rejected=False)."""
-    entries = list(
-        KnowledgeEntry
-        .select()
+    """Show staged entries awaiting human review, grouped by section."""
+    section_filter = request.args.get("section", "")
+
+    query = (
+        KnowledgeEntry.select()
         .where(
             (KnowledgeEntry.is_active == False) &  # noqa: E712
             (KnowledgeEntry.is_rejected == False)   # noqa: E712
         )
         .order_by(KnowledgeEntry.created_at.desc())
     )
-    return render_template("studio/pending.html", entries=entries)
+
+    all_entries = list(query)
+
+    # Build type-to-section mapping
+    type_to_section = {}
+    for sec in KNOWLEDGE_SECTIONS:
+        for t in sec["types"]:
+            type_to_section[t] = sec["key"]
+
+    # Group entries by section
+    grouped = {}
+    for sec in KNOWLEDGE_SECTIONS:
+        grouped[sec["key"]] = []
+    grouped["other"] = []
+
+    for entry in all_entries:
+        sec_key = type_to_section.get(entry.entry_type, "other")
+        grouped[sec_key].append(entry)
+
+    # Count per section for filter tabs
+    section_counts = {sec["key"]: len(grouped[sec["key"]]) for sec in KNOWLEDGE_SECTIONS}
+
+    # If filtering by section, only show that section's entries
+    if section_filter:
+        filtered_entries = grouped.get(section_filter, [])
+    else:
+        filtered_entries = all_entries
+
+    return render_template(
+        "studio/pending.html",
+        entries=filtered_entries,
+        all_count=len(all_entries),
+        sections=KNOWLEDGE_SECTIONS,
+        section_counts=section_counts,
+        current_section=section_filter,
+    )
 
 
 @studio_bp.route("/knowledge/<int:id>/approve", methods=["POST"])
@@ -472,6 +588,36 @@ def sources_run(id):
     t.start()
 
     flash(f'Scrape started for "{src.source_name}". Check the log in a few moments.', "success")
+    return redirect(url_for("studio.sources_list"))
+
+
+@studio_bp.route("/sources/fix", methods=["POST"])
+def sources_fix():
+    """Apply source URL/selector fixes and add new sources."""
+    from knowledge_scraper import fix_scrape_sources
+    count = fix_scrape_sources()
+    flash(f"Source fix migration applied: {count} changes.", "success")
+    return redirect(url_for("studio.sources_list"))
+
+
+@studio_bp.route("/sources/run-all", methods=["POST"])
+def sources_run_all():
+    """Trigger a background scrape for ALL active sources."""
+    def _run():
+        try:
+            import sys as _sys
+            import os as _os
+            _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+            from knowledge_scraper import run_knowledge_enrichment
+            run_knowledge_enrichment()
+        except Exception as _e:
+            import logging
+            logging.getLogger(__name__).error(f"Run-all enrichment failed: {_e}")
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    flash("Enrichment started for all active sources. Check the scrape log.", "success")
     return redirect(url_for("studio.sources_list"))
 
 

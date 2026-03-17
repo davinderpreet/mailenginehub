@@ -6,6 +6,16 @@
 <div style="display:flex;gap:12px;align-items:center;margin-bottom:24px;">
   <a href="/studio" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Back to Studio</a>
   <div style="flex:1;"></div>
+  <form method="POST" action="/studio/sources/fix" style="display:inline;">
+    <button type="submit" style="padding:7px 16px;background:rgba(245,158,11,0.1);color:var(--amber);border:1px solid rgba(245,158,11,0.25);border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+      <i class="fas fa-wrench"></i> Fix Sources
+    </button>
+  </form>
+  <form method="POST" action="/studio/sources/run-all" style="display:inline;">
+    <button type="submit" style="padding:7px 16px;background:rgba(16,185,129,0.1);color:var(--green);border:1px solid rgba(16,185,129,0.25);border-radius:8px;font-size:12px;cursor:pointer;font-family:inherit;font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+      <i class="fas fa-play-circle"></i> Run All Active
+    </button>
+  </form>
   <a href="/studio/scrape-log" class="btn btn-outline btn-sm"><i class="fas fa-scroll"></i> Scrape History</a>
 </div>
 
@@ -47,7 +57,7 @@
           </td>
           <td style="padding:14px 16px;font-size:12px;color:var(--text3);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ src.url }}">{{ src.url[:50] }}{% if src.url|length > 50 %}…{% endif %}</td>
           <td style="padding:14px 16px;font-size:13px;color:var(--text2);">{{ src.scrape_frequency|title }}</td>
-          <td style="padding:14px 16px;font-size:12px;color:var(--text3);">{{ src.last_scraped_at.strftime('%b %d, %H:%M') if src.last_scraped_at else '—' }}</td>
+          <td style="padding:14px 16px;font-size:12px;color:var(--text3);">{{ src.last_scraped_at|et("%b %d, %I:%M %p") if src.last_scraped_at else '—' }}</td>
           <td style="padding:14px 16px;font-size:13px;">
             {% if item.high_rejection %}
             <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;background:rgba(245,158,11,0.15);color:var(--amber);">

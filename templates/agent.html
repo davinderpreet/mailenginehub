@@ -325,7 +325,7 @@
         {% if msg.role == 'assistant' and msg.tool_calls and msg.tool_calls != '[]' %}
         <div class="tools-hist" data-tools="{{ msg.tool_calls | e }}"></div>
         {% endif %}
-        <div class="msg-time">{{ msg.created_at.strftime('%b %d, %H:%M') }}</div>
+        <div class="msg-time">{{ msg.created_at|et("%b %d, %I:%M %p") }}</div>
       </div>
     </div>
     {% endfor %}

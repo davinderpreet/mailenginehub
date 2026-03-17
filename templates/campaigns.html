@@ -48,8 +48,8 @@
             {{ c.status.title() }}
           </span>
         </td>
-        <td>{{ c.created_at.strftime('%b %d, %Y') }}</td>
-        <td>{{ c.sent_at.strftime('%b %d, %Y %H:%M') if c.sent_at else '—' }}</td>
+        <td>{{ c.created_at|et("%b %d, %Y") }}</td>
+        <td>{{ c.sent_at|et("%b %d, %Y %I:%M %p") if c.sent_at else '—' }}</td>
         <td>
           <a href="/campaigns/{{ c.id }}" class="btn btn-outline btn-sm">
             <i class="fas fa-chart-bar"></i> View

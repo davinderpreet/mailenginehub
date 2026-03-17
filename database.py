@@ -195,6 +195,8 @@ class FlowEmail(BaseModel):
     sent_at    = DateTimeField(default=datetime.now)
     opened     = BooleanField(default=False)
     opened_at  = DateTimeField(null=True)
+    clicked    = BooleanField(default=False)
+    clicked_at = DateTimeField(null=True)
 
     class Meta:
         table_name = "flow_emails"
@@ -761,6 +763,7 @@ def init_db():
          SuggestedCampaign, OpportunityScanLog, ProductCommercial,
          SystemConfig, ActionLedger, DeliveryQueue, IdentityJob, AIRenderLog,
          KnowledgeEntry, AIModelConfig, StudioJob, TemplateCandidate, TemplatePerformance,
+         OutcomeLog, ActionPerformance, TemplateSegmentPerformance, ModelWeights, LearningConfig,
          ScrapeSource, ScrapeLog, RejectionLog],
         safe=True
     )
@@ -1096,6 +1099,10 @@ class ContactScore(BaseModel):
     monetary_value   = FloatField(default=0.0)    # total_spent as float
     engagement_score = IntegerField(default=0)    # 0–100 composite
     last_scored_at   = DateTimeField(default=datetime.now)
+    optimal_gap_hours   = FloatField(default=48.0)
+    sunset_score        = IntegerField(default=0)
+    sunset_executed     = BooleanField(default=False)
+    sunset_executed_at  = DateTimeField(null=True)
 
     class Meta:
         table_name = "contact_scores"
@@ -1508,10 +1515,117 @@ class TemplatePerformance(BaseModel):
     clicks          = IntegerField(default=0)
     open_rate       = FloatField(default=0.0)
     click_rate      = FloatField(default=0.0)
+    revenue_total   = FloatField(default=0.0)
+    revenue_per_send = FloatField(default=0.0)
+    conversion_rate = FloatField(default=0.0)
+    sample_size     = IntegerField(default=0)
+    learning_flag   = BooleanField(default=True)
     last_computed   = DateTimeField(default=datetime.now)
 
     class Meta:
         table_name = "template_performance"
+
+
+class OutcomeLog(BaseModel):
+    """One row per email sent — tracks what happened after sending."""
+    email_type        = CharField(index=True)           # 'campaign' or 'flow'
+    email_id          = IntegerField()                  # CampaignEmail.id or FlowEmail.id
+    contact           = ForeignKeyField(Contact, backref="outcomes", on_delete="CASCADE")
+    template_id       = IntegerField(default=0)
+    action_type       = CharField(default="")           # from MessageDecision if available
+    segment           = CharField(default="")           # contact's segment at send time
+    opened            = BooleanField(default=False)
+    clicked           = BooleanField(default=False)
+    purchased         = BooleanField(default=False)
+    unsubscribed      = BooleanField(default=False)
+    revenue           = FloatField(default=0.0)
+    hours_to_open     = FloatField(null=True)
+    hours_to_purchase = FloatField(null=True)
+    sent_at           = DateTimeField(null=True)
+    subject_line      = CharField(default="", max_length=200)
+    send_gap_hours    = FloatField(null=True)
+    created_at        = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "outcome_log"
+        indexes = (
+            (("email_type", "email_id"), True),  # unique together
+        )
+
+
+class ActionPerformance(BaseModel):
+    """Rolling stats per action_type per segment."""
+    action_type     = CharField()
+    segment         = CharField()
+    sample_size     = IntegerField(default=0)
+    open_rate       = FloatField(default=0.0)
+    click_rate      = FloatField(default=0.0)
+    conversion_rate = FloatField(default=0.0)
+    revenue_per_send = FloatField(default=0.0)
+    avg_score       = FloatField(default=0.0)
+    last_computed   = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "action_performance"
+        indexes = (
+            (("action_type", "segment"), True),  # unique together
+        )
+
+
+class TemplateSegmentPerformance(BaseModel):
+    """Template effectiveness broken down by contact segment."""
+    template        = ForeignKeyField(EmailTemplate, backref="segment_performance")
+    segment         = CharField()
+    sample_size     = IntegerField(default=0)
+    open_rate       = FloatField(default=0.0)
+    click_rate      = FloatField(default=0.0)
+    conversion_rate = FloatField(default=0.0)
+    revenue_per_send = FloatField(default=0.0)
+    last_computed   = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "template_segment_performance"
+        indexes = (
+            (("template_id", "segment"), True),  # unique together
+        )
+
+
+class ModelWeights(BaseModel):
+    """RFM weight history — seed row only for V1, optimization in Phase 2."""
+    recency_weight  = FloatField()
+    frequency_weight = FloatField()
+    monetary_weight = FloatField()
+    evaluation_score = FloatField(null=True)
+    sample_size     = IntegerField(null=True)
+    phase           = CharField(default="")
+    created_at      = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "model_weights"
+
+
+class LearningConfig(BaseModel):
+    """Key-value config store for the self-learning layer."""
+    key        = CharField(unique=True)
+    value      = CharField(default="")
+    updated_at = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "learning_config"
+
+    @classmethod
+    def get_val(cls, key, default=""):
+        try:
+            return cls.get(cls.key == key).value
+        except cls.DoesNotExist:
+            return default
+
+    @classmethod
+    def set_val(cls, key, value):
+        cls.insert(key=key, value=str(value), updated_at=datetime.now()).on_conflict(
+            conflict_target=[cls.key],
+            update={cls.value: str(value), cls.updated_at: datetime.now()},
+        ).execute()
 
 
 # ═══════════════════════════════════════════════════════════════
