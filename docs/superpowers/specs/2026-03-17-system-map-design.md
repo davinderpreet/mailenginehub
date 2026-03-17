@@ -247,10 +247,11 @@ A live interactive network graph visualizing the entire MailEngineHub architectu
 
 ## Backend Implementation
 
+**Auth note:** No auth decorator needed. The global `before_request` hook (`require_auth()` in app.py lines 80-96) protects all non-public routes automatically.
+
 ### Flask Route
 ```python
 @app.route("/system-map")
-@requires_auth
 def system_map():
     return render_template("system_map.html")
 ```
@@ -258,34 +259,60 @@ def system_map():
 ### API Endpoint
 ```python
 @app.route("/api/system-map/data")
-@requires_auth
 def system_map_data():
     nodes = _build_system_map_nodes()   # hardcoded node defs + live stat queries
     edges = _build_system_map_edges()   # hardcoded edge defs
     return jsonify({"nodes": nodes, "edges": edges, "meta": {...}})
 ```
 
+### Error Handling
+Each node's stat gathering is wrapped in a per-node try/except. If a query fails (table missing, schema changed), that node's stats return `null`. The API always returns HTTP 200 with whatever data it can gather — never a 500. On the client side, `null` stats display as "--".
+
 ### Live Stat Queries (in `_build_system_map_nodes()`)
-Each node's stats dict is populated by a lightweight DB query:
+Each node's stats dict is populated by a lightweight DB query. Stats marked with * are placeholders until the underlying subsystem tracks run history — they return `null` for now and show "--".
+
+**Available now (query existing models):**
 - `Contact.select().count()`
 - `DeliveryQueue.select().count()`
 - `WarmupConfig.get_or_none()` → phase, emails_sent_today
 - `FlowEnrollment.select().where(FlowEnrollment.status == 'active').count()`
 - `BounceLog.select().where(fn.DATE(BounceLog.created_at) == today).count()`
 - `ContactScore.select().count()`
-- etc.
+- `CustomerProfile.select().count()`
+- `MessageDecision.select().count()`
+- `CampaignEmail.select().count()`, `FlowEmail.select().count()`
+- `ShopifyOrder.select().count()`
+- `SuppressionEntry.select().count()`
+- `EmailTemplate.select().count()`
+- `Campaign.select().where(Campaign.status == 'sending').count()`
+- `LearningConfig` → enabled/disabled
+- `SystemConfig` → delivery_mode
+
+**Placeholder stats (return null / "--"):**
+- `profit_engine` → "products scored" *
+- `outcome_tracker` → "emails analyzed" *
+- `strategy_optimizer` → "adjustments" *
+- `knowledge_scraper` → "items enriched" *
+- `cascade_engine` → "cascades today" *
+- `ai_content_gen` → "last generation" *
 
 No new database tables. All reads from existing models.
 
 ### Template
 Single file: `templates/system_map.html`
-- Extends `base.html`
+- Extends `base.html` (preserves sidebar navigation)
+- Filter pills and search go inside the `{% block content %}` area at the top, styled as a fixed controls bar above the canvas
+- Canvas fills remaining viewport height using `calc(100vh - topbar - controls)`
 - Loads D3.js v7 from CDN (`d3js.org`)
 - All graph logic in a `<script>` block
 - Polls `/api/system-map/data` every 30 seconds
+- Fetch calls use default credentials (browser sends Basic Auth automatically for same-origin requests)
+
+### Loading State
+On initial page load, before the first API response arrives, the canvas shows a centered spinner with "Loading system map..." text. This prevents a blank canvas flash.
 
 ### Sidebar Entry
-Added to `base.html` under SYSTEM section:
+Added to `base.html` under SYSTEM section, after "IT Agent" and before "Settings":
 ```html
 <a href="/system-map"><i class="fas fa-project-diagram"></i> System Map</a>
 ```
@@ -301,6 +328,35 @@ Added to `base.html` under SYSTEM section:
 | `app.py` | MODIFY | Add `/system-map` route + `/api/system-map/data` endpoint |
 
 **No new Python modules. No new database tables. No new dependencies (D3 loaded from CDN).**
+
+---
+
+## Force Layout & Initial Positioning
+
+The D3 force simulation uses category-based `forceX` / `forceY` position hints so the graph settles into a readable left-to-right data flow on every page load (not a random hairball).
+
+**X-axis bands (left → right = data flow direction):**
+| Category | Target X (% of width) |
+|----------|----------------------|
+| External Sources | 5% |
+| Webhooks & Triggers | 20% |
+| Data & Enrichment | 35% |
+| Intelligence | 50% |
+| Content | 50% (clustered with Intelligence) |
+| Execution | 70% |
+| Learning & Tracking | 85% |
+| Database Tables | 90% |
+
+**Y-axis:** No forced bands — nodes spread vertically via the charge repulsion force. This keeps vertical space organic.
+
+**Force parameters:**
+- `forceLink`: distance 120, strength 0.3
+- `forceManyBody`: strength -300 (repulsion)
+- `forceX`: strength 0.15 (gentle pull toward category band)
+- `forceY`: strength 0.05 (weak centering)
+- `alphaDecay`: 0.02 (settles in ~3 seconds)
+
+This produces a stable, reproducible layout where the data flow reads naturally from left (Shopify) to right (Database/Learning).
 
 ---
 
