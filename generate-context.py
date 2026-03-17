@@ -510,7 +510,25 @@ and generates corresponding blocks_json. One-time migration tool.""",
         "brief": "Shopify discount code management — placeholder for expanded discount logic",
     },
     "generate-context.py": {
-        "brief": "Auto-generates CLAUDE.md + MEMORY.md by scanning codebase (this file)",
+        "brief": "Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)",
+    },
+    "audit_send.py": {
+        "brief": "Audit send utility — one-off script for auditing sent email records",
+    },
+    "migrate_templates.py": {
+        "brief": "Template migration — converts legacy HTML templates to blocks_json format",
+    },
+    "rebuild_one.py": {
+        "brief": "Rebuild single template — utility to regenerate one template's blocks_json",
+    },
+    "rebuild_templates.py": {
+        "brief": "Batch template rebuild — regenerates blocks_json for multiple templates",
+    },
+    "render_previews.py": {
+        "brief": "Render preview HTML — generates preview files from block templates for testing",
+    },
+    "search_contact.py": {
+        "brief": "Contact search utility — CLI helper to find contacts by email or name",
     },
 }
 

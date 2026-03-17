@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-17 17:15. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-17 18:22. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -216,7 +216,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (52 files, 29,460 lines)
+## Python Files — Detailed (52 files, 29,597 lines)
 
 ### `app.py` (5,789 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -266,8 +266,8 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 (5) AI/Studio: KnowledgeEntry, StudioJob, TemplateCandidate, AIModelConfig
 (6) Learning: OutcomeLog, ActionPerformance, TemplatePerformance, ModelWeights, LearningConfig
 
-### `generate-context.py` (1,225 lines)
-**Auto-generates CLAUDE.md + MEMORY.md by scanning codebase (this file)**
+### `generate-context.py` (1,243 lines)
+**Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
 
 ### `customer_intelligence.py` (992 lines)
 **Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV**
@@ -467,6 +467,13 @@ Updates CampaignEmail / FlowEmail with opened, opened_at, clicked, clicked_at ti
 Processes both SES webhook notifications and tracking pixel hits. Nightly (3:00 UTC) batch
 reconciliation ensures no events missed.
 
+### `flow_templates_seed.py` (586 lines)
+**Seed flow definitions — pre-built automation flows with steps and timing**
+
+Seed data for automation flows: Welcome Series (3 steps over 7 days),
+Cart Recovery (2 steps at 1h + 24h), Post-Purchase Follow-up (2 steps at 3d + 14d),
+Winback (2 steps at 30d + 60d). Each flow has trigger_type, steps with delay_hours and template.
+
 ### `shopify_enrichment.py` (541 lines)
 **Contact enrichment from Shopify — order history, top products, cross-sell recommendations**
 
@@ -500,13 +507,6 @@ the EmailTemplate table on first run.
 
 ### `create_showcase_templates.py` (474 lines)
 **Showcase template generator — creates example templates demonstrating all block types**
-
-### `flow_templates_seed.py` (467 lines)
-**Seed flow definitions — pre-built automation flows with steps and timing**
-
-Seed data for automation flows: Welcome Series (3 steps over 7 days),
-Cart Recovery (2 steps at 1h + 24h), Post-Purchase Follow-up (2 steps at 3d + 14d),
-Winback (2 steps at 30d + 60d). Each flow has trigger_type, steps with delay_hours and template.
 
 ### `learning_engine.py` (461 lines)
 **Self-learning pipeline — template scoring, action effectiveness, optimal frequency computation**
@@ -674,6 +674,8 @@ Sends periodic health check requests to localhost:5000. If no response after ret
 triggers systemctl restart mailengine. Logs to watchdog_log.txt.
 
 ### `migrate_templates.py` (200 lines)
+**Template migration — converts legacy HTML templates to blocks_json format**
+
 ### `health_check.py` (197 lines)
 **System health diagnostics — SES, database, Shopify, warmup status checks**
 
@@ -698,6 +700,8 @@ ai_engine, manual), status (pending, sent, failed, skipped), reason_code (RC_* c
 template_id, enrollment_id, step_id. Every significant system action gets an audit trail entry.
 
 ### `rebuild_templates.py` (143 lines)
+**Batch template rebuild — regenerates blocks_json for multiple templates**
+
 ### `normalize_activity.py` (138 lines)
 **Activity data normalization — standardizes event types and data formats**
 
@@ -706,6 +710,8 @@ across different sources (Shopify webhooks, tracking pixels, API events) into a
 consistent schema for downstream processing by intelligence and decision engines.
 
 ### `render_previews.py` (134 lines)
+**Render preview HTML — generates preview files from block templates for testing**
+
 ### `email_shell.py` (132 lines)
 **Universal email wrapper — LDAS-branded header, dark theme body, CAN-SPAM footer**
 
@@ -742,8 +748,14 @@ set_learning_phase_override(phase) forces a specific phase (for regression detec
 IMPORTANT: Use LearningConfig.get_val(key, default) / LearningConfig.set_val(key, value) pattern.
 
 ### `rebuild_one.py` (68 lines)
+**Rebuild single template — utility to regenerate one template's blocks_json**
+
 ### `audit_send.py` (57 lines)
+**Audit send utility — one-off script for auditing sent email records**
+
 ### `search_contact.py` (33 lines)
+**Contact search utility — CLI helper to find contacts by email or name**
+
 ### `run.py` (19 lines)
 **Application entry point — imports app, calls app.run()**
 
