@@ -39,3 +39,30 @@ nul
 .idea/
 *.swp
 *.swo
+
+# Preview/test HTML files (local dev only)
+preview_*.html
+index.html
+
+# One-off investigation scripts
+investigate_*.py
+inspect_*.py
+search_contact.py
+rebuild_*.py
+render_previews.py
+preview_server.py
+test_kimi.py
+test_openrouter_*.py
+test_journeys.py
+migrate_templates.py
+audit_send.py
+knowledge_export.json
+
+# Claude settings
+.claude/
+
+# Docs (specs/plans managed separately)
+docs/
+
+# Deploy test
+deploy_test.txt
