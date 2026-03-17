@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-17 18:39. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-17 18:41. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
