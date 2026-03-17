@@ -98,8 +98,8 @@ echo -e "  ${GREEN}Files deployed.${NC}"
 
 # ── Step 4: Commit on VPS ─────────────────
 echo -e "\n${YELLOW}[4/7] Committing deploy on VPS...${NC}"
-$SSH "cd $VPS_PATH && git add -A && git commit -m 'Deploy $LOCAL_COMMIT: $LOCAL_MSG'"
-echo -e "  ${GREEN}VPS commit created.${NC}"
+$SSH "cd $VPS_PATH && git add -A && git diff --cached --quiet && echo 'No changes to commit' || git commit -m 'Deploy $LOCAL_COMMIT: $LOCAL_MSG'"
+echo -e "  ${GREEN}VPS commit done.${NC}"
 
 # ── Step 5: Restart service ───────────────
 echo -e "\n${YELLOW}[5/7] Restarting $SERVICE...${NC}"
