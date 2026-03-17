@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-17 18:42 -- `42d2b12`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-03-17 17:15 -- `9404947`
 
 **Slim down CLAUDE.md from 25K to 3K chars to prevent context window crashes**
