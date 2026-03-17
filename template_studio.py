@@ -155,7 +155,8 @@ class TemplateStudio:
         # Count entries by type
         counts = {}
         for entry_type in ("product_catalog", "brand_copy", "testimonial",
-                           "blog_post", "competitor_intel", "faq"):
+                           "blog_post", "competitor_intel", "faq",
+                           "email_design_intel"):
             counts[entry_type] = (
                 KnowledgeEntry
                 .select()
@@ -171,12 +172,13 @@ class TemplateStudio:
 
         # Scoring rules: (entry_type, pts_per_entry, max_pts, label)
         rules = [
-            ("product_catalog",  5, 25, "Product catalog"),
-            ("brand_copy",       7, 20, "Brand copy"),
-            ("testimonial",      3, 15, "Testimonials"),
-            ("blog_post",        3, 10, "Blog posts"),
-            ("competitor_intel", 5, 10, "Competitor intel"),
-            ("faq",              2, 10, "FAQs"),
+            ("product_catalog",     5, 20, "LDAS products"),
+            ("brand_copy",          7, 15, "Brand copy"),
+            ("testimonial",         3, 10, "Testimonials"),
+            ("blog_post",           3,  8, "Blog posts"),
+            ("competitor_intel",    3, 12, "Competitor intel"),
+            ("email_design_intel",  3, 10, "Email design intel"),
+            ("faq",                 2, 10, "FAQs"),
         ]
 
         breakdown = {}
@@ -231,97 +233,110 @@ class TemplateStudio:
         """
         Gather knowledge entries and performance data into a context dict
         for the skill pipeline.
+
+        Smart prioritization: journey-specific entries go FIRST so they
+        survive the 2000-char truncation in _build_knowledge_summary.
         """
         knowledge = []
 
-        # Product focus: filter product_catalog entries by title
-        if product_focus:
-            product_entries = (
-                KnowledgeEntry
-                .select()
-                .where(
-                    KnowledgeEntry.entry_type == "product_catalog",
-                    KnowledgeEntry.is_active == True,  # noqa: E712
-                    KnowledgeEntry.title.contains(product_focus),
-                )
-            )
-            for e in product_entries:
+        def _add_entries(queryset, limit=None):
+            """Append entries from a queryset, with optional limit."""
+            q = queryset.limit(limit) if limit else queryset
+            for e in q:
+                try:
+                    meta = json.loads(e.metadata_json or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    meta = {}
                 knowledge.append({
                     "type": e.entry_type,
                     "title": e.title,
-                    "content": e.content,
+                    "content": e.content[:300],  # trim long entries
+                    "metadata": meta,
                 })
 
-        # Always include brand copy
-        brand_entries = (
-            KnowledgeEntry
-            .select()
-            .where(
+        # ── 1. Brand copy — always first (defines voice/tone) ──
+        _add_entries(
+            KnowledgeEntry.select().where(
                 KnowledgeEntry.entry_type == "brand_copy",
                 KnowledgeEntry.is_active == True,  # noqa: E712
             )
         )
-        for e in brand_entries:
-            knowledge.append({
-                "type": e.entry_type,
-                "title": e.title,
-                "content": e.content,
-            })
 
-        # Journey-specific additions
-        _TESTIMONIAL_FAMILIES = {"welcome", "high_intent_browse"}
+        # ── 2. Product focus entries — critical for product-specific emails ──
+        if product_focus:
+            _add_entries(
+                KnowledgeEntry.select().where(
+                    KnowledgeEntry.entry_type == "product_catalog",
+                    KnowledgeEntry.is_active == True,  # noqa: E712
+                    KnowledgeEntry.title.contains(product_focus),
+                ),
+                limit=3,  # top 3 matching products (not all)
+            )
+
+        # ── 3. Journey-specific knowledge — high priority ──
+        _TESTIMONIAL_FAMILIES = {"welcome", "high_intent_browse", "post_purchase"}
         _FAQ_FAMILIES = {"checkout_recovery", "cart_recovery"}
-        _COMPETITOR_FAMILIES = {"winback"}
+        _COMPETITOR_FAMILIES = {"winback", "high_intent_browse"}
 
         if family in _TESTIMONIAL_FAMILIES:
-            for e in KnowledgeEntry.select().where(
-                KnowledgeEntry.entry_type == "testimonial",
-                KnowledgeEntry.is_active == True,  # noqa: E712
-            ):
-                knowledge.append({
-                    "type": e.entry_type,
-                    "title": e.title,
-                    "content": e.content,
-                })
+            _add_entries(
+                KnowledgeEntry.select().where(
+                    KnowledgeEntry.entry_type == "testimonial",
+                    KnowledgeEntry.is_active == True,  # noqa: E712
+                ),
+                limit=5,
+            )
 
         if family in _FAQ_FAMILIES:
-            for e in KnowledgeEntry.select().where(
-                KnowledgeEntry.entry_type == "faq",
-                KnowledgeEntry.is_active == True,  # noqa: E712
-            ):
-                knowledge.append({
-                    "type": e.entry_type,
-                    "title": e.title,
-                    "content": e.content,
-                })
+            _add_entries(
+                KnowledgeEntry.select().where(
+                    KnowledgeEntry.entry_type == "faq",
+                    KnowledgeEntry.is_active == True,  # noqa: E712
+                ),
+                limit=5,
+            )
 
         if family in _COMPETITOR_FAMILIES:
+            # Pick 1 entry per competitor brand (not all 86)
+            # This gives the AI a comparison landscape without flooding context
+            seen_brands = set()
             for e in KnowledgeEntry.select().where(
                 KnowledgeEntry.entry_type == "competitor_intel",
                 KnowledgeEntry.is_active == True,  # noqa: E712
-            ):
-                knowledge.append({
-                    "type": e.entry_type,
-                    "title": e.title,
-                    "content": e.content,
-                })
+            ).order_by(KnowledgeEntry.created_at.desc()):
+                brand = e.title.split(" ")[0] if e.title else ""
+                if brand and brand not in seen_brands:
+                    seen_brands.add(brand)
+                    knowledge.append({
+                        "type": "competitor_intel",
+                        "title": e.title,
+                        "content": e.content[:200],  # shorter for competitors
+                    })
+                if len(seen_brands) >= 5:  # top 5 competitor brands
+                    break
 
-        # Always include blog posts (up to 3)
-        for e in (
-            KnowledgeEntry
-            .select()
-            .where(
+        # ── 4. Blog posts (up to 2) — brand authority ──
+        _add_entries(
+            KnowledgeEntry.select().where(
                 KnowledgeEntry.entry_type == "blog_post",
                 KnowledgeEntry.is_active == True,  # noqa: E712
+            ).order_by(KnowledgeEntry.created_at.desc()),
+            limit=2,
+        )
+
+        # ── 5. General product catalog (if no product focus) ──
+        if not product_focus:
+            _add_entries(
+                KnowledgeEntry.select().where(
+                    KnowledgeEntry.entry_type == "product_catalog",
+                    KnowledgeEntry.is_active == True,  # noqa: E712
+                ).order_by(KnowledgeEntry.created_at.desc()),
+                limit=3,
             )
-            .order_by(KnowledgeEntry.created_at.desc())
-            .limit(3)
-        ):
-            knowledge.append({
-                "type": e.entry_type,
-                "title": e.title,
-                "content": e.content,
-            })
+
+        # NOTE: email_design_intel excluded — current entries are generic
+        # marketing blog content (Mailchimp tutorials), not actionable
+        # design patterns. Will re-enable when we have real design rules.
 
         # Performance data: top 3 templates by open_rate for this family
         top_templates = []
@@ -342,6 +357,15 @@ class TemplateStudio:
             })
 
         performance = {"top_templates": top_templates}
+
+        # Inject learned segment-level performance if available
+        try:
+            from strategy_optimizer import get_template_recommendations
+            recs = get_template_recommendations(family)
+            if recs:
+                performance["learned_recommendations"] = recs[:3]
+        except Exception:
+            pass
 
         return {
             "family": family,

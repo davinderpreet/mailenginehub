@@ -598,6 +598,17 @@ def decide_next_action(contact_id):
     # Sort by score descending, then by action type for stable tie-breaking
     ranked.sort(key=lambda x: (-x["score"], x["action_type"]))
 
+    # Apply learned score adjustment from historical performance
+    try:
+        from strategy_optimizer import get_action_score_adjustment
+        segment = score.rfm_segment if score else "unknown"
+        for r in ranked:
+            multiplier = get_action_score_adjustment(r["action_type"], segment)
+            r["score"] = int(r["score"] * multiplier)
+        ranked.sort(key=lambda x: (-x["score"], x["action_type"]))
+    except Exception:
+        pass  # Learning module not available — use raw scores
+
     # ── Build result ─────────────────────────────────────────────────────────
     top = ranked[0] if ranked else {"action_type": "wait", "score": 20, "reason": "No eligible actions."}
 

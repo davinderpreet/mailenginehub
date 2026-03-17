@@ -1557,11 +1557,18 @@ def sent_email_preview(email_type, email_id):
         else:
             return "Invalid email type", 400
 
-        html = template.html_body or ""
+        # Render blocks-based templates through the block registry
+        if getattr(template, 'template_format', 'html') == 'blocks' and template.blocks_json:
+            from block_registry import render_template_blocks
+            html = render_template_blocks(template, contact=contact, products=[], discount=None)
+        else:
+            html = template.html_body or ""
+
         html = html.replace("{{first_name}}", contact.first_name or "Friend")
         html = html.replace("{{last_name}}", contact.last_name or "")
         html = html.replace("{{email}}", contact.email or "")
         html = html.replace("{{unsubscribe_url}}", "#")
+        html = html.replace("{{discount_code}}", "PREVIEW")
 
         return html, 200, {"Content-Type": "text/html; charset=utf-8"}
     except Exception as e:
@@ -1943,6 +1950,37 @@ def track_flow_open_token(token):
     pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
     from flask import Response as Resp
     return Resp(pixel, mimetype="image/gif")
+
+
+@app.route("/track/flow-click/<token>")
+def track_flow_click(token):
+    """Track a flow email link click. Token = base64(enrollment_id:step_id)."""
+    import base64
+    try:
+        decoded = base64.urlsafe_b64decode(token.encode()).decode()
+        enrollment_id, step_id = decoded.split(":")
+        enrollment_id, step_id = int(enrollment_id), int(step_id)
+    except Exception:
+        return redirect(request.args.get("url", "https://ldas-electronics.com"))
+
+    from database import FlowEmail
+    fe = FlowEmail.get_or_none(
+        (FlowEmail.enrollment == enrollment_id) &
+        (FlowEmail.step == step_id)
+    )
+    if fe and not fe.clicked:
+        fe.clicked = True
+        fe.clicked_at = datetime.now()
+        fe.save()
+        # Also mark as opened if not already
+        if not fe.opened:
+            fe.opened = True
+            fe.opened_at = datetime.now()
+            fe.save()
+
+    redirect_url = request.args.get("url", "https://ldas-electronics.com")
+    return redirect(redirect_url)
+
 
 # ─────────────────────────────────
 #  WARMUP / DELIVERABILITY
@@ -2426,8 +2464,12 @@ def _process_flow_enrollments():
             pass
 
 
-        # ── Frequency cap (16h smart sending) ──────────
-        FREQ_CAP_HOURS = 16
+        # ── Frequency cap (personalized via learning engine, floor 16h) ──────────
+        try:
+            from strategy_optimizer import get_contact_frequency_cap
+            FREQ_CAP_HOURS = get_contact_frequency_cap(contact.id)
+        except Exception:
+            FREQ_CAP_HOURS = 16  # Fallback to original static cap
         last_sent_at = _get_last_email_sent_at(contact)
         if last_sent_at:
             hours_since = (now - last_sent_at).total_seconds() / 3600
@@ -2438,8 +2480,8 @@ def _process_flow_enrollments():
                 log_action(contact, "flow", flow.id, "suppressed", RC_COOLDOWN_ACTIVE,
                            source_type=flow.name, enrollment_id=enrollment.id,
                            priority=_priority,
-                           reason_detail="16h frequency cap — last email %.1fh ago, rescheduled to %s"
-                                         % (hours_since, new_send_at.strftime('%Y-%m-%d %H:%M')))
+                           reason_detail="%.0fh frequency cap — last email %.1fh ago, rescheduled to %s"
+                                         % (FREQ_CAP_HOURS, hours_since, new_send_at.strftime('%Y-%m-%d %H:%M')))
                 app.logger.info(
                     "[FreqCap] Delayed '%s' step %s for %s — last email %.1fh ago, rescheduled to %s"
                     % (flow.name, enrollment.current_step, contact.email,
@@ -5458,6 +5500,44 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
 
     _scheduler.add_job(_run_nightly_knowledge_enrichment, "cron", hour=4, minute=30,
                        id="knowledge_enrichment", replace_existing=True)
+
+    def _run_outcome_tracker():
+        try:
+            import sys as _sk; _sk.path.insert(0, APP_DIR)
+            from outcome_tracker import run_outcome_tracker
+            app.logger.info("Outcome tracker starting...")
+            run_outcome_tracker()
+            app.logger.info("Outcome tracker complete")
+        except Exception as _e:
+            app.logger.error(f"Outcome tracker failed: {_e}")
+
+    def _run_learning_engine():
+        try:
+            import sys as _sk; _sk.path.insert(0, APP_DIR)
+            from learning_engine import run_learning_engine
+            app.logger.info("Learning engine starting...")
+            run_learning_engine()
+            app.logger.info("Learning engine complete")
+        except Exception as _e:
+            app.logger.error(f"Learning engine failed: {_e}")
+
+    def _run_strategy_optimizer():
+        try:
+            import sys as _sk; _sk.path.insert(0, APP_DIR)
+            from strategy_optimizer import run_strategy_optimizer
+            app.logger.info("Strategy optimizer starting...")
+            run_strategy_optimizer()
+            app.logger.info("Strategy optimizer complete")
+        except Exception as _e:
+            app.logger.error(f"Strategy optimizer failed: {_e}")
+
+    # ── Self-Learning Pipeline (5:00 → 5:30 → 6:00 AM) ──
+    _scheduler.add_job(_run_outcome_tracker, "cron", hour=5, minute=0,
+                       id="outcome_tracker", replace_existing=True)
+    _scheduler.add_job(_run_learning_engine, "cron", hour=5, minute=30,
+                       id="learning_engine", replace_existing=True)
+    _scheduler.add_job(_run_strategy_optimizer, "cron", hour=6, minute=0,
+                       id="strategy_optimizer", replace_existing=True)
 
     _scheduler.start()
     atexit.register(lambda: _scheduler.shutdown(wait=False))

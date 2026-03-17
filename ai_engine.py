@@ -422,6 +422,17 @@ def _build_context():
         for t in EmailTemplate.select()
     ]
 
+    # Inject learned template performance data if available
+    template_performance = {}
+    try:
+        from strategy_optimizer import get_template_recommendations
+        for seg in ["champion", "loyal", "potential", "at_risk", "lapsed", "new"]:
+            recs = get_template_recommendations(seg)
+            if recs:
+                template_performance[seg] = recs[:3]  # Top 3 per segment
+    except Exception:
+        pass  # Learning module not available yet — skip
+
     week_ago     = now - timedelta(days=7)
     sent_last_7  = AIDecisionLog.select().where(
         AIDecisionLog.status == "sent",
@@ -451,6 +462,7 @@ def _build_context():
         "segments_emailed_last_7_days": list(recent_segments),
         "yesterday_summary":           yesterday_summary,
         "daily_send_limit":            180,
+        "template_performance":        template_performance,
     }
 
 
@@ -479,6 +491,7 @@ def generate_daily_plan():
         "- Champions and loyal customers respond to VIP/exclusive messaging.\n"
         "- New contacts should receive welcome/introductory messaging.\n"
         "- Return ONLY a valid JSON array. No explanation text, no markdown fences.\n"
+        "- If template_performance data is provided, prefer templates marked 'high' confidence with higher revenue_per_send.\n"
         "- If nothing should be sent today, return an empty array: []\n\n"
         "JSON format:\n"
         '[{"segment":"lapsed","template_id":3,'
