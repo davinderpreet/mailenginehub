@@ -27,12 +27,12 @@ echo -e "\n${YELLOW}[0/7] Regenerating CLAUDE.md from codebase...${NC}"
 if [ -f "generate-context.py" ]; then
     python3 generate-context.py 2>/dev/null || python generate-context.py 2>/dev/null || echo "  (skipped — python not found)"
     # If CLAUDE.md changed, auto-commit it
-    if [ -n "$(git diff --name-only CLAUDE.md 2>/dev/null)" ] || [ -n "$(git diff --name-only DEPLOY_LOG.md 2>/dev/null)" ]; then
-        git add CLAUDE.md DEPLOY_LOG.md 2>/dev/null
-        git commit -m "Auto-update CLAUDE.md before deploy" --no-verify 2>/dev/null || true
-        echo -e "  ${GREEN}CLAUDE.md updated and committed.${NC}"
-    else
+    if git diff --quiet CLAUDE.md 2>/dev/null; then
         echo -e "  ${GREEN}CLAUDE.md is up to date.${NC}"
+    else
+        git add CLAUDE.md DEPLOY_LOG.md 2>/dev/null || true
+        git commit -m "Auto-update CLAUDE.md before deploy" 2>/dev/null || true
+        echo -e "  ${GREEN}CLAUDE.md updated and committed.${NC}"
     fi
 fi
 
