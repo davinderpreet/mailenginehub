@@ -4919,6 +4919,192 @@ def ai_engine_run_now():
     return jsonify({"ok": True, "message": "Contact scoring started — refresh in ~30 seconds"})
 
 
+# ── Self-Learning Dashboard ─────────────────────────────────────
+@app.route("/learning")
+def learning_dashboard():
+    from database import (OutcomeLog, ContactScore, TemplatePerformance,
+                          ActionPerformance, TemplateSegmentPerformance,
+                          EmailTemplate, Contact, LearningConfig)
+    from learning_config import get_learning_phase, get_learning_enabled
+
+    now = datetime.now()
+
+    # Phase info
+    phase = get_learning_phase()
+    enabled = get_learning_enabled()
+    start_str = LearningConfig.get_val("learning_start_date", "")
+    days_elapsed = 0
+    if start_str:
+        try:
+            start = datetime.fromisoformat(start_str)
+            days_elapsed = (now - start).days
+        except ValueError:
+            pass
+
+    # Outcome stats
+    total_tracked = OutcomeLog.select().count()
+    total_opens = OutcomeLog.select().where(OutcomeLog.opened == True).count()
+    total_clicks = OutcomeLog.select().where(OutcomeLog.clicked == True).count()
+    total_purchases = OutcomeLog.select().where(OutcomeLog.purchased == True).count()
+    total_unsubs = OutcomeLog.select().where(OutcomeLog.unsubscribed == True).count()
+    total_revenue = 0.0
+    for row in OutcomeLog.select(OutcomeLog.revenue):
+        total_revenue += (row.revenue or 0)
+
+    open_rate = round(total_opens / total_tracked * 100, 1) if total_tracked else 0
+    click_rate = round(total_clicks / total_tracked * 100, 1) if total_tracked else 0
+    conversion_rate = round(total_purchases / total_tracked * 100, 1) if total_tracked else 0
+    unsub_rate = round(total_unsubs / total_tracked * 100, 1) if total_tracked else 0
+
+    # Sunset stats
+    sunset_queue = ContactScore.select().where(
+        ContactScore.sunset_score >= 85,
+        ContactScore.sunset_executed == False
+    ).count()
+    sunset_executed = ContactScore.select().where(
+        ContactScore.sunset_executed == True
+    ).count()
+
+    # Template performance (top 10 by revenue_per_send)
+    template_perf = []
+    for tp in (TemplatePerformance.select(TemplatePerformance, EmailTemplate)
+               .join(EmailTemplate)
+               .order_by(TemplatePerformance.revenue_per_send.desc())
+               .limit(10)):
+        template_perf.append({
+            "name": tp.template.name,
+            "sends": tp.sends,
+            "open_rate": round(tp.open_rate * 100, 1),
+            "click_rate": round(tp.click_rate * 100, 1),
+            "conversion_rate": round((tp.conversion_rate or 0) * 100, 1),
+            "revenue_per_send": round(tp.revenue_per_send or 0, 4),
+            "revenue_total": round(tp.revenue_total or 0, 2),
+            "confidence": "high" if (tp.sample_size or 0) >= 50 else "learning",
+        })
+
+    # Action effectiveness
+    action_perf = []
+    for ap in (ActionPerformance.select()
+               .order_by(ActionPerformance.conversion_rate.desc())
+               .limit(20)):
+        # Compute multiplier (same logic as strategy_optimizer)
+        baseline = 0.02
+        cr = ap.conversion_rate or 0
+        if ap.sample_size < 20:
+            mult = 1.0
+        elif cr > baseline * 2:
+            mult = 1.3
+        elif cr > baseline:
+            mult = 1.1
+        elif cr < baseline * 0.25:
+            mult = 0.7
+        elif cr < baseline * 0.5:
+            mult = 0.9
+        else:
+            mult = 1.0
+
+        action_perf.append({
+            "action_type": ap.action_type,
+            "segment": ap.segment,
+            "sample_size": ap.sample_size,
+            "open_rate": round(ap.open_rate * 100, 1),
+            "conversion_rate": round(cr * 100, 2),
+            "revenue_per_send": round(ap.revenue_per_send or 0, 4),
+            "multiplier": mult,
+        })
+
+    # Weekly trend (last 8 weeks)
+    from datetime import timedelta
+    weekly_trend = []
+    for i in range(7, -1, -1):
+        week_start = now - timedelta(weeks=i+1)
+        week_end = now - timedelta(weeks=i)
+        outcomes = list(OutcomeLog.select().where(
+            OutcomeLog.sent_at >= week_start,
+            OutcomeLog.sent_at < week_end,
+        ))
+        n = len(outcomes)
+        if n > 0:
+            w_opens = sum(1 for o in outcomes if o.opened)
+            w_purchases = sum(1 for o in outcomes if o.purchased)
+            w_revenue = sum(o.revenue or 0 for o in outcomes)
+            weekly_trend.append({
+                "label": week_end.strftime("%b %d"),
+                "emails": n,
+                "open_rate": round(w_opens / n * 100, 1),
+                "conversion_rate": round(w_purchases / n * 100, 2),
+                "revenue": round(w_revenue, 2),
+            })
+        else:
+            weekly_trend.append({
+                "label": week_end.strftime("%b %d"),
+                "emails": 0, "open_rate": 0, "conversion_rate": 0, "revenue": 0,
+            })
+
+    return render_template("learning_dashboard.html",
+        phase=phase,
+        enabled=enabled,
+        days_elapsed=days_elapsed,
+        total_tracked=total_tracked,
+        total_revenue=total_revenue,
+        open_rate=open_rate,
+        click_rate=click_rate,
+        conversion_rate=conversion_rate,
+        unsub_rate=unsub_rate,
+        sunset_queue=sunset_queue,
+        sunset_executed=sunset_executed,
+        template_perf=template_perf,
+        action_perf=action_perf,
+        weekly_trend=weekly_trend,
+        total_purchases=total_purchases,
+    )
+
+
+@app.route("/learning/toggle", methods=["POST"])
+def learning_toggle():
+    from learning_config import get_learning_enabled, set_learning_enabled
+    current = get_learning_enabled()
+    set_learning_enabled(not current)
+    new_state = "enabled" if not current else "disabled"
+    flash(f"Self-learning {new_state}", "success")
+    return redirect(url_for("learning_dashboard"))
+
+
+@app.route("/api/learning/stats")
+def api_learning_stats():
+    from database import OutcomeLog, ContactScore, LearningConfig
+    from learning_config import get_learning_phase, get_learning_enabled
+    import json as _json
+
+    now = datetime.now()
+    phase = get_learning_phase()
+    enabled = get_learning_enabled()
+    start_str = LearningConfig.get_val("learning_start_date", "")
+    days_elapsed = 0
+    if start_str:
+        try:
+            days_elapsed = (now - datetime.fromisoformat(start_str)).days
+        except ValueError:
+            pass
+
+    total_tracked = OutcomeLog.select().count()
+    total_opens = OutcomeLog.select().where(OutcomeLog.opened == True).count()
+    total_purchases = OutcomeLog.select().where(OutcomeLog.purchased == True).count()
+    total_revenue = sum(r.revenue or 0 for r in OutcomeLog.select(OutcomeLog.revenue))
+    sunset_queue = ContactScore.select().where(
+        ContactScore.sunset_score >= 85, ContactScore.sunset_executed == False).count()
+
+    return jsonify({
+        "phase": phase,
+        "enabled": enabled,
+        "days_elapsed": days_elapsed,
+        "total_tracked": total_tracked,
+        "open_rate": round(total_opens / total_tracked * 100, 1) if total_tracked else 0,
+        "conversion_rate": round(total_purchases / total_tracked * 100, 1) if total_tracked else 0,
+        "revenue": round(total_revenue, 2),
+        "sunset_queue": sunset_queue,
+    })
+
 
 # ─────────────────────────────────────────────────────────────
 #  CUSTOMER ACTIVITY FEED
