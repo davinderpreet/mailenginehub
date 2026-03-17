@@ -2942,7 +2942,12 @@ def _recover_pending_backlog(_start_time=None, _max_runtime=300, _batch_size=50,
     FRESHNESS_WINDOW = timedelta(hours=24)
 
     # All trigger types that can map to flows
-    CONSUMABLE_TYPES = ["browse_abandonment", "cart_abandonment", "churn_risk_high", "high_engagement_no_purchase"]
+    CONSUMABLE_TYPES = ["browse_abandonment", "cart_abandonment", "checkout_abandoned", "churn_risk_high", "high_engagement_no_purchase"]
+
+    # Alias map: pending trigger type → flow trigger type (when names differ)
+    TRIGGER_ALIASES = {
+        "cart_abandonment": "checkout_abandoned",
+    }
 
     # Build map: trigger_type → (flow, first_step) for all active flows
     flow_map = {}
@@ -2951,6 +2956,11 @@ def _recover_pending_backlog(_start_time=None, _max_runtime=300, _batch_size=50,
             first_step = FlowStep.select().where(FlowStep.flow == flow).order_by(FlowStep.step_order).first()
             if first_step:
                 flow_map[flow.trigger_type] = (flow, first_step)
+
+    # Wire aliases: cart_abandonment → checkout_abandoned flow
+    for alias, real_type in TRIGGER_ALIASES.items():
+        if alias not in flow_map and real_type in flow_map:
+            flow_map[alias] = flow_map[real_type]
 
     # Fetch pending triggers (oldest first)
     pending = list(
