@@ -247,7 +247,7 @@ A live interactive network graph visualizing the entire MailEngineHub architectu
 
 ## Backend Implementation
 
-**Auth note:** No auth decorator needed. The global `before_request` hook (`require_auth()` in app.py lines 80-96) protects all non-public routes automatically.
+**Auth note:** No auth decorator needed. The global `before_request` hook (`require_auth()` in app.py) protects all non-public routes automatically.
 
 ### Flask Route
 ```python
@@ -285,10 +285,11 @@ Each node's stats dict is populated by a lightweight DB query. Stats marked with
 - `SuppressionEntry.select().count()`
 - `EmailTemplate.select().count()`
 - `Campaign.select().where(Campaign.status == 'sending').count()`
-- `LearningConfig` → enabled/disabled
-- `SystemConfig` → delivery_mode
 
 **Placeholder stats (return null / "--"):**
+- `DeliveryQueue` → queued count (model not in database.py yet) *
+- `LearningConfig` → enabled/disabled (model not in database.py yet) *
+- `SystemConfig` → delivery_mode (model not in database.py yet) *
 - `profit_engine` → "products scored" *
 - `outcome_tracker` → "emails analyzed" *
 - `strategy_optimizer` → "adjustments" *
