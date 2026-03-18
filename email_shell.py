@@ -100,11 +100,11 @@ def wrap_email(body_html, preview_text="", unsubscribe_url="{{unsubscribe_url}}"
       <td style="background:#0a0d1a;padding:32px 30px 28px;text-align:center;border-top:1px solid rgba(255,255,255,0.05);">
         <!-- Social links row -->
         <p style="margin:0 0 16px;font-size:12px;">
-          <a href="https://www.instagram.com/ldas.ca/" style="color:#888888;text-decoration:none;">Instagram</a>
+          <a href="https://www.instagram.com/ldas_electronics/" style="color:#888888;text-decoration:none;">Instagram</a>
           &nbsp;<span style="color:#333333;">&nbsp;|&nbsp;</span>&nbsp;
-          <a href="https://www.facebook.com/ldas.ca/" style="color:#888888;text-decoration:none;">Facebook</a>
+          <a href="https://www.facebook.com/profile.php?id=100068143526092" style="color:#888888;text-decoration:none;">Facebook</a>
           &nbsp;<span style="color:#333333;">&nbsp;|&nbsp;</span>&nbsp;
-          <a href="https://www.youtube.com/@ldas_electronics" style="color:#888888;text-decoration:none;">YouTube</a>
+          <a href="https://www.youtube.com/@LDASELECTRONICS" style="color:#888888;text-decoration:none;">YouTube</a>
         </p>
         <p style="margin:0 0 6px;font-size:12px;font-weight:600;color:''' + TEXT_MID + ''';">
           ''' + BRAND_NAME + '''
