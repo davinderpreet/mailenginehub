@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-18 12:54 -- `84b3f8b`
+
+**Fix auto-scheduler: wrap emails in full shell with header/footer/logo**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-18 12:51 -- `3a526c0`
 
 **Auto-Pilot UI: add template names and email preview modal**
