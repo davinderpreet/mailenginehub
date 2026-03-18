@@ -5265,6 +5265,56 @@ def learning_dashboard():
                 "emails": 0, "open_rate": 0, "conversion_rate": 0, "revenue": 0,
             })
 
+    # ── NEW: Audience Health — RFM Segment Distribution ──
+    segment_dist = {}
+    for seg in ['champion', 'loyal', 'potential', 'at_risk', 'lapsed', 'new']:
+        segment_dist[seg] = ContactScore.select().where(ContactScore.rfm_segment == seg).count()
+    total_scored = sum(segment_dist.values()) or 1
+
+    # ── NEW: Message Decision Breakdown ──
+    from database import MessageDecision
+    from peewee import fn
+    decision_dist = {}
+    for row in (MessageDecision.select(MessageDecision.action_type, fn.COUNT(MessageDecision.id).alias('cnt'))
+                .group_by(MessageDecision.action_type)
+                .order_by(fn.COUNT(MessageDecision.id).desc())
+                .limit(10)):
+        decision_dist[row.action_type] = row.cnt
+
+    # ── NEW: Frequency Optimization Stats ──
+    avg_gap = ContactScore.select(fn.AVG(ContactScore.optimal_gap_hours)).where(
+        ContactScore.optimal_gap_hours.is_null(False),
+        ContactScore.optimal_gap_hours > 0
+    ).scalar() or 0
+    min_gap = ContactScore.select(fn.MIN(ContactScore.optimal_gap_hours)).where(
+        ContactScore.optimal_gap_hours.is_null(False),
+        ContactScore.optimal_gap_hours > 0
+    ).scalar() or 16
+    max_gap = ContactScore.select(fn.MAX(ContactScore.optimal_gap_hours)).where(
+        ContactScore.optimal_gap_hours.is_null(False),
+        ContactScore.optimal_gap_hours > 0
+    ).scalar() or 336
+    contacts_with_gap = ContactScore.select().where(
+        ContactScore.optimal_gap_hours.is_null(False),
+        ContactScore.optimal_gap_hours > 0
+    ).count()
+
+    # ── NEW: Lifecycle Stage Distribution ──
+    from database import CustomerProfile
+    lifecycle_dist = {}
+    for row in (CustomerProfile.select(CustomerProfile.lifecycle_stage, fn.COUNT(CustomerProfile.id).alias('cnt'))
+                .where(CustomerProfile.lifecycle_stage.is_null(False), CustomerProfile.lifecycle_stage != '')
+                .group_by(CustomerProfile.lifecycle_stage)
+                .order_by(fn.COUNT(CustomerProfile.id).desc())):
+        lifecycle_dist[row.lifecycle_stage] = row.cnt
+
+    # ── NEW: Guardrail / Regression Status ──
+    from database import ActionLedger
+    regression_events = list(ActionLedger.select().where(
+        ActionLedger.reason_code == 'RC_LEARNING_REGRESSION'
+    ).order_by(ActionLedger.created_at.desc()).limit(3))
+    has_regression = len(regression_events) > 0
+
     return render_template("learning_dashboard.html",
         phase=phase,
         enabled=enabled,
@@ -5281,6 +5331,16 @@ def learning_dashboard():
         action_perf=action_perf,
         weekly_trend=weekly_trend,
         total_purchases=total_purchases,
+        segment_dist=segment_dist,
+        total_scored=total_scored,
+        decision_dist=decision_dist,
+        avg_gap=round(avg_gap, 1),
+        min_gap=round(min_gap, 1),
+        max_gap=round(max_gap, 1),
+        contacts_with_gap=contacts_with_gap,
+        lifecycle_dist=lifecycle_dist,
+        has_regression=has_regression,
+        regression_events=regression_events,
     )
 
 

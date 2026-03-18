@@ -205,6 +205,103 @@
   </div>
 </div>
 
+<!-- ── Audience Health ──────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;">
+    <h3 style="margin:0 0 16px;font-size:15px;font-weight:700;">Audience Health</h3>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">RFM segment distribution across {{ total_scored }} scored contacts</div>
+    {% set seg_colors = {"champion": "var(--green)", "loyal": "var(--cyan)", "potential": "var(--purple)", "at_risk": "#f59e0b", "lapsed": "var(--red)", "new": "var(--pink)"} %}
+    {% for seg, count in segment_dist.items() %}
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <div style="width:10px;height:10px;border-radius:50%;background:{{ seg_colors.get(seg, 'var(--text3)') }};flex-shrink:0;"></div>
+      <span style="font-size:12px;color:var(--text2);width:80px;text-transform:capitalize;">{{ seg|replace('_', ' ') }}</span>
+      <div style="flex:1;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;">
+        <div style="height:100%;width:{{ (count / total_scored * 100)|round(1) }}%;background:{{ seg_colors.get(seg, 'var(--text3)') }};border-radius:3px;"></div>
+      </div>
+      <span style="font-size:12px;font-weight:700;color:var(--text);min-width:40px;text-align:right;">{{ count }}</span>
+      <span style="font-size:10px;color:var(--text3);min-width:35px;text-align:right;">{{ (count / total_scored * 100)|round(1) }}%</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Lifecycle Stage Distribution -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;">
+    <h3 style="margin:0 0 16px;font-size:15px;font-weight:700;">Lifecycle Stages</h3>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">Customer intelligence classification</div>
+    {% if lifecycle_dist %}
+    {% for stage, count in lifecycle_dist.items() %}
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+      <span style="font-size:12px;color:var(--text2);text-transform:capitalize;">{{ stage|replace('_', ' ') }}</span>
+      <span style="font-size:13px;font-weight:700;color:var(--cyan);">{{ count }}</span>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;">
+      <i class="fas fa-hourglass-half" style="font-size:20px;margin-bottom:6px;display:block;"></i>
+      Lifecycle stages populate after customer intelligence runs (3:30 AM)
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Intelligence Insights ──────────────────────────────── -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+  <!-- Frequency Optimization -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;">
+    <h3 style="margin:0 0 16px;font-size:15px;font-weight:700;">Frequency Optimization</h3>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">Learned optimal send gaps for {{ contacts_with_gap }} contacts</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+      <div style="text-align:center;padding:14px;background:rgba(6,182,212,0.08);border-radius:10px;">
+        <div style="font-size:22px;font-weight:800;color:var(--cyan);">{{ avg_gap }}h</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;">AVG GAP</div>
+      </div>
+      <div style="text-align:center;padding:14px;background:rgba(16,185,129,0.08);border-radius:10px;">
+        <div style="font-size:22px;font-weight:800;color:var(--green);">{{ min_gap }}h</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;">MIN GAP</div>
+      </div>
+      <div style="text-align:center;padding:14px;background:rgba(236,72,153,0.08);border-radius:10px;">
+        <div style="font-size:22px;font-weight:800;color:var(--pink);">{{ max_gap }}h</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;">MAX GAP</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:12px;text-align:center;">Hard bounds: 16h min — 336h (14 days) max</div>
+  </div>
+
+  <!-- Decision Breakdown -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;">
+    <h3 style="margin:0 0 16px;font-size:15px;font-weight:700;">Next-Best-Message Decisions</h3>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">Current action assignments across all contacts</div>
+    {% if decision_dist %}
+    {% set action_colors = {"reorder_reminder": "var(--green)", "cross_sell": "var(--cyan)", "upsell": "var(--purple)", "new_product": "#818cf8", "winback": "var(--pink)", "education": "#f59e0b", "loyalty_reward": "var(--green)", "discount_offer": "#f97316", "wait": "var(--red)", "switch_channel": "var(--text3)"} %}
+    {% for action, count in decision_dist.items() %}
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:{{ action_colors.get(action, 'var(--text3)') }};"></div>
+        <span style="font-size:12px;color:var(--text2);text-transform:capitalize;">{{ action|replace('_', ' ') }}</span>
+      </div>
+      <span style="font-size:13px;font-weight:700;color:var(--text);">{{ count }}</span>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div style="text-align:center;padding:20px;color:var(--text3);font-size:12px;">
+      <i class="fas fa-hourglass-half" style="font-size:20px;margin-bottom:6px;display:block;"></i>
+      Decision engine runs nightly at 4:00 AM
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Guardrail Status ──────────────────────────────────── -->
+{% if has_regression %}
+<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:14px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;">
+  <i class="fas fa-triangle-exclamation" style="font-size:20px;color:var(--red);"></i>
+  <div>
+    <div style="font-size:14px;font-weight:700;color:var(--red);">Regression Detected</div>
+    <div style="font-size:12px;color:var(--text3);margin-top:3px;">Open rate dropped &gt;25% for 2 consecutive weeks. System reverted to observation phase to protect sender reputation.</div>
+  </div>
+</div>
+{% endif %}
+
 <!-- ── Template Performance Table ──────────────────────────── -->
 <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:20px;">
   <h3 style="margin:0 0 4px;font-size:15px;font-weight:700;">Template Performance</h3>
