@@ -4,6 +4,21 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-18 12:37 -- `757c7ac`
+
+**Add Auto-Pilot dashboard UI page to view auto-scheduled emails**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+templates/auto_pilot.html
+templates/base.html
+```
+
+---
+
 ### 2026-03-18 12:28 -- `451f627`
 
 **Auto-Pilot: autonomous per-contact email scheduler**
