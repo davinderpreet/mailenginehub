@@ -54,43 +54,29 @@
       <thead>
         <tr style="border-bottom:1px solid var(--border);">
           <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Contact</th>
+          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Template</th>
           <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Subject</th>
-          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Action Type</th>
           <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Scheduled At</th>
-          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Status</th>
+          <th style="text-align:center;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Preview</th>
         </tr>
       </thead>
       <tbody>
         {% for item in pending %}
         <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
-          <td style="padding:10px 12px;color:var(--text);">{{ item.email or '—' }}</td>
-          <td style="padding:10px 12px;color:var(--text2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ item.subject or '—' }}</td>
+          <td style="padding:10px 12px;color:var(--text);font-size:12px;">{{ item.email or '—' }}</td>
           <td style="padding:10px 12px;">
-            {% if 'welcome' in (item.subject or '')|lower %}
-              <span style="background:rgba(124,58,237,0.15);color:var(--purple);padding:2px 8px;border-radius:6px;font-size:11px;">Welcome</span>
-            {% elif 'cart' in (item.subject or '')|lower %}
-              <span style="background:rgba(236,72,153,0.15);color:var(--pink);padding:2px 8px;border-radius:6px;font-size:11px;">Cart Recovery</span>
-            {% elif 'browse' in (item.subject or '')|lower %}
-              <span style="background:rgba(6,182,212,0.15);color:var(--cyan);padding:2px 8px;border-radius:6px;font-size:11px;">Browse Recovery</span>
-            {% elif 'winback' in (item.subject or '')|lower or 'miss' in (item.subject or '')|lower %}
-              <span style="background:rgba(16,185,129,0.15);color:var(--green);padding:2px 8px;border-radius:6px;font-size:11px;">Winback</span>
-            {% elif 'checkout' in (item.subject or '')|lower %}
-              <span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:2px 8px;border-radius:6px;font-size:11px;">Checkout Recovery</span>
-            {% elif 'purchase' in (item.subject or '')|lower or 'thank' in (item.subject or '')|lower %}
-              <span style="background:rgba(16,185,129,0.15);color:var(--green);padding:2px 8px;border-radius:6px;font-size:11px;">Post Purchase</span>
-            {% else %}
-              <span style="background:rgba(255,255,255,0.06);color:var(--text3);padding:2px 8px;border-radius:6px;font-size:11px;">Auto</span>
-            {% endif %}
+            <span style="background:rgba(124,58,237,0.1);color:var(--purple);padding:3px 8px;border-radius:6px;font-size:10px;font-weight:600;">{{ item.template_name or 'Unknown' }}</span>
           </td>
-          <td style="padding:10px 12px;color:var(--text3);font-size:12px;">
+          <td style="padding:10px 12px;color:var(--text2);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">{{ item.subject or '—' }}</td>
+          <td style="padding:10px 12px;color:var(--cyan);font-size:12px;font-weight:600;">
             {% if item.scheduled_at %}
-              {{ item.scheduled_at.strftime('%b %d, %H:%M') }}
+              {{ item.scheduled_at.strftime('%b %d, %H:%M') }} UTC
             {% else %}
-              —
+              Immediate
             {% endif %}
           </td>
-          <td style="padding:10px 12px;">
-            <span style="background:rgba(124,58,237,0.15);color:var(--purple);padding:2px 8px;border-radius:6px;font-size:11px;">{{ item.status }}</span>
+          <td style="padding:10px 12px;text-align:center;">
+            <button onclick="showPreview({{ item.id }})" style="background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.2);color:var(--cyan);padding:4px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:600;">Preview</button>
           </td>
         </tr>
         {% endfor %}
@@ -119,25 +105,29 @@
       <thead>
         <tr style="border-bottom:1px solid var(--border);">
           <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Contact</th>
+          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Template</th>
           <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Subject</th>
           <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Sent At</th>
-          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Status</th>
+          <th style="text-align:center;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Preview</th>
         </tr>
       </thead>
       <tbody>
         {% for item in sent %}
         <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
-          <td style="padding:10px 12px;color:var(--text);">{{ item.email or '—' }}</td>
-          <td style="padding:10px 12px;color:var(--text2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ item.subject or '—' }}</td>
-          <td style="padding:10px 12px;color:var(--text3);font-size:12px;">
+          <td style="padding:10px 12px;color:var(--text);font-size:12px;">{{ item.email or '—' }}</td>
+          <td style="padding:10px 12px;">
+            <span style="background:rgba(16,185,129,0.1);color:var(--green);padding:3px 8px;border-radius:6px;font-size:10px;font-weight:600;">{{ item.template_name or 'Unknown' }}</span>
+          </td>
+          <td style="padding:10px 12px;color:var(--text2);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">{{ item.subject or '—' }}</td>
+          <td style="padding:10px 12px;color:var(--green);font-size:12px;font-weight:600;">
             {% if item.sent_at %}
               {{ item.sent_at.strftime('%b %d, %H:%M') }}
             {% else %}
               —
             {% endif %}
           </td>
-          <td style="padding:10px 12px;">
-            <span style="background:rgba(16,185,129,0.15);color:var(--green);padding:2px 8px;border-radius:6px;font-size:11px;">{{ item.status }}</span>
+          <td style="padding:10px 12px;text-align:center;">
+            <button onclick="showPreview({{ item.id }})" style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);color:var(--green);padding:4px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:600;">Preview</button>
           </td>
         </tr>
         {% endfor %}
@@ -151,4 +141,39 @@
   </div>
   {% endif %}
 </div>
+
+<!-- ── Email Preview Modal ──────────────────────────────── -->
+<div id="preview-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;" onclick="if(event.target===this)closePreview()">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;width:680px;max-width:90vw;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);">
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--text);" id="preview-subject">Email Preview</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;" id="preview-to"></div>
+      </div>
+      <button onclick="closePreview()" style="background:rgba(255,255,255,0.08);border:none;color:var(--text3);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">&times;</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:0;">
+      <iframe id="preview-frame" style="width:100%;height:600px;border:none;background:#fff;"></iframe>
+    </div>
+  </div>
+</div>
+
+<script>
+function showPreview(itemId) {
+  fetch('/api/auto-pilot/preview/' + itemId)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        document.getElementById('preview-subject').textContent = data.subject;
+        document.getElementById('preview-to').textContent = 'To: ' + data.email + ' | Template: ' + data.template_name;
+        document.getElementById('preview-frame').srcdoc = data.html;
+        document.getElementById('preview-modal').style.display = 'flex';
+      }
+    });
+}
+function closePreview() {
+  document.getElementById('preview-modal').style.display = 'none';
+  document.getElementById('preview-frame').srcdoc = '';
+}
+</script>
 {% endblock %}

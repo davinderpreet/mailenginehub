@@ -5393,31 +5393,38 @@ def api_learning_stats():
 # ── Auto-Pilot Dashboard ─────────────────────────────────────
 @app.route("/auto-pilot")
 def auto_pilot_dashboard():
-    from database import DeliveryQueue, Contact, init_db
+    from database import DeliveryQueue, Contact, EmailTemplate, init_db
     init_db()
 
     now = datetime.now()
 
+    # Build template name lookup
+    _tpl_names = {}
+    for _t in EmailTemplate.select(EmailTemplate.id, EmailTemplate.name):
+        _tpl_names[_t.id] = _t.name
+
     # Pending (scheduled for future)
     pending = list(
-        DeliveryQueue.select(DeliveryQueue, Contact)
-        .join(Contact, on=(DeliveryQueue.contact == Contact.id), attr="contact_obj")
+        DeliveryQueue.select()
         .where(DeliveryQueue.email_type == "auto", DeliveryQueue.status == "queued")
         .order_by(DeliveryQueue.scheduled_at.asc())
         .limit(50)
     )
+    for _p in pending:
+        _p.template_name = _tpl_names.get(_p.template_id, "Unknown")
 
     # Recently sent (last 48h)
     from datetime import timedelta
     two_days_ago = now - timedelta(hours=48)
     sent = list(
-        DeliveryQueue.select(DeliveryQueue, Contact)
-        .join(Contact, on=(DeliveryQueue.contact == Contact.id), attr="contact_obj")
+        DeliveryQueue.select()
         .where(DeliveryQueue.email_type == "auto", DeliveryQueue.status == "sent",
                DeliveryQueue.sent_at >= two_days_ago)
         .order_by(DeliveryQueue.sent_at.desc())
         .limit(50)
     )
+    for _s in sent:
+        _s.template_name = _tpl_names.get(_s.template_id, "Unknown")
 
     # Stats
     total_scheduled_today = DeliveryQueue.select().where(
@@ -5442,6 +5449,25 @@ def auto_pilot_dashboard():
         total_pending=total_pending,
         now=now,
     )
+
+
+@app.route("/api/auto-pilot/preview/<int:item_id>")
+def auto_pilot_preview(item_id):
+    from database import DeliveryQueue, EmailTemplate, init_db
+    init_db()
+    try:
+        item = DeliveryQueue.get_by_id(item_id)
+        _tpl_name = "Unknown"
+        if item.template_id:
+            try:
+                _tpl = EmailTemplate.get_by_id(item.template_id)
+                _tpl_name = _tpl.name
+            except EmailTemplate.DoesNotExist:
+                pass
+        return jsonify(ok=True, html=item.html, subject=item.subject,
+                       email=item.email, template_name=_tpl_name)
+    except DeliveryQueue.DoesNotExist:
+        return jsonify(ok=False, error="Item not found"), 404
 
 
 # ─────────────────────────────────────────────────────────────
