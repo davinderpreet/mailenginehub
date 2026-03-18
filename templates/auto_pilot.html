@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Auto-Pilot — MailEngineHub{% endblock %}
+{% block page_title %}Auto-Pilot Scheduler{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:24px;">
+  <p style="color:var(--text2);margin:0;font-size:14px;">Auto-scheduled emails queued by the nightly AI engine. Shows pending deliveries and recently sent messages.</p>
+</div>
+
+<!-- ── 3 Stat Cards ──────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;margin-bottom:24px;">
+  <!-- Scheduled Today -->
+  <div style="background:linear-gradient(135deg, rgba(124,58,237,0.12) 0%, rgba(124,58,237,0.04) 100%);border:1px solid rgba(124,58,237,0.2);border-radius:16px;padding:18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <i class="fas fa-calendar-plus" style="color:var(--purple);font-size:14px;"></i>
+      <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);">Scheduled Today</span>
+    </div>
+    <div style="font-size:28px;font-weight:800;color:var(--purple);">{{ total_scheduled_today }}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;">auto emails created today</div>
+  </div>
+
+  <!-- Sent Today -->
+  <div style="background:linear-gradient(135deg, rgba(6,182,212,0.12) 0%, rgba(6,182,212,0.04) 100%);border:1px solid rgba(6,182,212,0.2);border-radius:16px;padding:18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <i class="fas fa-paper-plane" style="color:var(--cyan);font-size:14px;"></i>
+      <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);">Sent Today</span>
+    </div>
+    <div style="font-size:28px;font-weight:800;color:var(--cyan);">{{ total_sent_today }}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;">auto emails delivered</div>
+  </div>
+
+  <!-- Pending in Queue -->
+  <div style="background:linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(16,185,129,0.04) 100%);border:1px solid rgba(16,185,129,0.2);border-radius:16px;padding:18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <i class="fas fa-clock" style="color:var(--green);font-size:14px;"></i>
+      <span style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);">Pending in Queue</span>
+    </div>
+    <div style="font-size:28px;font-weight:800;color:var(--green);">{{ total_pending }}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;">waiting to send</div>
+  </div>
+</div>
+
+<!-- ── Pending Emails Table ──────────────────────────────────── -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:24px;">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+    <i class="fas fa-hourglass-half" style="color:var(--purple);font-size:16px;"></i>
+    <h3 style="margin:0;font-size:16px;color:var(--text);font-weight:700;">Pending Auto-Emails</h3>
+    <span style="font-size:11px;color:var(--text3);background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.2);border-radius:8px;padding:2px 10px;">{{ pending|length }} shown</span>
+  </div>
+
+  {% if pending %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border);">
+          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Contact</th>
+          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Subject</th>
+          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Action Type</th>
+          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Scheduled At</th>
+          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in pending %}
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+          <td style="padding:10px 12px;color:var(--text);">{{ item.email or '—' }}</td>
+          <td style="padding:10px 12px;color:var(--text2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ item.subject or '—' }}</td>
+          <td style="padding:10px 12px;">
+            {% if 'welcome' in (item.subject or '')|lower %}
+              <span style="background:rgba(124,58,237,0.15);color:var(--purple);padding:2px 8px;border-radius:6px;font-size:11px;">Welcome</span>
+            {% elif 'cart' in (item.subject or '')|lower %}
+              <span style="background:rgba(236,72,153,0.15);color:var(--pink);padding:2px 8px;border-radius:6px;font-size:11px;">Cart Recovery</span>
+            {% elif 'browse' in (item.subject or '')|lower %}
+              <span style="background:rgba(6,182,212,0.15);color:var(--cyan);padding:2px 8px;border-radius:6px;font-size:11px;">Browse Recovery</span>
+            {% elif 'winback' in (item.subject or '')|lower or 'miss' in (item.subject or '')|lower %}
+              <span style="background:rgba(16,185,129,0.15);color:var(--green);padding:2px 8px;border-radius:6px;font-size:11px;">Winback</span>
+            {% elif 'checkout' in (item.subject or '')|lower %}
+              <span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:2px 8px;border-radius:6px;font-size:11px;">Checkout Recovery</span>
+            {% elif 'purchase' in (item.subject or '')|lower or 'thank' in (item.subject or '')|lower %}
+              <span style="background:rgba(16,185,129,0.15);color:var(--green);padding:2px 8px;border-radius:6px;font-size:11px;">Post Purchase</span>
+            {% else %}
+              <span style="background:rgba(255,255,255,0.06);color:var(--text3);padding:2px 8px;border-radius:6px;font-size:11px;">Auto</span>
+            {% endif %}
+          </td>
+          <td style="padding:10px 12px;color:var(--text3);font-size:12px;">
+            {% if item.scheduled_at %}
+              {{ item.scheduled_at.strftime('%b %d, %H:%M') }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td style="padding:10px 12px;">
+            <span style="background:rgba(124,58,237,0.15);color:var(--purple);padding:2px 8px;border-radius:6px;font-size:11px;">{{ item.status }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:32px;color:var(--text3);">
+    <i class="fas fa-inbox" style="font-size:28px;margin-bottom:10px;opacity:0.4;display:block;"></i>
+    No pending auto-emails in queue
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── Recently Sent Table ──────────────────────────────────── -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+    <i class="fas fa-check-circle" style="color:var(--green);font-size:16px;"></i>
+    <h3 style="margin:0;font-size:16px;color:var(--text);font-weight:700;">Recently Sent (48h)</h3>
+    <span style="font-size:11px;color:var(--text3);background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:2px 10px;">{{ sent|length }} shown</span>
+  </div>
+
+  {% if sent %}
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="border-bottom:1px solid var(--border);">
+          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Contact</th>
+          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Subject</th>
+          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Sent At</th>
+          <th style="text-align:left;padding:10px 12px;color:var(--text3);font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in sent %}
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+          <td style="padding:10px 12px;color:var(--text);">{{ item.email or '—' }}</td>
+          <td style="padding:10px 12px;color:var(--text2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ item.subject or '—' }}</td>
+          <td style="padding:10px 12px;color:var(--text3);font-size:12px;">
+            {% if item.sent_at %}
+              {{ item.sent_at.strftime('%b %d, %H:%M') }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td style="padding:10px 12px;">
+            <span style="background:rgba(16,185,129,0.15);color:var(--green);padding:2px 8px;border-radius:6px;font-size:11px;">{{ item.status }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:32px;color:var(--text3);">
+    <i class="fas fa-inbox" style="font-size:28px;margin-bottom:10px;opacity:0.4;display:block;"></i>
+    No auto-emails sent in the last 48 hours
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

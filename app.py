@@ -5390,6 +5390,60 @@ def api_learning_stats():
     })
 
 
+# ── Auto-Pilot Dashboard ─────────────────────────────────────
+@app.route("/auto-pilot")
+def auto_pilot_dashboard():
+    from database import DeliveryQueue, Contact, init_db
+    init_db()
+
+    now = datetime.now()
+
+    # Pending (scheduled for future)
+    pending = list(
+        DeliveryQueue.select(DeliveryQueue, Contact)
+        .join(Contact, on=(DeliveryQueue.contact == Contact.id), attr="contact_obj")
+        .where(DeliveryQueue.email_type == "auto", DeliveryQueue.status == "queued")
+        .order_by(DeliveryQueue.scheduled_at.asc())
+        .limit(50)
+    )
+
+    # Recently sent (last 48h)
+    from datetime import timedelta
+    two_days_ago = now - timedelta(hours=48)
+    sent = list(
+        DeliveryQueue.select(DeliveryQueue, Contact)
+        .join(Contact, on=(DeliveryQueue.contact == Contact.id), attr="contact_obj")
+        .where(DeliveryQueue.email_type == "auto", DeliveryQueue.status == "sent",
+               DeliveryQueue.sent_at >= two_days_ago)
+        .order_by(DeliveryQueue.sent_at.desc())
+        .limit(50)
+    )
+
+    # Stats
+    total_scheduled_today = DeliveryQueue.select().where(
+        DeliveryQueue.email_type == "auto",
+        DeliveryQueue.created_at >= now.strftime("%Y-%m-%d")
+    ).count()
+    total_sent_today = DeliveryQueue.select().where(
+        DeliveryQueue.email_type == "auto",
+        DeliveryQueue.status == "sent",
+        DeliveryQueue.sent_at >= now.strftime("%Y-%m-%d")
+    ).count()
+    total_pending = DeliveryQueue.select().where(
+        DeliveryQueue.email_type == "auto",
+        DeliveryQueue.status == "queued"
+    ).count()
+
+    return render_template("auto_pilot.html",
+        pending=pending,
+        sent=sent,
+        total_scheduled_today=total_scheduled_today,
+        total_sent_today=total_sent_today,
+        total_pending=total_pending,
+        now=now,
+    )
+
+
 # ─────────────────────────────────────────────────────────────
 #  CUSTOMER ACTIVITY FEED
 # ─────────────────────────────────────────────────────────────

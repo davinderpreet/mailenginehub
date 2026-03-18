@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-18 12:27. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-18 12:36. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -216,9 +216,9 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (52 files, 30,123 lines)
+## Python Files — Detailed (52 files, 30,177 lines)
 
-### `app.py` (6,261 lines)
+### `app.py` (6,315 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
 
 Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,
@@ -767,7 +767,7 @@ IMPORTANT: Use LearningConfig.get_val(key, default) / LearningConfig.set_val(key
 
 ---
 
-## Routes — Full Detail (116 total)
+## Routes — Full Detail (117 total)
 
 ### Dashboard & Overview
 Main dashboard, system monitoring, and reporting pages
@@ -775,9 +775,9 @@ Main dashboard, system monitoring, and reporting pages
 | Route | Methods | Function | Line | Description |
 |---|---|---|---|---|
 | `/` | GET | `dashboard` | 445 | Main dashboard — stat cards (contacts, campaigns, open rate, revenue), recent activity feed, warmup status, quick actions |
-| `/activity` | GET | `activity_feed` | 5397 | Activity feed — real-time log of all system events (sends, opens, clicks, bounces, triggers) |
+| `/activity` | GET | `activity_feed` | 5451 | Activity feed — real-time log of all system events (sends, opens, clicks, bounces, triggers) |
 | `/audit` | GET | `audit_dashboard` | 3820 | Audit dashboard — ActionLedger viewer with filtering by trigger type, source, status |
-| `/system-map` | GET | `system_map` | 5800 | Interactive D3.js force graph — 65+ nodes showing all system components and data flow |
+| `/system-map` | GET | `system_map` | 5854 | Interactive D3.js force graph — 65+ nodes showing all system components and data flow |
 | `/telemetry` | GET | `telemetry_dashboard` | 3856 | AI rendering telemetry — success rates, latency, field-specific performance metrics |
 
 ### Contacts & Profiles
@@ -867,26 +867,26 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 
 | Route | Methods | Function | Line | Description |
 |---|---|---|---|---|
-| `/api/activity/feed` | GET | `api_activity_feed` | 5460 | Activity feed JSON — paginated events for activity page auto-refresh |
+| `/api/activity/feed` | GET | `api_activity_feed` | 5514 | Activity feed JSON — paginated events for activity page auto-refresh |
 | `/api/agent/chat` | POST | `api_agent_chat` | 4263 | Agent chat API — sends message to Claude, returns response |
 | `/api/ai-engine/run-now` | POST | `ai_engine_run_now` | 5131 | Trigger AI engine manually — runs scoring + plan generation |
 | `/api/ai-engine/sample-email` | POST | `ai_engine_sample_email` | 5089 | Generate sample AI email — preview without sending |
 | `/api/campaign/recipient-count` | GET | `api_recipient_count` | 1631 | Count recipients for a segment filter — used by campaign form |
-| `/api/identify` | POST, OPTIONS | `identify_visitor` | 5505 | Identity pixel — JavaScript tracking pixel for website visitor identification |
+| `/api/identify` | POST, OPTIONS | `identify_visitor` | 5559 | Identity pixel — JavaScript tracking pixel for website visitor identification |
 | `/api/learning/stats` | GET | `api_learning_stats` | 5357 | Learning stats JSON — for dashboard auto-refresh |
-| `/api/subscribe` | POST, OPTIONS | `api_subscribe` | 5604 | Public subscribe endpoint — CORS-enabled for external forms |
-| `/api/system-map/data` | GET | `system_map_api` | 5804 | System map JSON — 65+ nodes and edges for D3.js visualization |
+| `/api/subscribe` | POST, OPTIONS | `api_subscribe` | 5658 | Public subscribe endpoint — CORS-enabled for external forms |
+| `/api/system-map/data` | GET | `system_map_api` | 5858 | System map JSON — 65+ nodes and edges for D3.js visualization |
 | `/api/telemetry/data` | GET | `api_telemetry_data` | 3861 | Telemetry JSON — AI render stats for telemetry page auto-refresh |
 | `/api/templates/ai-generate-block` | POST | `api_ai_generate_block` | 1210 | AI generate single block content — for template builder |
 | `/api/templates/ai-generate-template` | POST | `api_ai_generate_template` | 1273 | AI generate full template — for template builder |
-| `/api/track` | POST, OPTIONS | `track_event` | 5539 | Event tracking API — receives behavioral events from website JavaScript |
+| `/api/track` | POST, OPTIONS | `track_event` | 5593 | Event tracking API — receives behavioral events from website JavaScript |
 | `/api/warmup/health` | GET | `api_warmup_health` | 2282 | Warmup health JSON — for warmup dashboard auto-refresh |
 
 ### Other Routes
 
 | Route | Methods | Function | Line |
 |---|---|---|---|
-| `/activity/sync` | POST | `activity_sync_trigger` | 5715 |
+| `/activity/sync` | POST | `activity_sync_trigger` | 5769 |
 | `/api/agent/clear` | POST | `api_agent_clear` | 4345 |
 | `/api/audit/details` | GET | `api_audit_details` | 3838 |
 | `/api/audit/stats` | GET | `api_audit_stats` | 3833 |
@@ -905,6 +905,7 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 | `/api/templates/<int:template_id>/test-send` | POST | `api_template_test_send` | 1332 |
 | `/api/templates/create-blocks` | POST | `api_create_blocks_template` | 1045 |
 | `/api/triggers/backlog` | GET | `api_trigger_backlog` | 3937 |
+| `/auto-pilot` | GET | `auto_pilot_dashboard` | 5394 |
 | `/campaigns/<int:campaign_id>` | GET | `campaign_detail` | 1643 |
 | `/campaigns/<int:campaign_id>/send` | POST | `send_campaign` | 1669 |
 | `/contacts/unsubscribe-oneclick` | POST | `unsubscribe_oneclick` | 944 |
@@ -952,13 +953,14 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 
 ---
 
-## HTML Templates (35 files)
+## HTML Templates (36 files)
 
 - **`activity.html`** (25.4KB, extends base.html) -- Activity feed — real-time event log with type filters, auto-refresh via /api/activity/feed polling.
 - **`agent.html`** (16.4KB, extends base.html) -- IT Agent chat — ChatGPT-style interface, message bubbles, input field, sends to /api/agent/chat.
 - **`ai_engine.html`** (28.5KB, extends base.html) -- AI Engine dashboard (28KB) — segment distribution pie chart, today's plan table, decision log with filters, run-now button, sample email generator.
 - **`audit.html`** (10.5KB, extends base.html) -- Audit dashboard — ActionLedger viewer with date range, trigger type, source filters, detail modal.
-- **`base.html`** (22.7KB, extends none) -- Master layout — dark glass theme, sidebar navigation (all page links), topbar, CSS variables, Font Awesome icons, jQuery. All other templates extend this.
+- **`auto_pilot.html`** (9.7KB, extends base.html)
+- **`base.html`** (22.9KB, extends none) -- Master layout — dark glass theme, sidebar navigation (all page links), topbar, CSS variables, Font Awesome icons, jQuery. All other templates extend this.
 - **`campaign_detail.html`** (7.7KB, extends base.html) -- Campaign detail — recipient table with per-email status, opened/clicked indicators, error messages.
 - **`campaign_form.html`** (4.6KB, extends base.html) -- Create/edit campaign — template selector, segment filter builder, from name/email, reply-to.
 - **`campaign_planner.html`** (12.2KB, extends base.html) -- AI campaign planner — suggested campaign cards with quality scores, accept/dismiss buttons, brief preview modal.
