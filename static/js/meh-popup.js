@@ -34,6 +34,7 @@
 
   // ── Don't show if already dismissed / subscribed ────────
   if (getCookie(COOKIE_NAME)) return;
+  if (localStorage.getItem('meh_email')) return; // already subscribed in a previous session
 
   // ── Inject CSS ──────────────────────────────────────────
   var css = document.createElement('style');
@@ -256,18 +257,27 @@
 
 
   // ── State ───────────────────────────────────────────────
+  var hasSubscribed = false;  // tracks if user subscribed in this session
+
   function showModal() {
     backdrop.classList.add('meh-show');
     modal.classList.add('meh-show');
     teaser.classList.remove('meh-show');
-    setTimeout(function() { emailInput.focus(); }, 350);
+    if (!hasSubscribed) {
+      setTimeout(function() { emailInput.focus(); }, 350);
+    }
   }
 
   function closeModal() {
     backdrop.classList.remove('meh-show');
     modal.classList.remove('meh-show');
-    // Show teaser bar at bottom
-    setTimeout(function() { teaser.classList.add('meh-show'); }, 300);
+    if (hasSubscribed) {
+      // After subscribing, fully dismiss — no teaser needed
+      dismissAll();
+    } else {
+      // Only show teaser if they haven't subscribed yet
+      setTimeout(function() { teaser.classList.add('meh-show'); }, 300);
+    }
   }
 
   function dismissAll() {
@@ -331,6 +341,9 @@
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.ok) {
+        // Mark as subscribed
+        hasSubscribed = true;
+
         // Store email for pixel tracking stitching
         localStorage.setItem('meh_email', email);
         window.meh_email = email;
@@ -342,6 +355,9 @@
 
         // Set cookie so popup doesn't reappear
         setCookie(COOKIE_NAME, '1', COOKIE_DAYS);
+
+        // Auto-dismiss after 8 seconds so it doesn't stay forever
+        setTimeout(function() { dismissAll(); }, 8000);
       } else {
         errorEl.textContent = data.error || 'Something went wrong. Please try again.';
         submitBtn.disabled = false;
