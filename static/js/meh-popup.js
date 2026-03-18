@@ -40,22 +40,39 @@
   var css = document.createElement('style');
   css.textContent = [
 
-    /* ── Bottom-left popup ── */
+    /* ── Backdrop (only for centered mode) ── */
+    '#meh-backdrop {',
+    '  position:fixed; inset:0; z-index:999998;',
+    '  background:rgba(0,0,0,0.5); backdrop-filter:blur(2px);',
+    '  opacity:0; transition:opacity 0.3s ease;',
+    '  pointer-events:none;',
+    '}',
+    '#meh-backdrop.meh-show { opacity:1; pointer-events:auto; }',
+
+    /* ── Popup — starts centered, moves to bottom-left after first close ── */
     '#meh-popup {',
     '  position:fixed; z-index:999999;',
-    '  bottom:20px; left:20px;',
-    '  width:380px; max-width:calc(100vw - 40px);',
+    '  top:50%; left:50%; transform:translate(-50%, -50%) scale(0.9);',
+    '  width:420px; max-width:calc(100vw - 32px);',
     '  background:#0a0a0a; border-radius:16px;',
-    '  padding:32px 28px 28px; text-align:center;',
-    '  box-shadow:0 12px 40px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06);',
+    '  padding:36px 32px 32px; text-align:center;',
+    '  box-shadow:0 25px 60px rgba(0,0,0,0.5);',
     '  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;',
-    '  transform:translateY(120%); opacity:0;',
-    '  transition:transform 0.5s cubic-bezier(.22,.68,0,.98), opacity 0.4s ease;',
+    '  opacity:0; transition:transform 0.4s ease, opacity 0.3s ease, top 0.4s ease, left 0.4s ease, width 0.4s ease;',
     '  pointer-events:none;',
     '}',
     '#meh-popup.meh-show {',
-    '  transform:translateY(0); opacity:1;',
+    '  transform:translate(-50%, -50%) scale(1); opacity:1;',
     '  pointer-events:auto;',
+    '}',
+    /* Bottom-left mode (after first close, reopened from teaser) */
+    '#meh-popup.meh-corner {',
+    '  top:auto; left:20px; bottom:20px;',
+    '  transform:translateY(120%); opacity:0;',
+    '  width:380px; padding:28px 24px 24px;',
+    '}',
+    '#meh-popup.meh-corner.meh-show {',
+    '  transform:translateY(0); opacity:1;',
     '}',
 
     /* Close button */
@@ -175,10 +192,13 @@
     /* ── Mobile responsive ── */
     '@media (max-width:480px) {',
     '  #meh-popup {',
-    '    bottom:0; left:0; right:0;',
-    '    width:100%; max-width:100%;',
-    '    border-radius:16px 16px 0 0;',
+    '    width:calc(100vw - 24px); max-width:100%;',
     '    padding:28px 20px 24px;',
+    '  }',
+    '  #meh-popup.meh-corner {',
+    '    bottom:0; left:0; right:0;',
+    '    width:100%;',
+    '    border-radius:16px 16px 0 0;',
     '  }',
     '  #meh-popup h2 { font-size:18px; }',
     '  #meh-popup .meh-logo { width:100px; }',
@@ -197,7 +217,12 @@
 
   // ── Build DOM ───────────────────────────────────────────
 
-  // Popup (no backdrop overlay — non-blocking)
+  // Backdrop (only shown in centered mode)
+  var backdrop = document.createElement('div');
+  backdrop.id = 'meh-backdrop';
+  document.body.appendChild(backdrop);
+
+  // Popup
   var popup = document.createElement('div');
   popup.id = 'meh-popup';
   popup.innerHTML =
@@ -253,8 +278,17 @@
 
   // ── State ───────────────────────────────────────────────
   var hasSubscribed = false;
+  var hasBeenClosed = false; // after first close, popup goes to corner mode
 
   function showPopup() {
+    if (hasBeenClosed) {
+      // Reopen in corner mode (from teaser)
+      popup.classList.add('meh-corner');
+      backdrop.classList.remove('meh-show');
+    } else {
+      // First time — centered with backdrop
+      backdrop.classList.add('meh-show');
+    }
     popup.classList.add('meh-show');
     teaser.classList.remove('meh-show');
     if (!hasSubscribed) {
@@ -264,9 +298,13 @@
 
   function closePopup() {
     popup.classList.remove('meh-show');
+    backdrop.classList.remove('meh-show');
     if (hasSubscribed) {
       dismissAll();
     } else {
+      hasBeenClosed = true;
+      // Switch to corner mode for next open
+      popup.classList.add('meh-corner');
       setTimeout(function() { teaser.classList.add('meh-show'); }, 400);
     }
   }
@@ -274,6 +312,7 @@
   function dismissAll() {
     setCookie(COOKIE_NAME, '1', COOKIE_DAYS);
     popup.classList.remove('meh-show');
+    backdrop.classList.remove('meh-show');
     teaser.classList.remove('meh-show');
   }
 
@@ -282,6 +321,9 @@
 
   // Close popup → minimize to teaser
   closeBtn.addEventListener('click', closePopup);
+
+  // Click backdrop → close popup (centered mode)
+  backdrop.addEventListener('click', closePopup);
 
   // Click teaser → reopen popup
   teaser.addEventListener('click', function(e) {
