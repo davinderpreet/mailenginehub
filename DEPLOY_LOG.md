@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-18 12:51 -- `3a526c0`
+
+**Auto-Pilot UI: add template names and email preview modal**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+templates/auto_pilot.html
+```
+
+---
+
 ### 2026-03-18 12:37 -- `757c7ac`
 
 **Add Auto-Pilot dashboard UI page to view auto-scheduled emails**
