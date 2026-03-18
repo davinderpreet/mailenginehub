@@ -4,6 +4,21 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-18 10:56 -- `87839c4`
+
+**Wire self-learning intelligence into sending pipeline**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+ai_engine.py
+app.py
+delivery_engine.py
+```
+
+---
+
 ### 2026-03-17 20:13 -- `dc6b227`
 
 **Fix social media links in email footer**
