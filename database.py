@@ -1395,6 +1395,7 @@ class DeliveryQueue(BaseModel):
     # Timestamps
     created_at    = DateTimeField(default=datetime.now, index=True)
     sent_at       = DateTimeField(null=True)
+    scheduled_at  = DateTimeField(null=True)  # If set, queue processor waits until this time
 
     class Meta:
         table_name = "delivery_queue"

@@ -90,7 +90,8 @@ def _increment_warmup_counter():
 
 def enqueue_email(contact, email_type, source_id, enrollment_id, step_id,
                   template_id, from_name, from_email, subject, html,
-                  unsubscribe_url, priority, ledger_id, campaign_id=0):
+                  unsubscribe_url, priority, ledger_id, campaign_id=0,
+                  scheduled_at=None):
     """Add an email to the delivery queue and update the linked ledger entry.
 
     Args:
@@ -112,7 +113,7 @@ def enqueue_email(contact, email_type, source_id, enrollment_id, step_id,
     Returns:
         DeliveryQueue instance
     """
-    item = DeliveryQueue.create(
+    _create_kwargs = dict(
         contact=contact,
         email=contact.email,
         email_type=email_type,
@@ -130,6 +131,9 @@ def enqueue_email(contact, email_type, source_id, enrollment_id, step_id,
         ledger_id=ledger_id,
         campaign_id=campaign_id,
     )
+    if scheduled_at:
+        _create_kwargs["scheduled_at"] = scheduled_at
+    item = DeliveryQueue.create(**_create_kwargs)
 
     # Update ledger to "queued"
     update_ledger_status(ledger_id, "queued")
@@ -148,10 +152,14 @@ def process_queue():
     cfg = get_system_config()
     mode = cfg.delivery_mode  # live | shadow | sandbox
 
-    # Get all queued items, ordered by priority (lowest number first) then age
+    # Get all queued items ready to send (skip future-scheduled items)
+    _now = datetime.now()
     queued = list(
         DeliveryQueue.select()
-        .where(DeliveryQueue.status == "queued")
+        .where(
+            DeliveryQueue.status == "queued",
+            (DeliveryQueue.scheduled_at.is_null()) | (DeliveryQueue.scheduled_at <= _now)
+        )
         .order_by(DeliveryQueue.priority.asc(), DeliveryQueue.created_at.asc())
     )
 

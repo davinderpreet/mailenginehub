@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-18 12:06. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-18 12:27. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -152,73 +152,73 @@ Audit trail for every system action. trigger_type, source_type, source_id, statu
 
 ### `DeliveryQueue` (line 1364)
 Email staging queue. Priority-based (checkout_abandoned=10 highest). Drained every 30s by delivery_engine respecting warmup limits.
-- **Fields**: contact, email, email_type, source_id, enrollment_id, step_id, template_id, from_name, from_email, subject, html, unsubscribe_url, priority, status, error_msg, ledger_id, campaign_id, created_at, sent_at
+- **Fields**: contact, email, email_type, source_id, enrollment_id, step_id, template_id, from_name, from_email, subject, html, unsubscribe_url, priority, status, error_msg, ledger_id, campaign_id, created_at, sent_at, scheduled_at
 
-### `IdentityJob` (line 1403)
+### `IdentityJob` (line 1404)
 Durable job queue for identity resolution. dedupe_key prevents duplicates, status (pending/processing/done/failed), result JSON.
 - **Fields**: contact_id, email, source, dedupe_key, job_type, job_data, status, result, attempts, max_attempts, error_msg, created_at, started_at, completed_at
 
-### `AIRenderLog` (line 1424)
+### `AIRenderLog` (line 1425)
 AI content rendering telemetry. template_id, block_index, field_name, render_ms, fallback_used. Powers /telemetry dashboard.
 - **Fields**: template_id, contact_id, block_index, field_name, generated_text, fallback_used, render_ms, model_name, error_summary, created_at
 
-### `KnowledgeEntry` (line 1447)
+### `KnowledgeEntry` (line 1448)
 AI knowledge base. entry_type: product_catalog, brand_copy, blog_post, competitor_intel, faq, testimonial, email_design_intel. metadata_json holds source_url, relevance_score, image_urls, reasoning. is_active=False means staged for review.
 - **Fields**: entry_type, title, content, metadata_json, is_active, is_rejected, created_at, updated_at
 
-### `AIModelConfig` (line 1463)
+### `AIModelConfig` (line 1464)
 AI provider configuration. provider (anthropic/openai/openrouter), model_id, api_key_env (env var name), max_tokens, is_default flag. Queried by ai_provider.get_provider().
 - **Fields**: provider, model_id, display_name, api_key_env, max_tokens, is_default, is_active, created_at
 
-### `StudioJob` (line 1478)
+### `StudioJob` (line 1479)
 AI template generation job. status: pending/running/done/error. family (welcome/cart_recovery/etc.), input_json (product_focus, tone), FK to AIModelConfig.
 - **Fields**: job_type, status, family, input_json, model_config, error_message, created_at, completed_at
 
-### `TemplateCandidate` (line 1493)
+### `TemplateCandidate` (line 1494)
 AI-generated template awaiting review. blocks_json (standard format), subject_line, preview_text, reasoning (AI explanation), status: pending/approved/rejected. FK to StudioJob, optional FK to EmailTemplate (set on approval).
 - **Fields**: job, blocks_json, subject_line, preview_text, reasoning, metadata_json, status, approved_at, template, created_at
 
-### `TemplatePerformance` (line 1510)
+### `TemplatePerformance` (line 1511)
 Rolling template metrics. sends, opens, clicks, open_rate, click_rate, revenue_total, revenue_per_send. Computed nightly by learning_engine.py.
 - **Fields**: template, sends, opens, clicks, open_rate, click_rate, revenue_total, revenue_per_send, conversion_rate, sample_size, learning_flag, last_computed
 
-### `OutcomeLog` (line 1529)
+### `OutcomeLog` (line 1530)
 Email outcome for learning. email_type (campaign/flow), opened, clicked, purchased (bool), revenue (float), send_gap_hours. Feeds into learning_engine.py.
 - **Fields**: email_type, email_id, contact, template_id, action_type, segment, opened, clicked, purchased, unsubscribed, revenue, hours_to_open, hours_to_purchase, sent_at, subject_line, send_gap_hours, created_at
 
-### `ActionPerformance` (line 1556)
+### `ActionPerformance` (line 1557)
 Action type effectiveness per segment. sample_size, open_rate, click_rate, conversion_rate, revenue_per_send. Computed by learning_engine.py.
 - **Fields**: action_type, segment, sample_size, open_rate, click_rate, conversion_rate, revenue_per_send, avg_score, last_computed
 
-### `TemplateSegmentPerformance` (line 1575)
+### `TemplateSegmentPerformance` (line 1576)
 Template performance broken down by contact segment. Enables segment-specific template recommendations.
 - **Fields**: template, segment, sample_size, open_rate, click_rate, conversion_rate, revenue_per_send, last_computed
 
-### `ModelWeights` (line 1593)
+### `ModelWeights` (line 1594)
 Computed optimal RFM weights. recency/frequency/monetary weights, evaluation_score, sample_size, phase. Updated by learning_engine.py.
 - **Fields**: recency_weight, frequency_weight, monetary_weight, evaluation_score, sample_size, phase, created_at
 
-### `LearningConfig` (line 1607)
+### `LearningConfig` (line 1608)
 Key-value config store. IMPORTANT: Use LearningConfig.get_val(key, default) / set_val(key, value). NOT direct field access. Controls learning phases, kill switches, thresholds.
 - **Fields**: key, value, updated_at
 
-### `ScrapeSource` (line 1635)
+### `ScrapeSource` (line 1636)
 Knowledge enrichment source. source_type (shopify_products/blog/competitor/etc.), URL, scrape_frequency, is_active, last_scraped_at, config_json.
 - **Fields**: source_type, source_name, url, scrape_frequency, is_active, last_scraped_at, config_json, created_at
 
-### `ScrapeLog` (line 1648)
+### `ScrapeLog` (line 1649)
 Scrape run audit log. items_found, items_staged, items_skipped, items_errored, error_message. FK to ScrapeSource.
 - **Fields**: source, started_at, completed_at, status, items_found, items_staged, items_skipped, items_errored, error_message
 
-### `RejectionLog` (line 1662)
+### `RejectionLog` (line 1663)
 Rejected knowledge entries. Tracks what was rejected and why, prevents re-processing same content.
 - **Fields**: original_entry_type, source, title, content_snippet, source_url, content_hash, created_at
 
 ---
 
-## Python Files — Detailed (52 files, 29,909 lines)
+## Python Files — Detailed (52 files, 30,123 lines)
 
-### `app.py` (6,056 lines)
+### `app.py` (6,261 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
 
 Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,
@@ -254,7 +254,7 @@ Key functions:
 - `render_block(block_dict, contact) — Single block -> HTML <tr>`
 - `_sanitize_html(text) — XSS prevention for user content`
 
-### `database.py` (1,683 lines)
+### `database.py` (1,684 lines)
 **All 53 Peewee ORM models + init_db() + migration helpers**
 
 SQLite database via Peewee ORM. All models inherit BaseModel which sets the database.
@@ -543,14 +543,7 @@ via Shopify REST API — fetches all customers and orders, upserts ShopifyCustom
 + ShopifyOrderItem + Contact. Enriches Contact with total_orders, total_spent, first/last order dates.
 Also incremental sync every 2s for recent changes.
 
-### `data_enrichment.py` (390 lines)
-**General contact enrichment — activity aggregation, profile metrics computation**
-
-Pulls CustomerActivity events, ShopifyOrder history, and engagement metrics
-to compute and store derived fields in CustomerProfile. Bridges raw event data with
-the intelligence layer.
-
-### `delivery_engine.py` (388 lines)
+### `delivery_engine.py` (396 lines)
 **Email delivery queue — priority-based, warmup-compliant, shadow/sandbox/live modes**
 
 Separates email generation from sending via DeliveryQueue model. enqueue_email() stages
@@ -565,6 +558,13 @@ Key functions:
 - `enqueue_email(contact, email_type, ...) — Stage email in queue with priority`
 - `process_queue() — Drain queue respecting warmup limits and delivery mode`
 - `_get_warmup_remaining() — Calculate remaining daily capacity`
+
+### `data_enrichment.py` (390 lines)
+**General contact enrichment — activity aggregation, profile metrics computation**
+
+Pulls CustomerActivity events, ShopifyOrder history, and engagement metrics
+to compute and store derived fields in CustomerProfile. Bridges raw event data with
+the intelligence layer.
 
 ### `template_studio.py` (378 lines)
 **Studio orchestrator — runs skill pipeline, manages jobs, approval/rejection, intelligence scoring**

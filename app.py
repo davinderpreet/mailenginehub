@@ -5944,6 +5944,211 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
 
     _scheduler.add_job(_run_nightly_opportunity_scan, "cron", hour=4, minute=15,
                        id="opportunity_scan", replace_existing=True)
+
+    # ── Auto-Pilot: Per-contact scheduled sends based on NBM decisions ──
+    def _run_auto_scheduler():
+        """Read nightly NBM decisions, map to templates, schedule at each contact's preferred hour."""
+        try:
+            import sys as _sas; _sas.path.insert(0, APP_DIR)
+            from database import (MessageDecision, Contact, CustomerProfile, ContactScore,
+                                  EmailTemplate, FlowEnrollment, DeliveryQueue, SuppressionEntry,
+                                  init_db, get_system_config)
+            from delivery_engine import enqueue_email
+            from action_ledger import log_action
+            from learning_config import get_learning_enabled
+            init_db()
+
+            # Only run when learning enabled + live mode
+            if not get_learning_enabled():
+                app.logger.info("[AutoScheduler] Skipped — learning disabled")
+                return
+            cfg = get_system_config()
+            if cfg.delivery_mode != "live":
+                app.logger.info("[AutoScheduler] Skipped — delivery mode is %s" % cfg.delivery_mode)
+                return
+
+            # Action → template ID mapping (existing templates)
+            ACTION_TEMPLATE = {
+                "reorder_reminder":  12,  # Post-Purchase Review & Reorder
+                "cross_sell":        11,  # Post-Purchase Thank You (cross-sell)
+                "upsell":            13,  # Post-Purchase Loyalty Discount
+                "new_product":       17,  # Browse Abandon Product Reminder
+                "winback":           14,  # Win-Back We Miss You
+                "education":          6,  # Welcome Social Proof
+                "loyalty_reward":    13,  # Post-Purchase Loyalty Discount
+                "discount_offer":    10,  # Checkout Recovery 10% Off
+            }
+
+            # Province → UTC offset (Canada)
+            PROVINCE_TZ = {
+                "BC": -8, "AB": -7, "SK": -6, "MB": -6,
+                "ON": -5, "QC": -5, "NB": -4, "NS": -4,
+                "PE": -4, "NL": -3.5, "YT": -7, "NT": -7, "NU": -5,
+            }
+
+            now = datetime.now()
+            today_str = now.strftime("%Y-%m-%d")
+            scheduled = 0
+            skipped = 0
+
+            decisions = list(MessageDecision.select().where(
+                MessageDecision.action_type != "wait",
+                MessageDecision.action_type != "switch_channel",
+                MessageDecision.suppression_active == False,
+            ))
+
+            for decision in decisions:
+                try:
+                    contact = Contact.get_by_id(decision.contact_id)
+
+                    # Skip unsubscribed
+                    if not contact.subscribed:
+                        skipped += 1; continue
+
+                    # Skip suppressed
+                    if SuppressionEntry.select().where(SuppressionEntry.email == contact.email).exists():
+                        skipped += 1; continue
+
+                    # Skip sunset contacts
+                    _cs = ContactScore.get_or_none(ContactScore.contact == contact)
+                    if _cs and _cs.sunset_score and _cs.sunset_score >= 85:
+                        skipped += 1; continue
+
+                    # Skip if already has a pending auto-scheduled email today
+                    _existing = (DeliveryQueue.select()
+                                 .where(DeliveryQueue.contact == contact,
+                                        DeliveryQueue.email_type == "auto",
+                                        DeliveryQueue.status == "queued",
+                                        DeliveryQueue.created_at >= today_str)
+                                 .exists())
+                    if _existing:
+                        skipped += 1; continue
+
+                    # Skip if contact has active flow enrollment (flows take priority)
+                    _active_flow = (FlowEnrollment.select()
+                                    .where(FlowEnrollment.contact == contact,
+                                           FlowEnrollment.status == "active")
+                                    .exists())
+                    if _active_flow:
+                        skipped += 1; continue
+
+                    # Get template
+                    template_id = ACTION_TEMPLATE.get(decision.action_type)
+                    if not template_id:
+                        skipped += 1; continue
+                    try:
+                        template = EmailTemplate.get_by_id(template_id)
+                    except EmailTemplate.DoesNotExist:
+                        skipped += 1; continue
+
+                    # Get preferred send hour
+                    _profile = CustomerProfile.get_or_none(CustomerProfile.contact == contact)
+                    _pref_hour = 10  # default 10 AM ET
+                    if _profile and _profile.preferred_send_hour >= 0:
+                        _pref_hour = _profile.preferred_send_hour
+
+                    # Calculate timezone offset from province
+                    _tz_offset = -5  # default Eastern
+                    if _profile and _profile.province:
+                        _prov = _profile.province.strip().upper()
+                        # Handle full province names
+                        _prov_map = {"ONTARIO": "ON", "QUEBEC": "QC", "BRITISH COLUMBIA": "BC",
+                                     "ALBERTA": "AB", "SASKATCHEWAN": "SK", "MANITOBA": "MB",
+                                     "NOVA SCOTIA": "NS", "NEW BRUNSWICK": "NB",
+                                     "PRINCE EDWARD ISLAND": "PE", "NEWFOUNDLAND AND LABRADOR": "NL"}
+                        _prov = _prov_map.get(_prov, _prov[:2])
+                        _tz_offset = PROVINCE_TZ.get(_prov, -5)
+
+                    # Convert preferred hour (contact's local) to UTC, then to server time (UTC)
+                    _send_hour_utc = int((_pref_hour - _tz_offset) % 24)
+
+                    # Schedule for today at that hour, or tomorrow if already past
+                    _sched = now.replace(hour=_send_hour_utc, minute=0, second=0, microsecond=0)
+                    if _sched <= now:
+                        _sched += timedelta(days=1)
+
+                    # Render template
+                    html = template.html_body or ""
+                    html = html.replace("{{first_name}}", contact.first_name or "Friend")
+                    html = html.replace("{{last_name}}", contact.last_name or "")
+                    html = html.replace("{{email}}", contact.email)
+                    _unsub = "https://mailenginehub.com/unsubscribe/%s" % contact.email
+
+                    html = html.replace("{{unsubscribe_url}}", _unsub)
+
+                    # Personalization from CustomerProfile
+                    if _profile:
+                        html = html.replace("{{last_viewed_product}}", _profile.last_viewed_product or "one of our popular items")
+                        html = html.replace("{{total_orders}}", str(_profile.total_orders or 0))
+                        html = html.replace("{{total_spent}}", "$%.2f" % (_profile.total_spent or 0))
+                    else:
+                        html = html.replace("{{last_viewed_product}}", "one of our popular items")
+                        html = html.replace("{{total_orders}}", "0")
+                        html = html.replace("{{total_spent}}", "$0")
+
+                    # Discount code for discount_offer action
+                    if decision.action_type == "discount_offer" and "{{discount_code}}" in html:
+                        try:
+                            from discount_engine import generate_discount_code
+                            _result = generate_discount_code(contact.email, "cart_abandonment")
+                            _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
+                            html = html.replace("{{discount_code}}", _dcode)
+                        except Exception:
+                            html = html.replace("{{discount_code}}", "")
+
+                    subject = template.subject or "A message from LDAS Electronics"
+                    subject = subject.replace("{{first_name}}", contact.first_name or "Friend")
+
+                    from_email = os.getenv("DEFAULT_FROM_EMAIL", "news@news.ldaselectronics.com")
+
+                    # Log to ledger
+                    ledger = log_action(contact, "auto", 0, "rendered", "RC_AUTO_SCHEDULED",
+                                        source_type="auto_scheduler",
+                                        template_id=template_id,
+                                        subject=subject,
+                                        html=html, priority=60,
+                                        reason_detail="NBM action: %s → template: %s, scheduled: %s"
+                                                      % (decision.action_type, template.name, _sched.strftime("%H:%M")))
+
+                    # Enqueue with scheduled_at
+                    enqueue_email(
+                        contact=contact,
+                        email_type="auto",
+                        source_id=0,
+                        enrollment_id=0,
+                        step_id=0,
+                        template_id=template_id,
+                        from_name="LDAS Electronics",
+                        from_email=from_email,
+                        subject=subject,
+                        html=html,
+                        unsubscribe_url=_unsub,
+                        priority=60,
+                        ledger_id=ledger.id if ledger else 0,
+                        scheduled_at=_sched,
+                    )
+                    scheduled += 1
+
+                    # Mark decision as executed
+                    decision.was_executed = True
+                    decision.executed_at = now
+                    try:
+                        decision.save()
+                    except Exception:
+                        pass
+
+                except Exception as _ce:
+                    skipped += 1
+                    app.logger.warning("[AutoScheduler] Error for contact %s: %s" % (decision.contact_id, _ce))
+
+            app.logger.info("[AutoScheduler] Done: %d scheduled, %d skipped" % (scheduled, skipped))
+
+        except Exception as _e:
+            app.logger.error("[AutoScheduler] Failed: %s" % _e)
+
+    _scheduler.add_job(_run_auto_scheduler, "cron", hour=4, minute=30,
+                       id="auto_scheduler", replace_existing=True)
+
     _scheduler.add_job(_recalculate_deliverability_scores, "cron", hour=3, minute=45,
                        id="deliverability_scores", replace_existing=True)
     _scheduler.add_job(_run_nightly_profit_scoring, "cron", hour=4, minute=45,
