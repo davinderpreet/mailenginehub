@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-18 12:02. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-18 12:06. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -967,7 +967,7 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 - **`dashboard.html`** (12.0KB, extends base.html) -- Main dashboard — 4 stat cards (contacts, campaigns, open rate, revenue), recent activity table, warmup status card, quick action buttons.
 - **`flow_detail.html`** (19.1KB, extends base.html) -- Flow detail (19KB) — visual step timeline, per-step stats (sent/opened/clicked), enrollment table, add step form.
 - **`flows.html`** (9.1KB, extends base.html) -- Flow list — cards with trigger type icon, step count, enrollment count, active toggle, priority control.
-- **`learning_dashboard.html`** (32.3KB, extends base.html) -- Learning dashboard (24KB) — phase indicator (observation/conservative/active), template performance table, action effectiveness heatmap, model weights display, toggle button.
+- **`learning_dashboard.html`** (32.4KB, extends base.html) -- Learning dashboard (24KB) — phase indicator (observation/conservative/active), template performance table, action effectiveness heatmap, model weights display, toggle button.
 - **`profile_detail.html`** (67.8KB, extends base.html) -- Full contact profile (67KB) — intelligence summary card, lifecycle/type/intent/churn badges, purchase history timeline, engagement chart, category affinity radar, AI email preview modal, quick send form, decision history table.
 - **`profiles.html`** (20.2KB, extends base.html) -- Intelligence profiles — search, lifecycle stage filter pills, sortable table (email, lifecycle, type, intent, churn risk, LTV, last decision).
 - **`profit_dashboard.html`** (11.5KB, extends base.html) -- Profit dashboard — product profitability table, margin analysis, promo eligibility recommendations.
