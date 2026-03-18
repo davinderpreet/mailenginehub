@@ -6176,6 +6176,14 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                         except Exception:
                             html = html.replace("{{discount_code}}", "")
 
+                    # Wrap in email shell (header, footer, logo)
+                    from email_shell import wrap_email
+                    html = wrap_email(html, preview_text=template.preview_text or '', unsubscribe_url=_unsub)
+
+                    # Add tracking pixel
+                    _auto_pixel = "https://mailenginehub.com/track/auto-open/%d/%d" % (contact.id, template_id)
+                    html += '<img src="%s" width="1" height="1" />' % _auto_pixel
+
                     subject = template.subject or "A message from LDAS Electronics"
                     subject = subject.replace("{{first_name}}", contact.first_name or "Friend")
 
