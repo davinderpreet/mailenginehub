@@ -4,6 +4,21 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-18 12:28 -- `451f627`
+
+**Auto-Pilot: autonomous per-contact email scheduler**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+database.py
+delivery_engine.py
+```
+
+---
+
 ### 2026-03-18 12:08 -- `abc371b`
 
 **Fix weekly trend: replace canvas with placeholder when < 2 weeks data**
