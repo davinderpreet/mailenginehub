@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-18 11:11 -- `0ffaa7c`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-03-18 10:56 -- `87839c4`
 
 **Wire self-learning intelligence into sending pipeline**
