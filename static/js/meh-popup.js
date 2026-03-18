@@ -32,9 +32,13 @@
     return sid;
   }
 
-  // ── Don't show if already dismissed / subscribed ────────
-  if (getCookie(COOKIE_NAME)) return;
+  // ── Don't show if already subscribed ────────
   if (localStorage.getItem('meh_email')) return;
+
+  // Check cookie: '1' = fully dismissed, 'teaser' = show teaser on load
+  var _cookieVal = getCookie(COOKIE_NAME);
+  var _startAsTeaser = (_cookieVal === 'teaser');
+  if (_cookieVal === '1') return; // fully dismissed — show nothing
 
   // ── Inject CSS ──────────────────────────────────────────
   var css = document.createElement('style');
@@ -303,7 +307,9 @@
       dismissAll();
     } else {
       hasBeenClosed = true;
-      // Switch to corner mode for next open
+      // Set cookie so popup won't reappear centered on next page load
+      // (teaser will show instead via sessionStorage flag)
+      setCookie(COOKIE_NAME, 'teaser', COOKIE_DAYS);
       popup.classList.add('meh-corner');
       setTimeout(function() { teaser.classList.add('meh-show'); }, 400);
     }
@@ -417,6 +423,14 @@
   });
 
   // ── Show popup after delay ────────────────────────────
-  setTimeout(showPopup, SHOW_DELAY);
+  if (_startAsTeaser) {
+    // User closed popup on a previous page — go straight to teaser
+    hasBeenClosed = true;
+    popup.classList.add('meh-corner');
+    setTimeout(function() { teaser.classList.add('meh-show'); }, SHOW_DELAY);
+  } else {
+    // First visit — show centered popup
+    setTimeout(showPopup, SHOW_DELAY);
+  }
 
 })();
