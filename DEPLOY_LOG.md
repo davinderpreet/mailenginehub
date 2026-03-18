@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-18 12:04 -- `ba4ef04`
+
+**Fix weekly trend chart: show building state when < 2 weeks of data**
+
+Files changed:
+```
+REFERENCE.md
+templates/learning_dashboard.html
+```
+
+---
+
 ### 2026-03-18 11:45 -- `bd52be9`
 
 **Add audience health, intelligence insights, and guardrail sections to learning dashboard**
