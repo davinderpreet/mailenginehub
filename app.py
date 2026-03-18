@@ -6166,15 +6166,74 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                         html = html.replace("{{total_orders}}", "0")
                         html = html.replace("{{total_spent}}", "$0")
 
-                    # Discount code for discount_offer action
-                    if decision.action_type == "discount_offer" and "{{discount_code}}" in html:
+                    # Discount code — generate for ANY template that uses {{discount_code}}
+                    if "{{discount_code}}" in html:
                         try:
                             from discount_engine import generate_discount_code
-                            _result = generate_discount_code(contact.email, "cart_abandonment")
+                            _purpose_map = {
+                                "discount_offer": "cart_abandonment",
+                                "winback": "winback",
+                                "loyalty_reward": "loyalty_reward",
+                            }
+                            _dpurpose = _purpose_map.get(decision.action_type, "welcome")
+                            _result = generate_discount_code(contact.email, _dpurpose)
                             _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
                             html = html.replace("{{discount_code}}", _dcode)
                         except Exception:
-                            html = html.replace("{{discount_code}}", "")
+                            html = html.replace("{{discount_code}}", "LDAS10")
+
+                    # Cart items — resolve from abandoned checkout or browse history
+                    if "{{cart_items}}" in html:
+                        _cart_html = ""
+                        try:
+                            from database import AbandonedCheckout
+                            import json as _cj
+                            _checkout = (AbandonedCheckout.select()
+                                         .where(AbandonedCheckout.contact == contact,
+                                                AbandonedCheckout.recovered == False)
+                                         .order_by(AbandonedCheckout.created_at.desc()).first())
+                            if _checkout and _checkout.line_items_json:
+                                _items = _cj.loads(_checkout.line_items_json)
+                                for _it in _items:
+                                    _cart_html += '<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; %s x%s — $%s</p>' % (
+                                        _it.get("title", ""), _it.get("quantity", 1), _it.get("price", "0.00"))
+                        except Exception:
+                            pass
+                        if not _cart_html:
+                            # Fallback: use recently viewed products
+                            try:
+                                from database import CustomerActivity
+                                import json as _cj2
+                                _views = list(CustomerActivity.select()
+                                              .where(CustomerActivity.contact == contact,
+                                                     CustomerActivity.event_type == 'viewed_product')
+                                              .order_by(CustomerActivity.occurred_at.desc()).limit(3))
+                                _seen = set()
+                                for _v in _views:
+                                    _d = _cj2.loads(_v.event_data) if _v.event_data else {}
+                                    _t = _d.get("product_title", "")
+                                    if _t and _t not in _seen:
+                                        _seen.add(_t)
+                                        _cart_html += '<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; %s</p>' % _t
+                            except Exception:
+                                pass
+                        if not _cart_html:
+                            _cart_html = '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items from LDAS Electronics</p>'
+                        html = html.replace("{{cart_items}}", _cart_html)
+
+                    # Checkout URL fallback
+                    if "{{checkout_url}}" in html:
+                        _co_url = "https://ldas.ca/cart"
+                        try:
+                            from database import AbandonedCheckout
+                            _co = (AbandonedCheckout.select(AbandonedCheckout.checkout_url)
+                                   .where(AbandonedCheckout.contact == contact, AbandonedCheckout.recovered == False)
+                                   .order_by(AbandonedCheckout.created_at.desc()).first())
+                            if _co and _co.checkout_url:
+                                _co_url = _co.checkout_url
+                        except Exception:
+                            pass
+                        html = html.replace("{{checkout_url}}", _co_url)
 
                     # Wrap in email shell (header, footer, logo)
                     from email_shell import wrap_email
