@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-18 12:58 -- `8111b5e`
+
+**Fix auto-scheduler: resolve discount codes, cart items, checkout URLs**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-18 12:54 -- `84b3f8b`
 
 **Fix auto-scheduler: wrap emails in full shell with header/footer/logo**
