@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-18 12:08 -- `abc371b`
+
+**Fix weekly trend: replace canvas with placeholder when < 2 weeks data**
+
+Files changed:
+```
+REFERENCE.md
+templates/learning_dashboard.html
+```
+
+---
+
 ### 2026-03-18 12:04 -- `ba4ef04`
 
 **Fix weekly trend chart: show building state when < 2 weeks of data**
