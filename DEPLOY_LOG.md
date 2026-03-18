@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-18 11:45 -- `bd52be9`
+
+**Add audience health, intelligence insights, and guardrail sections to learning dashboard**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+templates/learning_dashboard.html
+```
+
+---
+
 ### 2026-03-18 11:31 -- `3e69286`
 
 **Auto-update CLAUDE.md before deploy**
