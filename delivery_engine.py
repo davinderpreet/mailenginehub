@@ -13,7 +13,7 @@ from database import (
     DeliveryQueue, ActionLedger, SystemConfig,
     WarmupConfig, FlowEmail, CampaignEmail,
     FlowEnrollment, FlowStep, Flow, Contact,
-    db, get_system_config,
+    ContactScore, db, get_system_config,
 )
 from action_ledger import update_ledger_status
 
@@ -208,8 +208,34 @@ def _process_live(queued):
         print("[DeliveryQueue] Cannot import email_sender", file=sys.stderr)
         return 0
 
+    # ── Sunset-aware priority: skip disengaged contacts, save warmup sends ──
+    _sunset_suppressed = 0
+    _live_queued = []
+    for _item in queued:
+        try:
+            if _item.contact:
+                _cs = ContactScore.get_or_none(ContactScore.contact == _item.contact)
+                if _cs and _cs.sunset_score is not None:
+                    if _cs.sunset_score >= 85:
+                        # Hard suppress — don't waste sends on deeply disengaged
+                        _item.status = "suppressed"
+                        _item.sent_at = datetime.now()
+                        _item.error_msg = "sunset_score=%d" % _cs.sunset_score
+                        _item.save()
+                        update_ledger_status(_item.ledger_id, "suppressed",
+                                             reason_code="sunset_suppression",
+                                             reason_detail="sunset_score=%d >= 85" % _cs.sunset_score)
+                        _sunset_suppressed += 1
+                        continue
+            _live_queued.append(_item)
+        except Exception:
+            _live_queued.append(_item)
+
+    if _sunset_suppressed:
+        print("[DeliveryQueue] Sunset-suppressed %d contacts (score >= 85)" % _sunset_suppressed, file=sys.stderr)
+
     processed = 0
-    for item in queued:
+    for item in _live_queued:
         # Check warmup limit
         if remaining is not None and processed >= remaining:
             break

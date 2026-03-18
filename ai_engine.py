@@ -6,6 +6,7 @@ No human involvement required.
 
 import os, json, time, logging
 from datetime import datetime, timedelta
+from peewee import fn
 
 load_dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 try:
@@ -323,11 +324,22 @@ def score_single_contact(contact_id):
         emails_opened   += FlowEmail.select().where(FlowEmail.contact == contact, FlowEmail.opened == True).count()
         frequency_rate   = emails_opened / max(emails_received, 1)
 
-        # Monetary
+        # Monetary — refresh from ShopifyOrders if available
         try:
+            from database import ShopifyOrder
+            _order_total = (ShopifyOrder
+                            .select(fn.SUM(ShopifyOrder.total_price))
+                            .where(ShopifyOrder.contact == contact)
+                            .scalar()) or 0.0
+            if float(_order_total) > float(contact.total_spent or 0):
+                contact.total_spent = float(_order_total)
+                contact.save()
             monetary_value = float(contact.total_spent or 0)
-        except (ValueError, TypeError):
-            monetary_value = 0.0
+        except Exception:
+            try:
+                monetary_value = float(contact.total_spent or 0)
+            except (ValueError, TypeError):
+                monetary_value = 0.0
 
         # Engagement score 0–100
         recency_score    = max(0, min(100, 100 - recency_days))

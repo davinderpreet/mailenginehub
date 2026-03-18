@@ -1776,6 +1776,21 @@ def _send_campaign_async(campaign_id):
         except Exception:
             pass
 
+        # ── Next-best-message gating (skip contacts whose learned decision is "wait") ──
+        try:
+            from database import MessageDecision
+            _decision = MessageDecision.get_or_none(MessageDecision.contact == contact)
+            if _decision and _decision.action_type == "wait":
+                _still_valid = (not _decision.expires_at) or _decision.expires_at > datetime.now()
+                if _still_valid:
+                    log_action(contact, "campaign", campaign_id, "suppressed", "RC_DECISION_WAIT",
+                               source_type=campaign.name,
+                               reason_detail="Next-best-message decision: wait (%s)" % (_decision.action_reason or "fatigue/suppression"))
+                    CampaignEmail.create(campaign=campaign, contact=contact, status="suppressed", error_msg="decision_wait")
+                    continue
+        except Exception:
+            pass
+
         # ── Personalise ─────────────────────────────────────────
         unsub_url = _make_unsubscribe_url(contact)
 
@@ -2696,12 +2711,56 @@ def _process_flow_enrollments():
                 html = html.replace("{{rfm_segment}}", _cscore.rfm_segment if _cscore else "new")
                 html = html.replace("{{lifecycle_stage}}", _profile.lifecycle_stage if _profile and hasattr(_profile, 'lifecycle_stage') else "prospect")
 
+                # ── Learned intelligence variables ──────────────────
+                # Customer type (vip/loyal/repeat/new/etc.)
+                html = html.replace("{{customer_type}}", _profile.customer_type if _profile and hasattr(_profile, 'customer_type') and _profile.customer_type else "valued customer")
+
+                # Top category affinity
+                _top_cat = ""
+                try:
+                    if _profile and hasattr(_profile, 'category_affinity_json') and _profile.category_affinity_json:
+                        import json as _cj
+                        _cats = _cj.loads(_profile.category_affinity_json)
+                        if isinstance(_cats, dict) and _cats:
+                            _top_cat = max(_cats, key=_cats.get)
+                        elif isinstance(_cats, list) and _cats:
+                            _top_cat = _cats[0] if isinstance(_cats[0], str) else _cats[0].get("category", "")
+                except Exception:
+                    pass
+                html = html.replace("{{top_category}}", _top_cat or "our top picks")
+
+                # Days since last purchase
+                _days_since = ""
+                try:
+                    if _profile and hasattr(_profile, 'last_order_at') and _profile.last_order_at:
+                        from datetime import datetime as _dt
+                        _dsp = (datetime.now() - _profile.last_order_at).days
+                        _days_since = str(_dsp)
+                except Exception:
+                    pass
+                html = html.replace("{{days_since_purchase}}", _days_since or "a while")
+
+                # Intent level (high/medium/low bucket from intent_score 0-100)
+                _intent = "medium"
+                try:
+                    if _profile and hasattr(_profile, 'intent_score') and _profile.intent_score is not None:
+                        if _profile.intent_score >= 70:
+                            _intent = "high"
+                        elif _profile.intent_score >= 35:
+                            _intent = "medium"
+                        else:
+                            _intent = "low"
+                except Exception:
+                    pass
+                html = html.replace("{{intent_level}}", _intent)
+
             except Exception as _perr:
                 app.logger.warning("[FlowPersonalization] Error loading profile for %s: %s", contact.email, _perr)
                 # Fallback — clear any remaining personalization tags
                 import re as _re
                 for _tag in ["{{last_viewed_product}}", "{{recently_browsed_html}}", "{{top_products_html}}",
-                             "{{total_orders}}", "{{total_spent}}", "{{rfm_segment}}", "{{lifecycle_stage}}"]:
+                             "{{total_orders}}", "{{total_spent}}", "{{rfm_segment}}", "{{lifecycle_stage}}",
+                             "{{customer_type}}", "{{top_category}}", "{{days_since_purchase}}", "{{intent_level}}"]:
                     html = html.replace(_tag, "")
 
             # Wrap in email shell if template uses shell_version >= 1
