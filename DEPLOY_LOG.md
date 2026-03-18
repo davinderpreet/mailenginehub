@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-17 20:13 -- `dc6b227`
+
+**Fix social media links in email footer**
+
+Files changed:
+```
+REFERENCE.md
+email_shell.py
+```
+
+---
+
 ### 2026-03-17 19:20 -- `f32c358`
 
 **Fix cart abandonment: 5min scan interval + product personalization from pixel**
