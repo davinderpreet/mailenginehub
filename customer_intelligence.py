@@ -423,10 +423,11 @@ def _compute_category_affinity(profile, orders_list):
 #  ALGORITHM 6: Preferred Send Window
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _compute_send_window(campaign_opens, flow_opens):
+def _compute_send_window(campaign_opens, flow_opens, auto_opens=None):
     """
     Analyze open timestamps to find preferred send hour and day of week.
-    Returns (hour, dow, confidence)  — hour -1 means unknown
+    Returns (hour, dow, confidence)  — hour -1 means unknown.
+    Minimum 1 open to start learning (was 3 — too high for early-stage).
     """
     open_times = []
     for ce in campaign_opens:
@@ -435,9 +436,14 @@ def _compute_send_window(campaign_opens, flow_opens):
     for fe in flow_opens:
         if fe.opened_at:
             open_times.append(fe.opened_at)
+    # Include auto-pilot opens
+    if auto_opens:
+        for ae in auto_opens:
+            if ae.opened_at:
+                open_times.append(ae.opened_at)
 
     n = len(open_times)
-    if n < 3:
+    if n < 1:
         return -1, -1, 0
 
     # Extract hours and days
@@ -456,7 +462,7 @@ def _compute_send_window(campaign_opens, flow_opens):
     dow_counts = Counter(dows)
     preferred_dow = dow_counts.most_common(1)[0][0]
 
-    # Confidence
+    # Confidence — starts learning from 1 open, gets more accurate over time
     if n >= 20:
         conf = 95
     elif n >= 11:
@@ -464,9 +470,11 @@ def _compute_send_window(campaign_opens, flow_opens):
     elif n >= 6:
         conf = 60
     elif n >= 3:
-        conf = 30
+        conf = 40
+    elif n >= 2:
+        conf = 20
     else:
-        conf = 0
+        conf = 10  # single open — weak signal but better than nothing
 
     return preferred_hour, preferred_dow, conf
 
@@ -719,7 +727,7 @@ def compute_intelligence(contact_id):
     Returns dict of computed values.
     """
     from database import (Contact, ContactScore, CustomerProfile,
-                          CustomerActivity, CampaignEmail, FlowEmail,
+                          CustomerActivity, CampaignEmail, FlowEmail, AutoEmail,
                           ShopifyOrder, ShopifyOrderItem, init_db)
     init_db()
     now = datetime.now()
@@ -767,7 +775,7 @@ def compute_intelligence(contact_id):
         FlowEmail.opened_at >= cutoff_14d
     ).count()
 
-    # All campaign opens (for send window analysis)
+    # All opens (for send window analysis — campaign + flow + auto-pilot)
     all_campaign_opens = list(
         CampaignEmail.select(CampaignEmail.opened_at)
         .where(CampaignEmail.contact_id == contact_id, CampaignEmail.opened == True)
@@ -776,6 +784,10 @@ def compute_intelligence(contact_id):
         FlowEmail.select(FlowEmail.opened_at)
         .where(FlowEmail.contact_id == contact_id, FlowEmail.opened == True)
     )
+    all_auto_opens = list(
+        AutoEmail.select(AutoEmail.opened_at)
+        .where(AutoEmail.contact == contact_id, AutoEmail.opened == True)
+    )
 
     # ── Run algorithms ──
     lifecycle, conf_lifecycle = _compute_lifecycle_stage(contact, profile, score, orders_list)
@@ -783,7 +795,7 @@ def compute_intelligence(contact_id):
     intent, conf_intent = _compute_intent_score(contact, profile, activity_14d, opens_14d)
     reorder, conf_reorder = _compute_reorder_likelihood(profile, score)
     affinity, next_cat, conf_category = _compute_category_affinity(profile, orders_list)
-    send_hour, send_dow, conf_window = _compute_send_window(all_campaign_opens, all_flow_opens)
+    send_hour, send_dow, conf_window = _compute_send_window(all_campaign_opens, all_flow_opens, all_auto_opens)
     channel, conf_channel = _compute_channel_preference(contact, score)
     churn_score, conf_churn = _compute_churn_normalized(profile)
 

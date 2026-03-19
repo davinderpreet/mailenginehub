@@ -6327,11 +6327,15 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                     except EmailTemplate.DoesNotExist:
                         skipped += 1; continue
 
-                    # Get preferred send hour
+                    # Get preferred send hour (learned from opens) or spread across business hours
                     _profile = CustomerProfile.get_or_none(CustomerProfile.contact == contact)
-                    _pref_hour = 10  # default 10 AM ET
-                    if _profile and _profile.preferred_send_hour >= 0:
+                    _has_pref = _profile and _profile.preferred_send_hour >= 0
+                    if _has_pref:
                         _pref_hour = _profile.preferred_send_hour
+                    else:
+                        # No open history — spread sends across 9am-6pm local time
+                        # Use contact.id as stable hash so same contact always gets same slot
+                        _pref_hour = 9 + (contact.id % 10)  # 9,10,11,12,13,14,15,16,17,18
 
                     # Calculate timezone offset from province
                     _tz_offset = -5  # default Eastern
@@ -6347,9 +6351,11 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
 
                     # Convert preferred hour (contact's local) to UTC, then to server time (UTC)
                     _send_hour_utc = int((_pref_hour - _tz_offset) % 24)
+                    # Add minute jitter within the hour so sends don't all fire at :00
+                    _send_minute = (contact.id * 7) % 60  # deterministic spread across 0-59
 
                     # Schedule for today at that hour, or tomorrow if already past
-                    _sched = now.replace(hour=_send_hour_utc, minute=0, second=0, microsecond=0)
+                    _sched = now.replace(hour=_send_hour_utc, minute=_send_minute, second=0, microsecond=0)
                     if _sched <= now:
                         _sched += timedelta(days=1)
 

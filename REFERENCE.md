@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-19 13:06. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-19 13:17. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -219,9 +219,9 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (52 files, 30,705 lines)
+## Python Files — Detailed (52 files, 30,723 lines)
 
-### `app.py` (6,643 lines)
+### `app.py` (6,649 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
 
 Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,
@@ -272,7 +272,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 ### `generate-context.py` (1,243 lines)
 **Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
 
-### `customer_intelligence.py` (992 lines)
+### `customer_intelligence.py` (1,004 lines)
 **Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV**
 
 Nightly (3:30 UTC). Computes complete intelligence profile per contact from all data sources:
