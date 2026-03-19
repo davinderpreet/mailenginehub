@@ -101,12 +101,23 @@ def resolve_identity(
         "identifiers_matched": [],
     }
 
-    # ── 1. Validate email ──
+    # ── 1. Validate & sanitize email ──
     email = (email or "").strip().lower()
     if not email or "@" not in email:
         logger.debug("resolve_identity: no valid email, returning early")
         result["already_resolved"] = True
         return result
+
+    try:
+        from email_sanitizer import sanitize_email
+        _san = sanitize_email(email)
+        if not _san["valid"]:
+            logger.info("resolve_identity: email rejected by sanitizer: %s (%s)", email, _san["reason"])
+            result["already_resolved"] = True
+            return result
+        email = _san["email"]  # use corrected email (typos fixed)
+    except Exception as _e:
+        logger.warning("resolve_identity: sanitizer error, proceeding with original email: %s", _e)
 
     result["identifiers_matched"].append("email")
     result["confidence"] = "exact"

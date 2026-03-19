@@ -658,17 +658,19 @@ def import_csv():
             skipped += 1
             continue
 
-        # Validate email before importing
-        valid, reason = _validate_email(email)
-        if not valid:
-            if reason == "invalid_syntax":    invalid_syntax += 1
-            elif reason == "disposable_domain": invalid_domain += 1
-            elif reason == "no_mx_record":    invalid_mx += 1
+        # Validate email before importing (centralized sanitizer)
+        from email_sanitizer import sanitize_email
+        _san = sanitize_email(email)
+        if not _san["valid"]:
+            if _san["reason"] == "invalid_syntax":    invalid_syntax += 1
+            elif _san["reason"] == "disposable_domain": invalid_domain += 1
+            elif _san["reason"] == "no_mx_record":    invalid_mx += 1
             skipped += 1
             continue
+        email = _san["email"]  # use corrected email
 
         contact, created = Contact.get_or_create(
-            email=email.lower(),
+            email=email,
             defaults={
                 "first_name": row.get("first_name") or row.get("First Name", ""),
                 "last_name":  row.get("last_name")  or row.get("Last Name", ""),
@@ -693,6 +695,19 @@ def import_csv():
     detail_str = f" ({', '.join(skip_detail)})" if skip_detail else ""
     flash(f"Imported {imported} contacts. Skipped {skipped}{detail_str}.", "success")
     return redirect(url_for("contacts"))
+
+
+@app.route("/api/sanitize-contacts", methods=["POST"])
+@requires_auth
+def sanitize_contacts_api():
+    """Bulk sanitize all existing contacts. Admin-only."""
+    from email_sanitizer import bulk_sanitize_contacts
+    try:
+        stats = bulk_sanitize_contacts()
+        return jsonify({"ok": True, "stats": stats})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 
 _shopify_sync_state = {"running": False, "synced": 0, "error": None, "done": False}
 
@@ -5998,17 +6013,18 @@ def api_subscribe():
         email      = (payload.get("email") or "").strip().lower()
         session_id = (payload.get("session_id") or "").strip()
 
-        # ── Validate email ──
-        if not email or not _re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
-            return jsonify({"ok": False, "error": "Please enter a valid email address."}), 400, cors_headers
-
-        # Block obviously disposable domains
-        disposable = {"mailinator.com", "guerrillamail.com", "tempmail.com", "throwaway.email",
-                      "yopmail.com", "sharklasers.com", "guerrillamailblock.com", "grr.la",
-                      "dispostable.com", "trashmail.com", "10minutemail.com", "temp-mail.org"}
-        domain = email.split("@")[-1]
-        if domain in disposable:
-            return jsonify({"ok": False, "error": "Please use a real email address."}), 400, cors_headers
+        # ── Validate & sanitize email ──
+        from email_sanitizer import sanitize_email
+        _san = sanitize_email(email)
+        if not _san["valid"]:
+            _msg = {
+                "invalid_syntax": "Please enter a valid email address.",
+                "disposable_domain": "Please use a real email address.",
+                "no_mx_record": "This email domain doesn't appear to accept emails.",
+                "empty": "Please enter a valid email address.",
+            }
+            return jsonify({"ok": False, "error": _msg.get(_san["reason"], "Invalid email.")}), 400, cors_headers
+        email = _san["email"]  # use corrected email (typos fixed)
 
         # ── Rate limiting (simple IP-based, 5 per hour) ──
         client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown")

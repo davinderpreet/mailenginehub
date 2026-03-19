@@ -193,6 +193,17 @@ def handle_shopify_customer_webhook(customer_data):
     if not email:
         return None, False
 
+    # Sanitize email — reject invalid, fix typos
+    try:
+        from email_sanitizer import sanitize_email
+        _san = sanitize_email(email)
+        if not _san["valid"]:
+            logger.info("shopify_webhook: email rejected by sanitizer: %s (%s)", email, _san["reason"])
+            return None, False
+        email = _san["email"]  # use corrected email
+    except Exception as _e:
+        logger.warning("shopify_webhook: sanitizer error, proceeding: %s", _e)
+
     # Tags — preserve existing Shopify tags and add "shopify" marker
     tags = customer_data.get("tags") or ""
     if "shopify" not in tags:
@@ -301,6 +312,16 @@ def sync_shopify_customers(progress_callback=None):
                 email = (customer.get("email") or "").strip().lower()
                 if not email:
                     continue
+
+                # Sanitize email — reject invalid, fix typos
+                try:
+                    from email_sanitizer import sanitize_email
+                    _san = sanitize_email(email)
+                    if not _san["valid"]:
+                        continue  # skip invalid emails during bulk sync
+                    email = _san["email"]
+                except Exception:
+                    pass
 
                 # Tags — preserve existing Shopify tags and add "shopify" marker
                 tags = customer.get("tags") or ""
