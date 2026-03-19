@@ -2515,7 +2515,11 @@ def api_warmup_health():
 #  FLOW CONTROL: PAUSE / RESUME / EXIT
 # ─────────────────────────────────
 def _pause_lower_priority_enrollments(contact, new_flow):
-    """Pause any active enrollments in flows with LOWER priority (higher number) than new_flow."""
+    """Pause any active enrollments in flows with LOWER priority (higher number) than new_flow.
+    Exception: if the enrollment hasn't sent Step 1 yet (e.g. Welcome Series discount code),
+    force-send Step 1 immediately before pausing so the customer gets what they were promised.
+    """
+    from delivery_engine import enqueue_email, get_priority_for_trigger
     active_enrollments = (
         FlowEnrollment.select(FlowEnrollment, Flow)
         .join(Flow)
@@ -2526,6 +2530,71 @@ def _pause_lower_priority_enrollments(contact, new_flow):
     )
     paused_count = 0
     for enrollment in active_enrollments:
+        # Check if Step 1 has been sent
+        first_step = (FlowStep.select()
+                      .where(FlowStep.flow == enrollment.flow)
+                      .order_by(FlowStep.step_order)
+                      .first())
+        step1_sent = False
+        if first_step:
+            step1_sent = FlowEmail.select().where(
+                FlowEmail.enrollment == enrollment,
+                FlowEmail.step == first_step
+            ).exists()
+
+        # If Step 1 hasn't sent yet, force-send it now before pausing
+        if first_step and not step1_sent and contact.subscribed:
+            try:
+                template = EmailTemplate.get_by_id(first_step.template_id)
+                html = template.html_body or ""
+                html = html.replace("{{first_name}}", contact.first_name or "Friend")
+                html = html.replace("{{last_name}}", contact.last_name or "")
+                html = html.replace("{{email}}", contact.email)
+                _unsub = _make_unsubscribe_url(contact)
+                html = html.replace("{{unsubscribe_url}}", _unsub)
+
+                # Discount code
+                if "{{discount_code}}" in html:
+                    try:
+                        from discount_engine import generate_discount_code
+                        _result = generate_discount_code(contact.email, "welcome")
+                        _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
+                        html = html.replace("{{discount_code}}", _dcode)
+                    except Exception:
+                        html = html.replace("{{discount_code}}", "LDAS10")
+
+                subject = (first_step.subject_override or template.subject or "Welcome!").replace(
+                    "{{first_name}}", contact.first_name or "Friend")
+
+                _priority = get_priority_for_trigger(enrollment.flow.trigger_type)
+                enqueue_email(
+                    contact_id=contact.id,
+                    email=contact.email,
+                    subject=subject,
+                    html=html,
+                    email_type="flow",
+                    source_id=enrollment.flow_id,
+                    enrollment_id=enrollment.id,
+                    step_id=first_step.id,
+                    template_id=first_step.template_id,
+                    priority=_priority,
+                    unsubscribe_url=_unsub,
+                )
+                # Record flow email
+                FlowEmail.create(
+                    enrollment=enrollment,
+                    step=first_step,
+                    contact=contact,
+                    status="queued",
+                )
+                # Advance enrollment to step 2
+                enrollment.current_step = 2
+                app.logger.info(
+                    "[SmartExit] Force-sent Step 1 of '%s' for %s before pausing (discount code promised)"
+                    % (enrollment.flow.name, contact.email))
+            except Exception as e:
+                app.logger.error("[SmartExit] Failed to force-send Step 1 for %s: %s" % (contact.email, e))
+
         enrollment.status = "paused"
         enrollment.paused_by_flow = new_flow.id
         enrollment.save()

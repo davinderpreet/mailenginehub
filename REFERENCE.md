@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-19 14:26. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-19 15:02. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -222,9 +222,9 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (53 files, 31,028 lines)
+## Python Files — Detailed (53 files, 31,097 lines)
 
-### `app.py` (6,752 lines)
+### `app.py` (6,821 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
 
 Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,
@@ -782,10 +782,10 @@ Main dashboard, system monitoring, and reporting pages
 | Route | Methods | Function | Line | Description |
 |---|---|---|---|---|
 | `/` | GET | `dashboard` | 471 | Main dashboard — stat cards (contacts, campaigns, open rate, revenue), recent activity feed, warmup status, quick actions |
-| `/activity` | GET | `activity_feed` | 5696 | Activity feed — real-time log of all system events (sends, opens, clicks, bounces, triggers) |
-| `/audit` | GET | `audit_dashboard` | 4018 | Audit dashboard — ActionLedger viewer with filtering by trigger type, source, status |
-| `/system-map` | GET | `system_map` | 6099 | Interactive D3.js force graph — 65+ nodes showing all system components and data flow |
-| `/telemetry` | GET | `telemetry_dashboard` | 4054 | AI rendering telemetry — success rates, latency, field-specific performance metrics |
+| `/activity` | GET | `activity_feed` | 5765 | Activity feed — real-time log of all system events (sends, opens, clicks, bounces, triggers) |
+| `/audit` | GET | `audit_dashboard` | 4087 | Audit dashboard — ActionLedger viewer with filtering by trigger type, source, status |
+| `/system-map` | GET | `system_map` | 6168 | Interactive D3.js force graph — 65+ nodes showing all system components and data flow |
+| `/telemetry` | GET | `telemetry_dashboard` | 4123 | AI rendering telemetry — success rates, latency, field-specific performance metrics |
 
 ### Contacts & Profiles
 Contact management, import, Shopify sync, and customer intelligence profiles
@@ -795,7 +795,7 @@ Contact management, import, Shopify sync, and customer intelligence profiles
 | `/contacts` | GET | `contacts` | 524 | Contact list — search, pagination, segment filters (all/subscribed/unsubscribed), import CSV button |
 | `/contacts/import-csv` | POST | `import_csv` | 639 | CSV import handler — maps columns to Contact fields, deduplicates by email |
 | `/contacts/sync-shopify` | POST | `sync_shopify` | 716 | Trigger Shopify customer sync — calls shopify_sync.sync_shopify_customers() |
-| `/profiles` | GET | `profiles_list` | 4555 | Intelligence profiles list — all contacts with CustomerProfile data, search, lifecycle filters |
+| `/profiles` | GET | `profiles_list` | 4624 | Intelligence profiles list — all contacts with CustomerProfile data, search, lifecycle filters |
 
 ### Email Templates
 Template creation and editing (legacy HTML + blocks-based)
@@ -819,19 +819,19 @@ Multi-step automated email sequences triggered by events
 
 | Route | Methods | Function | Line | Description |
 |---|---|---|---|---|
-| `/flows` | GET | `flows` | 3723 | Flow list — all flows with trigger types, step counts, enrollment stats, active toggle |
-| `/flows/new` | GET, POST | `new_flow` | 3752 | Create flow — set trigger type (contact_created, tag_added, checkout_abandoned, etc.) |
+| `/flows` | GET | `flows` | 3792 | Flow list — all flows with trigger types, step counts, enrollment stats, active toggle |
+| `/flows/new` | GET, POST | `new_flow` | 3821 | Create flow — set trigger type (contact_created, tag_added, checkout_abandoned, etc.) |
 
 ### AI Engine
 Autonomous AI scoring, plan generation, and learning system
 
 | Route | Methods | Function | Line | Description |
 |---|---|---|---|---|
-| `/agent` | GET | `agent` | 4454 | IT Agent chat — Claude-powered assistant for system questions |
-| `/ai-engine` | GET | `ai_engine_dashboard` | 5213 | AI Engine dashboard — segment distribution, today's plan, decision log, run-now button |
-| `/campaign-planner` | GET | `campaign_planner_page` | 5009 | Campaign planner — suggested campaigns from opportunity scanner, accept/dismiss |
-| `/learning` | GET | `learning_dashboard` | 5366 | Learning dashboard — phase indicator, template performance, action effectiveness, model weights |
-| `/profits` | GET | `profit_dashboard` | 5092 | Profit dashboard — product profitability scores, margin analysis, promo eligibility |
+| `/agent` | GET | `agent` | 4523 | IT Agent chat — Claude-powered assistant for system questions |
+| `/ai-engine` | GET | `ai_engine_dashboard` | 5282 | AI Engine dashboard — segment distribution, today's plan, decision log, run-now button |
+| `/campaign-planner` | GET | `campaign_planner_page` | 5078 | Campaign planner — suggested campaigns from opportunity scanner, accept/dismiss |
+| `/learning` | GET | `learning_dashboard` | 5435 | Learning dashboard — phase indicator, template performance, action effectiveness, model weights |
+| `/profits` | GET | `profit_dashboard` | 5161 | Profit dashboard — product profitability scores, margin analysis, promo eligibility |
 
 ### AI Template Studio
 AI-powered template generation with knowledge base and approval workflow
@@ -853,7 +853,7 @@ IP warmup management and delivery settings
 | Route | Methods | Function | Line | Description |
 |---|---|---|---|---|
 | `/sent-emails` | GET | `sent_emails` | 1425 | Sent email log — all sent emails across campaigns + flows, preview, status |
-| `/settings` | GET | `settings` | 3978 | Settings — delivery mode (live/shadow/sandbox), SES test, general config |
+| `/settings` | GET | `settings` | 4047 | Settings — delivery mode (live/shadow/sandbox), SES test, general config |
 | `/warmup` | GET | `warmup_dashboard` | 2211 | Warmup dashboard — 8-phase progress, daily stats chart, health score, checklist, domain analysis |
 
 ### Webhooks & Tracking
@@ -874,64 +874,64 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 
 | Route | Methods | Function | Line | Description |
 |---|---|---|---|---|
-| `/api/activity/feed` | GET | `api_activity_feed` | 5759 | Activity feed JSON — paginated events for activity page auto-refresh |
-| `/api/agent/chat` | POST | `api_agent_chat` | 4461 | Agent chat API — sends message to Claude, returns response |
-| `/api/ai-engine/run-now` | POST | `ai_engine_run_now` | 5350 | Trigger AI engine manually — runs scoring + plan generation |
-| `/api/ai-engine/sample-email` | POST | `ai_engine_sample_email` | 5308 | Generate sample AI email — preview without sending |
+| `/api/activity/feed` | GET | `api_activity_feed` | 5828 | Activity feed JSON — paginated events for activity page auto-refresh |
+| `/api/agent/chat` | POST | `api_agent_chat` | 4530 | Agent chat API — sends message to Claude, returns response |
+| `/api/ai-engine/run-now` | POST | `ai_engine_run_now` | 5419 | Trigger AI engine manually — runs scoring + plan generation |
+| `/api/ai-engine/sample-email` | POST | `ai_engine_sample_email` | 5377 | Generate sample AI email — preview without sending |
 | `/api/campaign/recipient-count` | GET | `api_recipient_count` | 1705 | Count recipients for a segment filter — used by campaign form |
-| `/api/identify` | POST, OPTIONS | `identify_visitor` | 5804 | Identity pixel — JavaScript tracking pixel for website visitor identification |
-| `/api/learning/stats` | GET | `api_learning_stats` | 5576 | Learning stats JSON — for dashboard auto-refresh |
-| `/api/subscribe` | POST, OPTIONS | `api_subscribe` | 5903 | Public subscribe endpoint — CORS-enabled for external forms |
-| `/api/system-map/data` | GET | `system_map_api` | 6103 | System map JSON — 65+ nodes and edges for D3.js visualization |
-| `/api/telemetry/data` | GET | `api_telemetry_data` | 4059 | Telemetry JSON — AI render stats for telemetry page auto-refresh |
+| `/api/identify` | POST, OPTIONS | `identify_visitor` | 5873 | Identity pixel — JavaScript tracking pixel for website visitor identification |
+| `/api/learning/stats` | GET | `api_learning_stats` | 5645 | Learning stats JSON — for dashboard auto-refresh |
+| `/api/subscribe` | POST, OPTIONS | `api_subscribe` | 5972 | Public subscribe endpoint — CORS-enabled for external forms |
+| `/api/system-map/data` | GET | `system_map_api` | 6172 | System map JSON — 65+ nodes and edges for D3.js visualization |
+| `/api/telemetry/data` | GET | `api_telemetry_data` | 4128 | Telemetry JSON — AI render stats for telemetry page auto-refresh |
 | `/api/templates/ai-generate-block` | POST | `api_ai_generate_block` | 1238 | AI generate single block content — for template builder |
 | `/api/templates/ai-generate-template` | POST | `api_ai_generate_template` | 1301 | AI generate full template — for template builder |
-| `/api/track` | POST, OPTIONS | `track_event` | 5838 | Event tracking API — receives behavioral events from website JavaScript |
+| `/api/track` | POST, OPTIONS | `track_event` | 5907 | Event tracking API — receives behavioral events from website JavaScript |
 | `/api/warmup/health` | GET | `api_warmup_health` | 2480 | Warmup health JSON — for warmup dashboard auto-refresh |
 
 ### Other Routes
 
 | Route | Methods | Function | Line |
 |---|---|---|---|
-| `/activity/sync` | POST | `activity_sync_trigger` | 6014 |
-| `/api/agent/clear` | POST | `api_agent_clear` | 4543 |
-| `/api/audit/details` | GET | `api_audit_details` | 4036 |
-| `/api/audit/stats` | GET | `api_audit_stats` | 4031 |
-| `/api/auto-pilot/preview/<int:item_id>` | GET | `auto_pilot_preview` | 5673 |
-| `/api/campaign-planner/<int:sc_id>/accept` | POST | `campaign_planner_accept` | 5055 |
-| `/api/campaign-planner/<int:sc_id>/brief` | GET | `campaign_planner_brief` | 5078 |
-| `/api/campaign-planner/<int:sc_id>/dismiss` | POST | `campaign_planner_dismiss` | 5066 |
-| `/api/campaign-planner/scan` | POST | `campaign_planner_scan` | 5044 |
-| `/api/campaign/<int:campaign_id>/status` | GET | `api_campaign_status` | 4165 |
-| `/api/contacts/count` | GET | `api_contacts_count` | 4161 |
+| `/activity/sync` | POST | `activity_sync_trigger` | 6083 |
+| `/api/agent/clear` | POST | `api_agent_clear` | 4612 |
+| `/api/audit/details` | GET | `api_audit_details` | 4105 |
+| `/api/audit/stats` | GET | `api_audit_stats` | 4100 |
+| `/api/auto-pilot/preview/<int:item_id>` | GET | `auto_pilot_preview` | 5742 |
+| `/api/campaign-planner/<int:sc_id>/accept` | POST | `campaign_planner_accept` | 5124 |
+| `/api/campaign-planner/<int:sc_id>/brief` | GET | `campaign_planner_brief` | 5147 |
+| `/api/campaign-planner/<int:sc_id>/dismiss` | POST | `campaign_planner_dismiss` | 5135 |
+| `/api/campaign-planner/scan` | POST | `campaign_planner_scan` | 5113 |
+| `/api/campaign/<int:campaign_id>/status` | GET | `api_campaign_status` | 4234 |
+| `/api/contacts/count` | GET | `api_contacts_count` | 4230 |
 | `/api/contacts/sync-status` | GET | `api_sync_status` | 727 |
-| `/api/flows/<int:flow_id>/stats` | GET | `api_flow_stats` | 3928 |
-| `/api/profiles/<int:contact_id>/decide` | POST | `recompute_decision` | 5165 |
-| `/api/profiles/<int:contact_id>/intelligence` | POST | `recompute_intelligence` | 5176 |
+| `/api/flows/<int:flow_id>/stats` | GET | `api_flow_stats` | 3997 |
+| `/api/profiles/<int:contact_id>/decide` | POST | `recompute_decision` | 5234 |
+| `/api/profiles/<int:contact_id>/intelligence` | POST | `recompute_intelligence` | 5245 |
 | `/api/templates/<int:template_id>/preview-blocks` | GET | `preview_blocks_template` | 1152 |
 | `/api/templates/<int:template_id>/save-blocks` | POST | `api_save_blocks` | 1105 |
 | `/api/templates/<int:template_id>/test-send` | POST | `api_template_test_send` | 1360 |
 | `/api/templates/create-blocks` | POST | `api_create_blocks_template` | 1073 |
-| `/api/triggers/backlog` | GET | `api_trigger_backlog` | 4135 |
-| `/auto-pilot` | GET | `auto_pilot_dashboard` | 5613 |
+| `/api/triggers/backlog` | GET | `api_trigger_backlog` | 4204 |
+| `/auto-pilot` | GET | `auto_pilot_dashboard` | 5682 |
 | `/campaigns/<int:campaign_id>` | GET | `campaign_detail` | 1717 |
 | `/campaigns/<int:campaign_id>/send` | POST | `send_campaign` | 1743 |
 | `/contacts/unsubscribe-oneclick` | POST | `unsubscribe_oneclick` | 972 |
 | `/contacts/unsubscribe/<email>` | GET, POST | `unsubscribe` | 956 |
-| `/flows/<int:flow_id>` | GET | `flow_detail` | 3770 |
-| `/flows/<int:flow_id>/delete` | POST | `flow_delete` | 3831 |
-| `/flows/<int:flow_id>/enroll-test` | POST | `flow_enroll_test` | 3892 |
-| `/flows/<int:flow_id>/priority` | POST | `flow_update_priority` | 3817 |
-| `/flows/<int:flow_id>/steps/<int:step_id>/delete` | POST | `flow_delete_step` | 3877 |
-| `/flows/<int:flow_id>/steps/add` | POST | `flow_add_step` | 3846 |
-| `/flows/<int:flow_id>/toggle` | POST | `flow_toggle` | 3807 |
-| `/learning/toggle` | POST | `learning_toggle` | 5566 |
-| `/profiles/<int:contact_id>` | GET | `profile_detail` | 4691 |
-| `/profiles/<int:contact_id>/ai-email-preview` | POST | `ai_email_preview` | 5187 |
-| `/profiles/<int:contact_id>/send-quick-email` | POST | `send_quick_email` | 4975 |
+| `/flows/<int:flow_id>` | GET | `flow_detail` | 3839 |
+| `/flows/<int:flow_id>/delete` | POST | `flow_delete` | 3900 |
+| `/flows/<int:flow_id>/enroll-test` | POST | `flow_enroll_test` | 3961 |
+| `/flows/<int:flow_id>/priority` | POST | `flow_update_priority` | 3886 |
+| `/flows/<int:flow_id>/steps/<int:step_id>/delete` | POST | `flow_delete_step` | 3946 |
+| `/flows/<int:flow_id>/steps/add` | POST | `flow_add_step` | 3915 |
+| `/flows/<int:flow_id>/toggle` | POST | `flow_toggle` | 3876 |
+| `/learning/toggle` | POST | `learning_toggle` | 5635 |
+| `/profiles/<int:contact_id>` | GET | `profile_detail` | 4760 |
+| `/profiles/<int:contact_id>/ai-email-preview` | POST | `ai_email_preview` | 5256 |
+| `/profiles/<int:contact_id>/send-quick-email` | POST | `send_quick_email` | 5044 |
 | `/sent-emails/preview/<email_type>/<int:email_id>` | GET | `sent_email_preview` | 1636 |
-| `/settings/delivery-mode` | POST | `settings_delivery_mode` | 3992 |
-| `/settings/test-ses` | POST | `test_ses` | 4004 |
+| `/settings/delivery-mode` | POST | `settings_delivery_mode` | 4061 |
+| `/settings/test-ses` | POST | `test_ses` | 4073 |
 | `/studio/api/intelligence-score` | GET | `api_intelligence_score` | 391 |
 | `/studio/candidates/<int:id>/approve` | POST | `candidate_approve` | 316 |
 | `/studio/candidates/<int:id>/preview` | GET | `candidate_preview` | 340 |
@@ -954,7 +954,7 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 | `/track/auto-click/<token>` | GET | `track_auto_click` | 2169 |
 | `/track/auto-open/<int:contact_id>/<int:template_id>` | GET | `track_auto_open_legacy` | 2138 |
 | `/track/auto-open/<token>` | GET | `track_auto_open` | 2097 |
-| `/track/flow-open/<int:enrollment_id>/<int:step_id>` | GET | `track_flow_open` | 3946 |
+| `/track/flow-open/<int:enrollment_id>/<int:step_id>` | GET | `track_flow_open` | 4015 |
 | `/track/flow-open/<token>` | GET | `track_flow_open_token` | 2036 |
 | `/track/open/<int:campaign_id>/<int:contact_id>` | GET | `track_open` | 1954 |
 | `/unsubscribe/<token>` | GET, POST | `unsubscribe_token` | 1985 |
