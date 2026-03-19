@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-19 15:02. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-19 15:18. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -222,7 +222,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (53 files, 31,097 lines)
+## Python Files — Detailed (53 files, 31,191 lines)
 
 ### `app.py` (6,821 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -275,6 +275,22 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 ### `generate-context.py` (1,243 lines)
 **Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
 
+### `identity_resolution.py` (1,073 lines)
+**Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching**
+
+Canonical entry point for all identity resolution. resolve_identity() takes any combination
+of email, session_id, shopify_id, cart_token, checkout_token and stitches to a single Contact.
+Multi-identifier cascade: (1) Email match (exact), (2) Session ID match (anonymous events),
+(3) Shopify ID match (webhook data), (4) Checkout/cart token match (highest confidence).
+Confidence levels: exact, probable, anonymous_only. Uses durable IdentityJob queue for async
+processing. Post-stitching replay: re-evaluates PendingTrigger rows (browse, cart, checkout
+recovery) for newly identified contacts. Logs to ActionLedger with RC_IDENTITY_* reason codes.
+
+Key functions:
+- `resolve_identity(email, session_id, shopify_id, ...) — Main stitching function`
+- `process_identity_jobs() — Drain IdentityJob queue`
+- `replay_triggers(contact) — Re-evaluate pending triggers after stitching`
+
 ### `customer_intelligence.py` (1,004 lines)
 **Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV**
 
@@ -300,22 +316,6 @@ Key functions:
 - `compute_churn_risk(contact) — 0-100 abandonment probability`
 - `compute_category_affinity(contact) — Per-category purchase + browse scores`
 - `compute_preferred_send_window(contact) — Optimal hour + day`
-
-### `identity_resolution.py` (979 lines)
-**Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching**
-
-Canonical entry point for all identity resolution. resolve_identity() takes any combination
-of email, session_id, shopify_id, cart_token, checkout_token and stitches to a single Contact.
-Multi-identifier cascade: (1) Email match (exact), (2) Session ID match (anonymous events),
-(3) Shopify ID match (webhook data), (4) Checkout/cart token match (highest confidence).
-Confidence levels: exact, probable, anonymous_only. Uses durable IdentityJob queue for async
-processing. Post-stitching replay: re-evaluates PendingTrigger rows (browse, cart, checkout
-recovery) for newly identified contacts. Logs to ActionLedger with RC_IDENTITY_* reason codes.
-
-Key functions:
-- `resolve_identity(email, session_id, shopify_id, ...) — Main stitching function`
-- `process_identity_jobs() — Drain IdentityJob queue`
-- `replay_triggers(contact) — Re-evaluate pending triggers after stitching`
 
 ### `knowledge_scraper.py` (952 lines)
 **Auto-enrichment pipeline — scrapes products, blogs, competitors, FAQs into knowledge base**
