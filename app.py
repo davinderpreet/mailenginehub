@@ -10,7 +10,7 @@ from database import (db, Contact, EmailTemplate, Campaign, CampaignEmail, init_
                       WarmupConfig, WarmupLog, get_warmup_config,
                       Flow, FlowStep, FlowEnrollment, FlowEmail, AbandonedCheckout, AgentMessage,
                       SuppressionEntry, BounceLog, PreflightLog, PendingTrigger,
-                      get_bounce_stats_by_domain)
+                      get_bounce_stats_by_domain, AutoEmail)
 from email_sender import send_campaign_email, test_ses_connection
 from discount_engine import generate_discount_code
 from token_utils import create_token, verify_token
@@ -2018,6 +2018,117 @@ def track_flow_click(token):
 
     redirect_url = request.args.get("url", "https://ldas-electronics.com")
     return redirect(redirect_url)
+
+
+@app.route("/track/auto-open/<token>")
+def track_auto_open(token):
+    """Track auto-pilot email opens via 1x1 pixel."""
+    from itsdangerous import URLSafeSerializer
+    s = URLSafeSerializer(app.secret_key, salt="auto-open")
+    try:
+        data = s.loads(token)
+        auto_email_id = data.get("aeid")
+        if not auto_email_id:
+            raise ValueError("missing aeid")
+    except Exception:
+        pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
+        from flask import Response as Resp
+        return Resp(pixel, mimetype="image/gif")
+
+    try:
+        ae = AutoEmail.get_by_id(auto_email_id)
+        if not ae.opened:
+            ae.opened = True
+            ae.opened_at = datetime.now()
+        ae.save()
+
+        contact = ae.contact
+        contact.last_open_at = datetime.now()
+        contact.save()
+
+        try:
+            from cascade import cascade_contact
+            cascade_contact(contact.id, trigger="auto_open")
+        except Exception:
+            pass
+    except AutoEmail.DoesNotExist:
+        pass
+    except Exception as e:
+        print(f"[AUTO-OPEN] Error: {e}", file=sys.stderr)
+
+    pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
+    from flask import Response as Resp
+    return Resp(pixel, mimetype="image/gif")
+
+
+@app.route("/track/auto-open/<int:contact_id>/<int:template_id>")
+def track_auto_open_legacy(contact_id, template_id):
+    """Legacy fallback for auto-open pixels sent before token-based tracking."""
+    try:
+        ae = (AutoEmail
+              .select()
+              .where(AutoEmail.contact == contact_id,
+                     AutoEmail.template == template_id)
+              .order_by(AutoEmail.sent_at.desc())
+              .first())
+        if ae and not ae.opened:
+            ae.opened = True
+            ae.opened_at = datetime.now()
+            ae.save()
+
+            contact = ae.contact
+            contact.last_open_at = datetime.now()
+            contact.save()
+            try:
+                from cascade import cascade_contact
+                cascade_contact(contact.id, trigger="auto_open_legacy")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[AUTO-OPEN-LEGACY] Error: {e}", file=sys.stderr)
+
+    pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
+    from flask import Response as Resp
+    return Resp(pixel, mimetype="image/gif")
+
+
+@app.route("/track/auto-click/<token>")
+def track_auto_click(token):
+    """Track auto-pilot email clicks and redirect to destination URL."""
+    from itsdangerous import URLSafeSerializer
+    s = URLSafeSerializer(app.secret_key, salt="auto-click")
+    destination = request.args.get("url", "https://mailenginehub.com")
+
+    try:
+        data = s.loads(token)
+        auto_email_id = data.get("aeid")
+        if not auto_email_id:
+            raise ValueError("missing aeid")
+    except Exception:
+        return redirect(destination)
+
+    try:
+        ae = AutoEmail.get_by_id(auto_email_id)
+        if not ae.clicked:
+            ae.clicked = True
+            ae.clicked_at = datetime.now()
+        ae.save()
+
+        contact = ae.contact
+        contact.last_click_at = datetime.now()
+        contact.save()
+
+        try:
+            from cascade import cascade_contact
+            cascade_contact(contact.id, trigger="auto_click")
+        except Exception:
+            pass
+    except AutoEmail.DoesNotExist:
+        pass
+    except Exception as e:
+        print(f"[AUTO-CLICK] Error: {e}", file=sys.stderr)
+
+    return redirect(destination)
 
 
 # ─────────────────────────────────
