@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-19 14:27 -- `0dbed3b`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-03-19 13:48 -- `c99a734`
 
 **feat: Gmail Postmaster Tools dashboard + setup instructions**
