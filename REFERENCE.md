@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-19 13:44. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-19 13:47. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -1001,4 +1001,4 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 - **`template_editor.html`** (9.2KB, extends base.html) -- Legacy HTML template editor — code textarea, subject/preview_text fields, test send.
 - **`templates.html`** (6.1KB, extends base.html) -- Template library — cards with family badge, format badge (blocks/legacy), preview thumbnail, send count, edit/delete.
 - **`unsubscribe.html`** (1.1KB, extends none) -- Public unsubscribe page — standalone (no base.html), confirms unsubscribe action.
-- **`warmup.html`** (43.1KB, extends base.html) -- Warmup dashboard (43KB) — 8-phase progress bar, daily send/open/bounce chart, health score gauge, deliverability checklist, domain analysis table, phase advance button.
+- **`warmup.html`** (48.9KB, extends base.html) -- Warmup dashboard (43KB) — 8-phase progress bar, daily send/open/bounce chart, health score gauge, deliverability checklist, domain analysis table, phase advance button.

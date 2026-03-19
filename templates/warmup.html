@@ -777,6 +777,102 @@
 
 </div>
 
+<!-- ── Gmail Postmaster Tools Intelligence ── -->
+{% if postmaster_latest %}
+<div class="card">
+  <div class="card-header">
+    <div class="card-title"><i class="fab fa-google" style="color:#ea4335;margin-right:8px;"></i>Gmail Postmaster Intelligence</div>
+    <span style="font-size:12px;color:#94a3b8;">{{ postmaster_latest.date.strftime('%b %d, %Y') if postmaster_latest.date else 'Latest' }}</span>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:12px;padding:16px;">
+    <!-- Spam Rate -->
+    <div style="text-align:center;padding:16px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">USER SPAM RATE</div>
+      <div style="font-size:28px;font-weight:800;color:{% if postmaster_latest.spam_rate <= 0.001 %}#22c55e{% elif postmaster_latest.spam_rate <= 0.003 %}#f97316{% else %}#ef4444{% endif %};">
+        {{ "%.2f"|format(postmaster_latest.spam_rate * 100) }}%
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">Target: &lt; 0.10%</div>
+    </div>
+
+    <!-- Domain Reputation -->
+    <div style="text-align:center;padding:16px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">DOMAIN REPUTATION</div>
+      <div style="font-size:28px;font-weight:800;color:{% if postmaster_latest.domain_reputation == 'HIGH' %}#22c55e{% elif postmaster_latest.domain_reputation == 'MEDIUM' %}#f97316{% else %}#ef4444{% endif %};">
+        {{ postmaster_latest.domain_reputation or 'N/A' }}
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">Gmail's trust score</div>
+    </div>
+
+    <!-- DKIM Pass Rate -->
+    <div style="text-align:center;padding:16px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">DKIM PASS RATE</div>
+      <div style="font-size:28px;font-weight:800;color:{% if postmaster_latest.dkim_success_rate >= 0.95 %}#22c55e{% elif postmaster_latest.dkim_success_rate >= 0.80 %}#f97316{% else %}#ef4444{% endif %};">
+        {{ "%.0f"|format(postmaster_latest.dkim_success_rate * 100) }}%
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">Target: 100%</div>
+    </div>
+
+    <!-- DMARC Pass Rate -->
+    <div style="text-align:center;padding:16px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">DMARC PASS RATE</div>
+      <div style="font-size:28px;font-weight:800;color:{% if postmaster_latest.dmarc_success_rate >= 0.95 %}#22c55e{% elif postmaster_latest.dmarc_success_rate >= 0.80 %}#f97316{% else %}#ef4444{% endif %};">
+        {{ "%.0f"|format(postmaster_latest.dmarc_success_rate * 100) }}%
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px;">Target: 100%</div>
+    </div>
+  </div>
+
+  {% if postmaster_trend and postmaster_trend|length > 1 %}
+  <!-- Spam Rate Trend -->
+  <div style="padding:0 16px 16px;">
+    <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px;">Spam Rate Trend (last {{ postmaster_trend|length }} days)</div>
+    <div style="display:flex;align-items:flex-end;gap:3px;height:60px;">
+      {% for m in postmaster_trend %}
+      {% set bar_pct = (m.spam_rate * 10000)|int %}
+      {% set bar_h = [bar_pct, 100]|min %}
+      <div style="flex:1;background:{% if m.spam_rate <= 0.001 %}rgba(34,197,94,0.5){% elif m.spam_rate <= 0.003 %}rgba(249,115,22,0.5){% else %}rgba(239,68,68,0.5){% endif %};height:{{ [bar_h, 2]|max }}%;border-radius:3px 3px 0 0;" title="{{ m.date }}: {{ '%.3f'|format(m.spam_rate * 100) }}%"></div>
+      {% endfor %}
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:4px;">
+      <span>{{ postmaster_trend[0].date.strftime('%b %d') }}</span>
+      <span>{{ postmaster_trend[-1].date.strftime('%b %d') }}</span>
+    </div>
+  </div>
+  {% endif %}
+
+  <div style="padding:0 16px 16px;">
+    <div style="padding:10px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);line-height:1.5;">
+      <strong style="color:var(--text);">What Gmail tells us:</strong>
+      Spam rate must stay under 0.10% (never above 0.30%). Domain reputation of HIGH means inbox placement.
+      MEDIUM or LOW means Promotions tab or spam. Data updates daily with ~24h delay.
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="card-header">
+    <div class="card-title"><i class="fab fa-google" style="color:#ea4335;margin-right:8px;"></i>Gmail Postmaster Intelligence</div>
+  </div>
+  <div class="empty-state" style="padding:30px;">
+    <i class="fab fa-google" style="color:#e2e8f0;font-size:32px;"></i>
+    <h3>Google Postmaster Tools Not Connected</h3>
+    <p style="max-width:420px;margin:0 auto;color:var(--text3);">
+      Connect Google Postmaster Tools to see Gmail-specific inbox placement data:
+      spam rate, domain reputation, and authentication pass rates.
+    </p>
+    <div style="margin-top:16px;padding:12px 16px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);text-align:left;max-width:480px;">
+      <strong>Setup steps:</strong><br>
+      1. Go to <a href="https://gmail.com/postmaster/" target="_blank" style="color:var(--cyan);">gmail.com/postmaster</a> → Add <code>news.ldaselectronics.com</code><br>
+      2. Verify domain ownership via DNS TXT record<br>
+      3. Enable Postmaster Tools API in Google Cloud Console<br>
+      4. Upload OAuth credentials to server<br>
+      5. Run: <code>python postmaster_tools.py --auth</code>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <!-- ── Row 3c: Recent Bounce/Complaint Events ── -->
 {% if recent_events %}
 <div class="card">
