@@ -1,6 +1,6 @@
 # MailEngineHub — Project Context
 > Email marketing platform for LDAS Electronics. Flask + SQLite (Peewee) + Amazon SES + Gunicorn.
-> 52 files, 30,270 lines. For full detail: read `REFERENCE.md`
+> 52 files, 30,340 lines. For full detail: read `REFERENCE.md`
 
 ## Deployment
 - **Repo**: `C:\Users\davin\Claude Work Folder\mailenginehub-repo\`
@@ -23,7 +23,7 @@ Studio: knowledge + performance -> studio_skills(6 AI skills) -> candidate -> ap
 |------|-------|------|
 | `app.py` | 6,408 | Flask application — all routes, scheduler, webhooks, auth |
 | `block_registry.py` | 2,404 | Email template block rendering engine — 26 block types, validation, personalization |
-| `database.py` | 1,684 | All 53 Peewee ORM models + init_db() + migration helpers |
+| `database.py` | 1,754 | All 53 Peewee ORM models + init_db() + migration helpers |
 | `generate-context.py` | 1,243 | Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file) |
 | `customer_intelligence.py` | 992 | Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV |
 | `identity_resolution.py` | 979 | Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching |

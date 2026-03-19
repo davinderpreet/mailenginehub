@@ -202,6 +202,25 @@ class FlowEmail(BaseModel):
         table_name = "flow_emails"
 
 
+class AutoEmail(BaseModel):
+    """One email sent by the auto-pilot scheduler — for tracking opens/clicks."""
+    contact        = ForeignKeyField(Contact, backref='auto_emails')
+    template       = ForeignKeyField(EmailTemplate, null=True)
+    subject        = CharField(default="")
+    status         = CharField(default="queued")    # queued | sent | failed | bounced
+    error_msg      = CharField(default="")
+    opened         = BooleanField(default=False)
+    clicked        = BooleanField(default=False)
+    sent_at        = DateTimeField(default=datetime.now)
+    opened_at      = DateTimeField(null=True)
+    clicked_at     = DateTimeField(null=True)
+    ses_message_id = CharField(default="")
+    auto_run_date  = DateField(null=True)
+
+    class Meta:
+        table_name = "auto_emails"
+
+
 class AbandonedCheckout(BaseModel):
     """Shopify checkout that was started but not completed."""
     shopify_checkout_id = CharField(unique=True, index=True)
@@ -751,7 +770,7 @@ def init_db():
         pass
     db.create_tables(
         [Contact, EmailTemplate, Campaign, CampaignEmail, WarmupConfig, WarmupLog,
-         Flow, FlowStep, FlowEnrollment, FlowEmail, AbandonedCheckout, AgentMessage,
+         Flow, FlowStep, FlowEnrollment, FlowEmail, AutoEmail, AbandonedCheckout, AgentMessage,
          ContactScore, AIMarketingPlan, AIDecisionLog,
          OmnisendOrder, OmnisendOrderItem, CustomerProfile,
          ShopifyOrder, ShopifyOrderItem, ShopifyCustomer,
@@ -786,10 +805,60 @@ def init_db():
     _migrate_template_family()
     _migrate_template_ai_controls()
     _migrate_knowledge_entry_fields()
+    _migrate_delivery_queue_auto_email_id()
+    _backfill_auto_emails()
     _seed_example_templates()
     _seed_starter_flows()
     print("[OK] Database ready (email_platform.db)")
 
+
+
+def _migrate_delivery_queue_auto_email_id():
+    """Add auto_email_id column to delivery_queue for auto-pilot tracking."""
+    try:
+        cursor = db.execute_sql("PRAGMA table_info(delivery_queue)")
+        cols = [row[1] for row in cursor.fetchall()]
+        if "auto_email_id" not in cols:
+            db.execute_sql("ALTER TABLE delivery_queue ADD COLUMN auto_email_id INTEGER DEFAULT 0")
+            print("[MIGRATE] Added auto_email_id to delivery_queue")
+    except Exception as e:
+        print(f"[MIGRATE] delivery_queue auto_email_id: {e}")
+
+
+def _backfill_auto_emails():
+    """One-time: create AutoEmail rows for past auto-pilot sends from DeliveryQueue."""
+    try:
+        existing = AutoEmail.select().count()
+        if existing > 0:
+            return  # already backfilled
+        past_auto = (DeliveryQueue
+                     .select(DeliveryQueue.id, DeliveryQueue.contact,
+                             DeliveryQueue.template_id, DeliveryQueue.subject,
+                             DeliveryQueue.sent_at, DeliveryQueue.created_at)
+                     .where(DeliveryQueue.email_type == "auto",
+                            DeliveryQueue.status == "sent"))
+        count = 0
+        for item in past_auto:
+            try:
+                sent_time = item.sent_at or item.created_at
+                AutoEmail.create(
+                    contact=item.contact,
+                    template=item.template_id or None,
+                    subject=item.subject,
+                    status="sent",
+                    sent_at=sent_time,
+                    ses_message_id="",
+                    auto_run_date=sent_time.date() if sent_time else None,
+                    opened=False,
+                    clicked=False
+                )
+                count += 1
+            except Exception as e:
+                print(f"[BACKFILL] skip: {e}")
+        if count:
+            print(f"[BACKFILL] Created {count} AutoEmail rows from DeliveryQueue history")
+    except Exception as e:
+        print(f"[BACKFILL] auto_emails: {e}")
 
 
 def _migrate_deliverability_fields():
@@ -1391,6 +1460,7 @@ class DeliveryQueue(BaseModel):
     # Links
     ledger_id     = IntegerField(default=0)        # ActionLedger.id
     campaign_id   = IntegerField(default=0)        # for CampaignEmail backward compat
+    auto_email_id = IntegerField(default=0)        # links to AutoEmail.id for auto-pilot sends
 
     # Timestamps
     created_at    = DateTimeField(default=datetime.now, index=True)
