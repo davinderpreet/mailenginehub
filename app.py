@@ -2826,14 +2826,11 @@ def _process_flow_enrollments():
             _resume_paused_enrollments(enrollment.flow_id)
             continue
 
-        # Respect warmup daily limit (queue processor also enforces this, but skip here to avoid queue buildup)
-        daily_limit = WARMUP_PHASES[warmup.current_phase]["daily_limit"] if warmup.is_active else None
-        if daily_limit is not None and warmup.emails_sent_today >= daily_limit:
-            log_action(contact, "flow", flow.id, "suppressed", RC_WARMUP_LIMIT,
-                       source_type=flow.name, enrollment_id=enrollment.id,
-                       step_id=step.id, priority=_priority,
-                       reason_detail="Warmup daily limit (%d) reached" % daily_limit)
-            continue  # Skip until tomorrow
+        # Note: warmup limits are enforced by the delivery_engine when actually
+        # sending via SES. Flow emails should always be enqueued — the delivery
+        # engine will hold them if the warmup cap is hit. Blocking here caused
+        # flow emails (e.g. welcome discount codes) to be silently skipped
+        # instead of queued, so the contact never received them.
 
         template = step.template
         _unsub = _make_unsubscribe_url(contact)
