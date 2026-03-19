@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-19 15:30 -- `015de9c`
+
+**fix: remove warmup gate from flow processor — flow emails should always enqueue, delivery engine handles limits**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-19 15:19 -- `f92cea2`
 
 **fix: send Welcome Step 1 immediately for popup subscribers so discount code arrives before browse flow preempts**
