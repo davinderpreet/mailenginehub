@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-19 13:07 -- `78ff644`
+
+**fix: add auto email type to sent email preview route**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-18 12:58 -- `8111b5e`
 
 **Fix auto-scheduler: resolve discount codes, cart items, checkout URLs**
