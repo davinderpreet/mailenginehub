@@ -6265,11 +6265,39 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                 "discount_offer":    10,  # Checkout Recovery 10% Off
             }
 
-            # Province → UTC offset (Canada)
+            # Region → UTC offset (Canada, US states, intl)
             PROVINCE_TZ = {
+                # Canada
                 "BC": -8, "AB": -7, "SK": -6, "MB": -6,
                 "ON": -5, "QC": -5, "NB": -4, "NS": -4,
                 "PE": -4, "NL": -3.5, "YT": -7, "NT": -7, "NU": -5,
+                # US states (most common in our data)
+                "CA": -8, "WA": -8, "OR": -8, "NV": -8,    # Pacific
+                "AZ": -7, "MT": -7, "ID": -7, "CO": -7, "NM": -7, "UT": -7, "WY": -7,  # Mountain
+                "TX": -6, "IL": -6, "MN": -6, "WI": -6, "IA": -6, "MO": -6,  # Central
+                "IN": -5, "OH": -5, "MI": -5, "NY": -5, "PA": -5, "NJ": -5,  # Eastern
+                "VA": -5, "NC": -5, "GA": -5, "FL": -5, "MA": -5, "CT": -5, "MD": -5,
+                "HI": -10, "AK": -9,  # Hawaii, Alaska
+            }
+            # Country → UTC offset (for contacts with country but no province)
+            COUNTRY_TZ = {
+                "CA": -5, "US": -5,   # default Eastern for North America
+                "GB": 0, "IE": 0,     # UK/Ireland
+                "DE": 1, "FR": 1, "IT": 1, "ES": 1, "NL": 1, "PL": 1, "CZ": 1, "SE": 1, "AT": 1,  # Central EU
+                "AU": 10, "NZ": 12,   # Oceania
+                "IN": 5.5, "AE": 4,   # South/West Asia
+                "JP": 9, "KR": 9, "SG": 8, "HK": 8,  # East/SE Asia
+            }
+            # City → UTC offset (fallback for contacts with city but no province)
+            CITY_TZ = {
+                "BRAMPTON": -5, "TORONTO": -5, "MISSISSAUGA": -5, "CAMBRIDGE": -5, "LONDON": -5, "OTTAWA": -5,
+                "WINNIPEG": -6, "REGINA": -6, "SASKATOON": -6,
+                "CALGARY": -7, "EDMONTON": -7,
+                "SURREY": -8, "ABBOTSFORD": -8, "DELTA": -8, "VANCOUVER": -8, "BURNABY": -8, "VICTORIA": -8,
+                "MONTRÉAL": -5, "MONTREAL": -5, "QUEBEC": -5, "LAVAL": -5,
+                "FRESNO": -8, "MANTECA": -8, "LOS ANGELES": -8, "SAN FRANCISCO": -8,
+                "NEW YORK": -5, "BROOKLYN": -5, "CHICAGO": -6, "HOUSTON": -6,
+                "SYDNEY": 10, "MELBOURNE": 10, "BRISBANE": 10,
             }
 
             now = datetime.now()
@@ -6368,16 +6396,35 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                                 _pref_hour = _hour
                                 break
 
-                    # Calculate timezone offset from province
-                    _tz_offset = -5  # default Eastern (most Canadian ecommerce customers)
+                    # Calculate timezone offset: province → city → country → default
+                    _tz_offset = None
+                    _FULL_TO_CODE = {
+                        "ONTARIO": "ON", "QUEBEC": "QC", "BRITISH COLUMBIA": "BC",
+                        "ALBERTA": "AB", "SASKATCHEWAN": "SK", "MANITOBA": "MB",
+                        "NOVA SCOTIA": "NS", "NEW BRUNSWICK": "NB",
+                        "PRINCE EDWARD ISLAND": "PE", "NEWFOUNDLAND AND LABRADOR": "NL",
+                        "CALIFORNIA": "CA", "NEW YORK": "NY", "INDIANA": "IN",
+                        "NEW JERSEY": "NJ", "WASHINGTON": "WA", "PENNSYLVANIA": "PA",
+                        "TEXAS": "TX", "VIRGINIA": "VA", "OHIO": "OH", "FLORIDA": "FL",
+                        "NEW SOUTH WALES": "AU",  # map Aussie states to country
+                        "VICTORIA": "AU", "QUEENSLAND": "AU",
+                    }
+                    # Tier 1: Province/state
                     if _profile and _profile.province:
                         _prov = _profile.province.strip().upper()
-                        _prov_map = {"ONTARIO": "ON", "QUEBEC": "QC", "BRITISH COLUMBIA": "BC",
-                                     "ALBERTA": "AB", "SASKATCHEWAN": "SK", "MANITOBA": "MB",
-                                     "NOVA SCOTIA": "NS", "NEW BRUNSWICK": "NB",
-                                     "PRINCE EDWARD ISLAND": "PE", "NEWFOUNDLAND AND LABRADOR": "NL"}
-                        _prov = _prov_map.get(_prov, _prov[:2])
-                        _tz_offset = PROVINCE_TZ.get(_prov, -5)
+                        _prov = _FULL_TO_CODE.get(_prov, _prov[:2])
+                        _tz_offset = PROVINCE_TZ.get(_prov)
+                    # Tier 2: City
+                    if _tz_offset is None:
+                        _city = (_profile.city if _profile and _profile.city else "") or (contact.city or "")
+                        if _city:
+                            _tz_offset = CITY_TZ.get(_city.strip().upper())
+                    # Tier 3: Country
+                    if _tz_offset is None and contact.country:
+                        _tz_offset = COUNTRY_TZ.get(contact.country.strip().upper())
+                    # Final default: Eastern (largest segment in our data)
+                    if _tz_offset is None:
+                        _tz_offset = -5
 
                     # Convert preferred hour (contact's local) to server time (UTC)
                     _send_hour_utc = int((_pref_hour - _tz_offset) % 24)
