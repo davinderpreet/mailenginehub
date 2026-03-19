@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-19 13:31 -- `6e9c492`
+
+**feat: 3-tier timezone resolution — province → city → country for local send time**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-19 13:26 -- `cf40d64`
 
 **feat: global ecommerce send-time curve as Tier 2 fallback for unknown contacts**
