@@ -205,12 +205,11 @@ def _process_shadow(queued, mode):
 
 
 def _process_live(queued):
-    """Live mode: send up to warmup limit via SES."""
+    """Live mode: send up to warmup limit via SES.
+    Flow emails (triggered by customer action) bypass warmup limits so
+    discount codes and time-sensitive messages always reach the customer.
+    """
     remaining = _get_warmup_remaining()
-
-    # If warmup is active and limit reached, skip this tick
-    if remaining is not None and remaining <= 0:
-        return 0
 
     # Import the actual send function
     try:
@@ -219,16 +218,16 @@ def _process_live(queued):
         print("[DeliveryQueue] Cannot import email_sender", file=sys.stderr)
         return 0
 
-    # ── Sunset-aware priority: skip disengaged contacts, save warmup sends ──
+    # ── Separate flow emails (bypass warmup) from bulk emails (respect warmup) ──
+    _flow_queue = []
+    _bulk_queue = []
     _sunset_suppressed = 0
-    _live_queued = []
     for _item in queued:
         try:
             if _item.contact:
                 _cs = ContactScore.get_or_none(ContactScore.contact == _item.contact)
                 if _cs and _cs.sunset_score is not None:
                     if _cs.sunset_score >= 85:
-                        # Hard suppress — don't waste sends on deeply disengaged
                         _item.status = "suppressed"
                         _item.sent_at = datetime.now()
                         _item.error_msg = "sunset_score=%d" % _cs.sunset_score
@@ -238,77 +237,92 @@ def _process_live(queued):
                                              reason_detail="sunset_score=%d >= 85" % _cs.sunset_score)
                         _sunset_suppressed += 1
                         continue
-            _live_queued.append(_item)
         except Exception:
-            _live_queued.append(_item)
+            pass
+        # Flow emails bypass warmup — they're triggered by customer action
+        if _item.email_type == "flow":
+            _flow_queue.append(_item)
+        else:
+            _bulk_queue.append(_item)
 
     if _sunset_suppressed:
         print("[DeliveryQueue] Sunset-suppressed %d contacts (score >= 85)" % _sunset_suppressed, file=sys.stderr)
 
+    # ── Send ALL flow emails first (no warmup cap) ──
     processed = 0
-    for item in _live_queued:
-        # Check warmup limit
-        if remaining is not None and processed >= remaining:
-            break
+    for item in _flow_queue:
+        processed += _send_one(item, send_campaign_email)
 
-        try:
-            # Mark as sending
-            item.status = "sending"
-            item.save()
-
-            # Actual SES send
-            success, error, msg_id = send_campaign_email(
-                to_email=item.email,
-                to_name="",
-                from_email=item.from_email,
-                from_name=item.from_name,
-                subject=item.subject,
-                html_body=item.html,
-                unsubscribe_url=item.unsubscribe_url,
-                campaign_id=item.campaign_id or None,
-                template_id=item.template_id if item.email_type == "auto" else None,
-            )
-
-            if success:
-                item.status = "sent"
-                item.sent_at = datetime.now()
-                item.save()
-                update_ledger_status(item.ledger_id, "sent", ses_message_id=msg_id or "")
-                _create_compat_record(item, status="sent")
-                # Update AutoEmail with ses_message_id
-                if item.email_type == "auto" and msg_id and item.auto_email_id:
-                    try:
-                        AutoEmail.update(ses_message_id=msg_id).where(
-                            AutoEmail.id == item.auto_email_id
-                        ).execute()
-                    except Exception:
-                        pass
-                _increment_warmup_counter()
-                _increment_contact_counters(item.contact_id if item.contact else None)
-
-                # Advance flow enrollment
-                if item.email_type == "flow" and item.enrollment_id:
-                    _advance_flow_enrollment(item.enrollment_id, item.step_id, item.source_id)
-            else:
-                item.status = "failed"
-                item.error_msg = error or "Unknown error"
-                item.sent_at = datetime.now()
-                item.save()
-                update_ledger_status(item.ledger_id, "failed", reason_code="ses_error",
-                                     reason_detail=error or "")
-                _create_compat_record(item, status="failed", error_msg=error or "")
-
+    # ── Send bulk emails up to warmup remaining ──
+    bulk_sent = 0
+    if remaining is not None and remaining <= 0:
+        pass  # warmup cap hit — skip bulk but flow emails already sent above
+    else:
+        for item in _bulk_queue:
+            if remaining is not None and bulk_sent >= remaining:
+                break
+            if _send_one(item, send_campaign_email):
+                bulk_sent += 1
             processed += 1
-        except Exception as e:
-            item.status = "failed"
-            item.error_msg = str(e)
-            item.save()
-            update_ledger_status(item.ledger_id, "failed", reason_code="ses_error",
-                                 reason_detail=str(e))
-            processed += 1
-            print("[DeliveryQueue] Send error for item %d: %s" % (item.id, e), file=sys.stderr)
 
     return processed
+
+
+def _send_one(item, send_fn):
+    """Send a single queue item via SES. Returns 1 on success, 0 on failure."""
+    try:
+        item.status = "sending"
+        item.save()
+
+        success, error, msg_id = send_fn(
+            to_email=item.email,
+            to_name="",
+            from_email=item.from_email,
+            from_name=item.from_name,
+            subject=item.subject,
+            html_body=item.html,
+            unsubscribe_url=item.unsubscribe_url,
+            campaign_id=item.campaign_id or None,
+            template_id=item.template_id if item.email_type == "auto" else None,
+        )
+
+        if success:
+            item.status = "sent"
+            item.sent_at = datetime.now()
+            item.save()
+            update_ledger_status(item.ledger_id, "sent", ses_message_id=msg_id or "")
+            _create_compat_record(item, status="sent")
+            if item.email_type == "auto" and msg_id and item.auto_email_id:
+                try:
+                    AutoEmail.update(ses_message_id=msg_id).where(
+                        AutoEmail.id == item.auto_email_id
+                    ).execute()
+                except Exception:
+                    pass
+            _increment_warmup_counter()
+            _increment_contact_counters(item.contact_id if item.contact else None)
+
+            # Advance flow enrollment
+            if item.email_type == "flow" and item.enrollment_id:
+                _advance_flow_enrollment(item.enrollment_id, item.step_id, item.source_id)
+            return 1
+        else:
+            item.status = "failed"
+            item.error_msg = error or "Unknown error"
+            item.sent_at = datetime.now()
+            item.save()
+            update_ledger_status(item.ledger_id, "failed", reason_code="ses_error",
+                                 reason_detail=error or "")
+            _create_compat_record(item, status="failed", error_msg=error or "")
+            return 0
+    except Exception as e:
+        item.status = "failed"
+        item.error_msg = str(e)
+        item.save()
+        update_ledger_status(item.ledger_id, "failed", reason_code="ses_error",
+                             reason_detail=str(e))
+        print("[DeliveryQueue] Send error for item %d: %s" % (item.id, e), file=sys.stderr)
+        return 0
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

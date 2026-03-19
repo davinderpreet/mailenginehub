@@ -10,7 +10,7 @@ from database import (db, Contact, EmailTemplate, Campaign, CampaignEmail, init_
                       WarmupConfig, WarmupLog, get_warmup_config,
                       Flow, FlowStep, FlowEnrollment, FlowEmail, AbandonedCheckout, AgentMessage,
                       SuppressionEntry, BounceLog, PreflightLog, PendingTrigger,
-                      get_bounce_stats_by_domain, AutoEmail)
+                      get_bounce_stats_by_domain, AutoEmail, DeliveryQueue)
 from email_sender import send_campaign_email, test_ses_connection
 from discount_engine import generate_discount_code
 from token_utils import create_token, verify_token
@@ -3053,6 +3053,18 @@ def _process_flow_enrollments():
         from_email = step.from_email or os.getenv("DEFAULT_FROM_EMAIL", "")
         from_name  = step.from_name
         unsub_url = _make_unsubscribe_url(contact)
+
+        # ── Dedup: skip if this enrollment+step is already queued ──
+        _already_queued = (DeliveryQueue.select()
+                           .where(DeliveryQueue.enrollment_id == enrollment.id,
+                                  DeliveryQueue.step_id == step.id,
+                                  DeliveryQueue.status.in_(["queued", "sending"]))
+                           .exists())
+        if _already_queued:
+            app.logger.info("[FlowDedup] Skipping %s step %d for %s — already queued"
+                            % (flow.name, enrollment.current_step, contact.email))
+            sent_contacts.add(contact.id)
+            continue
 
         # ── Log to ledger as "rendered" and enqueue ──
         ledger = log_action(contact, "flow", flow.id, "rendered", RC_OK,
