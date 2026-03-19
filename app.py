@@ -1647,6 +1647,10 @@ def sent_email_preview(email_type, email_id):
             contact = fe.contact
             step = fe.step
             template = EmailTemplate.get_by_id(step.template_id)
+        elif email_type == "auto":
+            ae = AutoEmail.get_by_id(email_id)
+            contact = ae.contact
+            template = EmailTemplate.get_by_id(ae.template_id)
         else:
             return "Invalid email type", 400
 
