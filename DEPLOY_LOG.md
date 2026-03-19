@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-19 13:26 -- `cf40d64`
+
+**feat: global ecommerce send-time curve as Tier 2 fallback for unknown contacts**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-19 13:19 -- `df566b1`
 
 **fix: send time optimization — learn from 1 open + spread unknown contacts across business hours**
