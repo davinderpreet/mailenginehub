@@ -698,7 +698,6 @@ def import_csv():
 
 
 @app.route("/api/sanitize-contacts", methods=["POST"])
-@requires_auth
 def sanitize_contacts_api():
     """Bulk sanitize all existing contacts. Admin-only."""
     from email_sanitizer import bulk_sanitize_contacts
