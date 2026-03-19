@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-19 15:46 -- `8a4df22`
+
+**fix: flow emails bypass warmup + dedup prevents re-queuing**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+delivery_engine.py
+```
+
+---
+
 ### 2026-03-19 15:30 -- `015de9c`
 
 **fix: remove warmup gate from flow processor — flow emails should always enqueue, delivery engine handles limits**
