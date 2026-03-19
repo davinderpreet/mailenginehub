@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-19 13:48 -- `c99a734`
+
+**feat: Gmail Postmaster Tools dashboard + setup instructions**
+
+Files changed:
+```
+REFERENCE.md
+templates/warmup.html
+```
+
+---
+
 ### 2026-03-19 13:31 -- `6e9c492`
 
 **feat: 3-tier timezone resolution — province → city → country for local send time**
