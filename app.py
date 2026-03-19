@@ -188,6 +188,23 @@ def ses_webhook():
                         attr_template_id = _camp.template_id
                 except Exception:
                     pass
+            # Try to attribute to AutoEmail if no campaign_id
+            auto_email_bounce_type = None
+            if not attr_campaign_id and ses_msg_id:
+                try:
+                    ae = AutoEmail.select().where(
+                        AutoEmail.ses_message_id == ses_msg_id
+                    ).first()
+                    if ae:
+                        auto_email_bounce_type = message.get("bounce", {}).get("bounceType") or \
+                                                 ("complaint" if message.get("notificationType") == "Complaint" else "bounce")
+                        ae.status = "bounced"
+                        ae.error_msg = auto_email_bounce_type
+                        ae.save()
+                        if not attr_template_id:
+                            attr_template_id = ae.template_id
+                except Exception:
+                    pass
 
             if notif_type == "Bounce":
                 bounce = message.get("bounce", {})
@@ -355,6 +372,11 @@ def _compute_health_score(config):
     total_sent    += flow_recent.where(FlowEmail.status == "sent").count()
     total_opened  += flow_recent.where(FlowEmail.opened == True).count()
     total_bounced += flow_recent.where(FlowEmail.status == "bounced").count()
+    # Include AutoEmail data
+    auto_recent = AutoEmail.select().where(AutoEmail.sent_at >= cutoff)
+    total_sent    += auto_recent.where(AutoEmail.status == "sent").count()
+    total_opened  += auto_recent.where(AutoEmail.opened == True).count()
+    total_bounced += auto_recent.where(AutoEmail.status == "bounced").count()
     if total_sent > 0:
         open_rate   = total_opened  / total_sent * 100
         bounce_rate = total_bounced / total_sent * 100
@@ -436,6 +458,10 @@ def _update_warmup_log(phase, daily_limit):
     log.emails_sent    += FlowEmail.select().where(FlowEmail.status == "sent", FlowEmail.sent_at >= cutoff).count()
     log.emails_opened  += FlowEmail.select().where(FlowEmail.opened == True, FlowEmail.sent_at >= cutoff).count()
     log.emails_bounced += FlowEmail.select().where(FlowEmail.status == "bounced", FlowEmail.sent_at >= cutoff).count()
+    # Include AutoEmail data
+    log.emails_sent    += AutoEmail.select().where(AutoEmail.status == "sent", AutoEmail.sent_at >= cutoff).count()
+    log.emails_opened  += AutoEmail.select().where(AutoEmail.opened == True, AutoEmail.sent_at >= cutoff).count()
+    log.emails_bounced += AutoEmail.select().where(AutoEmail.status == "bounced", AutoEmail.sent_at >= cutoff).count()
     log.save()
     return log
 
