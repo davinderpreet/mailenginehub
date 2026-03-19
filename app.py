@@ -448,8 +448,10 @@ def dashboard():
     total_campaigns = Campaign.select().count()
     total_sent      = CampaignEmail.select().where(CampaignEmail.status == "sent").count()
     total_sent     += FlowEmail.select().where(FlowEmail.status == "sent").count()
+    total_sent     += AutoEmail.select().where(AutoEmail.status == "sent").count()
     total_opened    = CampaignEmail.select().where(CampaignEmail.opened == True).count()
     total_opened   += FlowEmail.select().where(FlowEmail.opened == True).count()
+    total_opened   += AutoEmail.select().where(AutoEmail.opened == True).count()
     open_rate = round((total_opened / total_sent * 100), 1) if total_sent > 0 else 0
 
     recent_campaigns = (Campaign.select()
@@ -1419,7 +1421,7 @@ def sent_emails():
     all_emails = []
 
     # ── Campaign Emails ──
-    if email_type != "flow":
+    if email_type not in ("flow", "auto"):
         ce_query = (CampaignEmail
                     .select(CampaignEmail, Contact, Campaign)
                     .join(Contact, on=(CampaignEmail.contact == Contact.id))
@@ -1465,7 +1467,7 @@ def sent_emails():
             })
 
     # ── Flow Emails ──
-    if email_type != "campaign":
+    if email_type not in ("campaign", "auto"):
         fe_query = (FlowEmail
                     .select(FlowEmail, Contact, FlowStep, FlowEnrollment)
                     .join(Contact, on=(FlowEmail.contact == Contact.id))
@@ -1525,6 +1527,48 @@ def sent_emails():
                 "opened": fe.opened,
                 "opened_at": fe.opened_at,
                 "error_msg": "",
+            })
+
+    # ── Auto-Pilot Emails ──
+    if email_type not in ("campaign", "flow"):
+        from peewee import JOIN
+        ae_query = (AutoEmail
+                    .select(AutoEmail, Contact, EmailTemplate)
+                    .join(Contact, on=(AutoEmail.contact == Contact.id))
+                    .switch(AutoEmail)
+                    .join(EmailTemplate, on=(AutoEmail.template == EmailTemplate.id), join_type=JOIN.LEFT_OUTER)
+                    .where(AutoEmail.sent_at.between(dt_from, dt_to)))
+
+        if search:
+            ae_query = ae_query.where(Contact.email.contains(search))
+        if status_filter == "opened":
+            ae_query = ae_query.where(AutoEmail.opened == True)
+        elif status_filter:
+            ae_query = ae_query.where(AutoEmail.status == status_filter)
+
+        for ae in ae_query:
+            name = ""
+            try:
+                name = "{} {}".format(ae.contact.first_name or "", ae.contact.last_name or "").strip()
+            except Exception:
+                pass
+            try:
+                tpl_name = ae.template.name if ae.template else None
+            except Exception:
+                tpl_name = None
+            all_emails.append({
+                "id": ae.id,
+                "sent_at": ae.sent_at,
+                "email": ae.contact.email,
+                "name": name or ae.contact.email,
+                "contact_id": ae.contact.id,
+                "type": "auto",
+                "source": "Auto-Pilot" + (f" \u2014 {tpl_name}" if tpl_name else ""),
+                "subject": (ae.subject or "").replace("{{first_name}}", ae.contact.first_name or "Friend").replace("{{last_name}}", ae.contact.last_name or "").replace("{{email}}", ae.contact.email or ""),
+                "status": "opened" if ae.opened else ae.status,
+                "opened": ae.opened,
+                "opened_at": ae.opened_at,
+                "error_msg": ae.error_msg or "",
             })
 
     # Sort by time descending
@@ -4604,6 +4648,7 @@ def profiles_list():
 @app.route("/profiles/<int:contact_id>")
 def profile_detail(contact_id):
     from database import Contact, CustomerProfile, ShopifyOrder, ShopifyOrderItem, CampaignEmail, FlowEmail, FlowStep, Campaign
+    from peewee import JOIN
     import json as _json
 
     contact = Contact.get_or_none(Contact.id == contact_id)
@@ -4673,8 +4718,28 @@ def profile_detail(contact_id):
     for fe in flow_emails:
         fe["email_type"] = "flow"
 
+    # Auto-pilot emails
+    auto_emails = list(
+        AutoEmail.select(
+            AutoEmail.id,
+            AutoEmail.status,
+            AutoEmail.opened,
+            AutoEmail.opened_at,
+            AutoEmail.sent_at,
+            EmailTemplate.name.alias("source_name"),
+        )
+        .join(EmailTemplate, on=(AutoEmail.template == EmailTemplate.id), join_type=JOIN.LEFT_OUTER)
+        .where(AutoEmail.contact == contact_id)
+        .order_by(AutoEmail.sent_at.desc())
+        .limit(20)
+        .dicts()
+    )
+    for ae in auto_emails:
+        ae["email_type"] = "auto"
+        ae["source_name"] = "Auto-Pilot" + (f" \u2014 {ae['source_name']}" if ae.get("source_name") else "")
+
     # Merge and sort by sent_at descending, take top 20
-    _all_emails = campaign_emails + flow_emails
+    _all_emails = campaign_emails + flow_emails + auto_emails
     _all_emails.sort(key=lambda x: x.get("sent_at") or "", reverse=True)
     email_activity = _all_emails[:20]
 

@@ -739,6 +739,9 @@
               {% if e.email_type == 'flow' %}
                 <span style="font-size:9.5px; padding:2px 7px; border-radius:6px; font-weight:700;
                              background:rgba(124,58,237,0.12); color:var(--purple2); letter-spacing:0.3px;">FLOW</span>
+              {% elif e.email_type == 'auto' %}
+                <span style="font-size:9.5px; padding:2px 7px; border-radius:6px; font-weight:700;
+                             background:rgba(236,72,153,0.12); color:var(--pink); letter-spacing:0.3px;">AUTO-PILOT</span>
               {% else %}
                 <span style="font-size:9.5px; padding:2px 7px; border-radius:6px; font-weight:700;
                              background:rgba(6,182,212,0.12); color:var(--cyan); letter-spacing:0.3px;">CAMPAIGN</span>
