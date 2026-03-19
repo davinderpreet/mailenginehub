@@ -1,0 +1,270 @@
+<h2>MailEngineHub Improvement Roadmap</h2>
+<p class="subtitle">30 improvements ranked by impact. Grouped into 3 tiers. Click any item to mark it as a priority — select as many as you want.</p>
+
+<!-- TIER 1 -->
+<div class="section">
+  <h3 style="color: #10b981; border-bottom: 2px solid rgba(16,185,129,0.3); padding-bottom: 0.5rem;">Tier 1 — High Impact, Ship Soon</h3>
+  <p class="subtitle">These unlock real revenue or fix real friction. Each is a focused session.</p>
+
+  <div class="options" data-multiselect>
+    <div class="option" data-choice="auto-pilot-execute" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #10b981;">1</div>
+      <div class="content">
+        <h3>Auto-Pilot Actually Sends</h3>
+        <p><strong>Revenue Engine.</strong> Right now Auto-Pilot previews campaigns but doesn't execute them. Wire it up so accepted Campaign Planner suggestions auto-create and send campaigns with safety guardrails (daily limits, complaint thresholds, human approval for first N runs). <em>This is the single highest-ROI feature — it turns your AI pipeline into an autonomous revenue machine.</em></p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="ab-testing" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #10b981;">2</div>
+      <div class="content">
+        <h3>A/B Testing for Subject Lines & Content</h3>
+        <p><strong>Revenue Engine.</strong> No A/B testing exists. Add split-send capability: 2-4 variants, 10-20% test cohort, auto-pick winner by open rate or click rate after N hours, then send winner to remainder. Feeds directly into the self-learning loop.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="campaign-wizard" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #10b981;">3</div>
+      <div class="content">
+        <h3>Campaign Creation Wizard</h3>
+        <p><strong>UX.</strong> Current campaign creation is a single form page. Replace with a step-by-step wizard: Choose audience → Pick/generate template → Preview & personalize → Schedule or send. Each step with live preview.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="split-app-py" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #10b981;">4</div>
+      <div class="content">
+        <h3>Split app.py Into Blueprints</h3>
+        <p><strong>Scale.</strong> 6,400 lines in one file. Break into Flask Blueprints: core_routes, campaign_routes, flow_routes, api_routes, webhook_routes, studio_routes, intelligence_routes, system_routes. No behavior change — pure refactor. Makes everything easier to work on.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="dashboard-v2" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #10b981;">5</div>
+      <div class="content">
+        <h3>Dashboard 2.0 — Revenue-Focused</h3>
+        <p><strong>UX.</strong> Current dashboard shows contacts/campaigns/emails. Add: revenue attribution (total revenue from emails), conversion funnel (sent→opened→clicked→purchased), top performing campaigns, AI recommendations ready to act on, and a "money on the table" widget showing Campaign Planner opportunities.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="send-time-optimization" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #10b981;">6</div>
+      <div class="content">
+        <h3>Send Time Optimization</h3>
+        <p><strong>Revenue Engine.</strong> You already compute preferred_send_hour and preferred_send_dow per contact. Wire this into the delivery engine so emails go out at each contact's optimal time instead of all-at-once blasts. Could boost open rates 15-25%.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="real-revenue-tracking" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #10b981;">7</div>
+      <div class="content">
+        <h3>Real Revenue Attribution</h3>
+        <p><strong>Revenue Engine.</strong> Track which emails drive which orders. When a Shopify order comes in, attribute it to the last email opened/clicked within a 7-day window. Show revenue per campaign, per flow, per template. This is the metric that matters.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TIER 2 -->
+<div class="section">
+  <h3 style="color: #7c3aed; border-bottom: 2px solid rgba(124,58,237,0.3); padding-bottom: 0.5rem;">Tier 2 — Medium-Term, Strong Value</h3>
+  <p class="subtitle">Bigger lifts that compound over time. Build on Tier 1 foundations.</p>
+
+  <div class="options" data-multiselect>
+    <div class="option" data-choice="visual-flow-builder" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #7c3aed;">8</div>
+      <div class="content">
+        <h3>Visual Flow Builder (Drag & Drop)</h3>
+        <p><strong>UX.</strong> Replace the form-based flow editor with a visual canvas. Nodes for triggers, delays, emails, conditions. Drag to connect. This is what Klaviyo/Omnisend users expect. Use a library like React Flow or Drawflow.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="segment-builder" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #7c3aed;">9</div>
+      <div class="content">
+        <h3>Advanced Segment Builder</h3>
+        <p><strong>Revenue + UX.</strong> Currently campaigns target "all" or "by tag". Build a visual segment builder with AND/OR conditions: lifecycle_stage + days_since_order + total_spent + tags + engagement_score. Live count preview. Save segments for reuse.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="email-preview-device" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #7c3aed;">10</div>
+      <div class="content">
+        <h3>Email Preview (Desktop + Mobile + Dark Mode)</h3>
+        <p><strong>UX.</strong> Show how emails render across devices. Toggle between desktop/mobile/dark mode in the template editor. Use iframe-based rendering with device frames. Catch rendering issues before sending.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="smart-content-ai" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #7c3aed;">11</div>
+      <div class="content">
+        <h3>AI Content Blocks That Learn</h3>
+        <p><strong>Revenue Engine.</strong> Your self-learning system tracks template performance. Close the loop: when AI generates content blocks, feed in which blocks performed best for which segments. AI should get measurably better at writing over time.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="contact-timeline" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #7c3aed;">12</div>
+      <div class="content">
+        <h3>Contact Timeline View</h3>
+        <p><strong>UX.</strong> Customer Profiles page shows data but not the story. Add a visual timeline: every email sent, every open, click, purchase, page view, flow enrollment — chronologically. See the full customer journey at a glance.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="webhook-actions" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #7c3aed;">13</div>
+      <div class="content">
+        <h3>Flow Actions Beyond Email</h3>
+        <p><strong>Revenue Engine.</strong> Flows currently only send emails. Add action types: add/remove tag, update profile field, send webhook, create Shopify discount, wait for condition (opened previous email?), branch (if/else split).</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="campaign-analytics" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #7c3aed;">14</div>
+      <div class="content">
+        <h3>Campaign Analytics Dashboard</h3>
+        <p><strong>UX.</strong> After sending a campaign, show rich analytics: open rate over time (curve), click map (which links got clicks), revenue attributed, device breakdown, domain breakdown (Gmail vs Outlook vs Yahoo), unsubscribe reasons.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="template-library" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #7c3aed;">15</div>
+      <div class="content">
+        <h3>Template Gallery with AI Generation</h3>
+        <p><strong>UX + Revenue.</strong> Pre-built template gallery organized by purpose (welcome, cart recovery, winback, etc.) with one-click customize. AI Studio generates candidates but the discovery/browsing UX is weak. Make it feel like Canva for emails.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="sms-channel" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #7c3aed;">16</div>
+      <div class="content">
+        <h3>SMS Channel (Twilio/SNS)</h3>
+        <p><strong>Revenue Engine.</strong> Your next-best-message engine already outputs "switch_channel" decisions. Wire up SMS via Twilio or AWS SNS. Start with transactional (abandoned cart, order confirm), expand to marketing. Multi-channel = higher conversion.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="postgres-migration" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #7c3aed;">17</div>
+      <div class="content">
+        <h3>Migrate to PostgreSQL</h3>
+        <p><strong>Scale.</strong> SQLite handles 6k contacts fine but will struggle at 50k+ with concurrent writes from scheduler + webhooks + API. Peewee makes this relatively painless — change the database URL, run migrations. Unlocks concurrent writes, better JSON queries, full-text search.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TIER 3 -->
+<div class="section">
+  <h3 style="color: #06b6d4; border-bottom: 2px solid rgba(6,182,212,0.3); padding-bottom: 0.5rem;">Tier 3 — Ambitious, Game-Changing</h3>
+  <p class="subtitle">These transform the platform. Build on everything above.</p>
+
+  <div class="options" data-multiselect>
+    <div class="option" data-choice="multi-tenant" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">18</div>
+      <div class="content">
+        <h3>Multi-Tenant SaaS Mode</h3>
+        <p><strong>Business Model.</strong> Turn MailEngineHub into a product others can use. Add user accounts, workspaces, per-tenant SES configuration, billing (Stripe), usage limits. Go from tool to product.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="ai-copywriter" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">19</div>
+      <div class="content">
+        <h3>AI Copywriter Agent</h3>
+        <p><strong>Revenue Engine.</strong> An always-on agent that watches your knowledge base, product catalog, and performance data, then proactively drafts campaigns. "Hey, your Bluetooth Headsets haven't been promoted in 3 weeks and you have 847 contacts who bought similar products — here's a draft campaign." Acts like a junior marketing hire.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="predictive-sending" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">20</div>
+      <div class="content">
+        <h3>Predictive Send Volume Optimization</h3>
+        <p><strong>Revenue Engine.</strong> Use your self-learning data to predict optimal send frequency per contact. Some contacts want weekly emails, others monthly. Over-sending causes unsubscribes; under-sending leaves money on the table. ML model that learns the curve.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="realtime-dashboard" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">21</div>
+      <div class="content">
+        <h3>Real-Time Analytics (WebSocket)</h3>
+        <p><strong>UX.</strong> Live Activity page currently polls. Switch to WebSockets for real-time: watch opens, clicks, purchases stream in as they happen. Live campaign performance counter. Makes the platform feel alive.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="shopify-app" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">22</div>
+      <div class="content">
+        <h3>Shopify App Store Integration</h3>
+        <p><strong>Growth.</strong> Package as a Shopify app with OAuth install flow. Merchants install from app store, auto-configure webhooks, instant setup. Massive distribution channel.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="ai-subject-gen" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">23</div>
+      <div class="content">
+        <h3>AI Subject Line Generator with Performance Prediction</h3>
+        <p><strong>Revenue Engine.</strong> Generate 10 subject line variants, score each against your historical open rate data, predict which will perform best. Combine with A/B testing to validate predictions and improve the model.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="dynamic-content" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">24</div>
+      <div class="content">
+        <h3>Dynamic Content Personalization at Scale</h3>
+        <p><strong>Revenue Engine.</strong> Instead of one template per campaign, render unique content per contact using their profile data. Product recommendations based on browsing, pricing based on purchase history, messaging tone based on engagement level. Every email is 1-of-1.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="delivery-reputation" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">25</div>
+      <div class="content">
+        <h3>Deliverability Intelligence Dashboard</h3>
+        <p><strong>Scale.</strong> Go beyond health score. Track inbox placement by domain (Gmail, Outlook, Yahoo), monitor blacklists, analyze bounce patterns by ISP, show sending reputation trend over time. Integrate with Google Postmaster Tools API.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="popup-builder" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">26</div>
+      <div class="content">
+        <h3>Visual Popup/Form Builder</h3>
+        <p><strong>Growth.</strong> The meh-popup.js is hardcoded. Build a visual editor for popups: timing rules, targeting (new vs returning, page-specific), A/B test variants, exit-intent triggers. More signups = more contacts = more revenue.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="api-public" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">27</div>
+      <div class="content">
+        <h3>Public API with API Keys</h3>
+        <p><strong>Scale.</strong> Expose a REST API for contacts, campaigns, templates, and analytics. API key auth, rate limiting, OpenAPI docs. Enables integrations beyond Shopify — custom apps, Zapier, other platforms.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="celery-workers" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">28</div>
+      <div class="content">
+        <h3>Background Worker System (Celery/RQ)</h3>
+        <p><strong>Scale.</strong> APScheduler runs in the Flask process. Heavy AI jobs, nightly pipelines, and large campaign sends compete for the same resources. Move to Celery or RQ with Redis for proper job queuing, retries, and monitoring.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="white-label" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">29</div>
+      <div class="content">
+        <h3>White-Label / Agency Mode</h3>
+        <p><strong>Business Model.</strong> Let agencies manage multiple clients from one dashboard. Per-client branding, separate contact lists, shared templates, consolidated billing. Targets the agency market.</p>
+      </div>
+    </div>
+
+    <div class="option" data-choice="mobile-app" onclick="toggleSelect(this)">
+      <div class="letter" style="background: #06b6d4;">30</div>
+      <div class="content">
+        <h3>Mobile Dashboard (PWA)</h3>
+        <p><strong>UX.</strong> Make the dashboard responsive and installable as a PWA. Push notifications for campaign completions, anomaly alerts (spike in bounces, complaint threshold), daily revenue summary. Manage on the go.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 2rem; padding: 1.5rem; border-radius: 12px; background: rgba(6,182,212,0.08); border: 1px solid rgba(6,182,212,0.2);">
+  <p style="margin: 0; text-align: center; color: #67e8f9;">Select the items that excite you most. I'll use your picks to shape the design spec.<br/>You can select from any tier — this is about <strong>what matters to you</strong>, not what order I suggested.</p>
+</div>

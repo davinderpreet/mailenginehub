@@ -1,0 +1,52 @@
+<h2>What Are Your Constraints?</h2>
+<p class="subtitle">This helps me rank what's realistic now vs. later. Select all that apply.</p>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="solo" onclick="toggleSelect(this)">
+    <div class="letter">1</div>
+    <div class="content">
+      <h3>Solo Developer</h3>
+      <p>It's just you (+ me). No team to delegate to. Improvements must be manageable in focused sessions, not massive rewrites.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="live-traffic" onclick="toggleSelect(this)">
+    <div class="letter">2</div>
+    <div class="content">
+      <h3>Live Traffic — Can't Break Things</h3>
+      <p>6,075 contacts, active warmup at Phase 4, real flows running. Changes need to be safe and incremental — no big-bang migrations.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="sqlite-ok" onclick="toggleSelect(this)">
+    <div class="letter">3</div>
+    <div class="content">
+      <h3>SQLite Is Fine For Now</h3>
+      <p>You're not hitting scale limits yet. Don't want to migrate to Postgres unless there's a clear reason. Keep it simple.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="ai-budget" onclick="toggleSelect(this)">
+    <div class="letter">4</div>
+    <div class="content">
+      <h3>AI API Costs Matter</h3>
+      <p>Claude API calls per contact add up. Improvements that use more AI calls need to justify their cost. Prefer smart caching and batching.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="ship-fast" onclick="toggleSelect(this)">
+    <div class="letter">5</div>
+    <div class="content">
+      <h3>Bias Toward Shipping Fast</h3>
+      <p>Prefer 80% solutions shipped this week over 100% solutions shipped next month. Iterate, don't perfect.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="no-constraints" onclick="toggleSelect(this)">
+    <div class="letter">6</div>
+    <div class="content">
+      <h3>No Major Constraints — Go Big</h3>
+      <p>You're ready for ambitious changes. Time, cost, and risk are manageable. Show me the full vision.</p>
+    </div>
+  </div>
+</div>
