@@ -91,7 +91,7 @@ def _increment_warmup_counter():
 def enqueue_email(contact, email_type, source_id, enrollment_id, step_id,
                   template_id, from_name, from_email, subject, html,
                   unsubscribe_url, priority, ledger_id, campaign_id=0,
-                  scheduled_at=None):
+                  scheduled_at=None, auto_email_id=0):
     """Add an email to the delivery queue and update the linked ledger entry.
 
     Args:
@@ -109,6 +109,7 @@ def enqueue_email(contact, email_type, source_id, enrollment_id, step_id,
         priority:       Queue priority (10=highest)
         ledger_id:      ActionLedger.id to link
         campaign_id:    Campaign.id for CampaignEmail backward compat
+        auto_email_id:  AutoEmail.id if already created (auto-pilot sends)
 
     Returns:
         DeliveryQueue instance
@@ -133,6 +134,8 @@ def enqueue_email(contact, email_type, source_id, enrollment_id, step_id,
     )
     if scheduled_at:
         _create_kwargs["scheduled_at"] = scheduled_at
+    if auto_email_id:
+        _create_kwargs["auto_email_id"] = auto_email_id
     item = DeliveryQueue.create(**_create_kwargs)
 
     # Update ledger to "queued"
@@ -329,21 +332,31 @@ def _create_compat_record(item, status, error_msg=""):
                 error_msg=error_msg,
             )
         elif item.email_type == "auto" and item.template_id:
-            ae = AutoEmail.create(
-                contact=item.contact,
-                template=item.template_id,
-                subject=item.subject or "",
-                status=status if status != "shadowed" else "sent",
-                error_msg=error_msg,
-                ses_message_id="",  # will be updated below
-                auto_run_date=datetime.now().date(),
-            )
-            # Store the auto_email_id on the queue item for tracking URL generation
-            try:
-                item.auto_email_id = ae.id
-                item.save()
-            except Exception:
-                pass
+            if item.auto_email_id:
+                # AutoEmail was pre-created during scheduling — just update its status
+                try:
+                    AutoEmail.update(
+                        status=status if status != "shadowed" else "sent",
+                        error_msg=error_msg,
+                    ).where(AutoEmail.id == item.auto_email_id).execute()
+                except Exception:
+                    pass
+            else:
+                ae = AutoEmail.create(
+                    contact=item.contact,
+                    template=item.template_id,
+                    subject=item.subject or "",
+                    status=status if status != "shadowed" else "sent",
+                    error_msg=error_msg,
+                    ses_message_id="",  # will be updated below
+                    auto_run_date=datetime.now().date(),
+                )
+                # Store the auto_email_id on the queue item for tracking URL generation
+                try:
+                    item.auto_email_id = ae.id
+                    item.save()
+                except Exception:
+                    pass
     except Exception as e:
         print("[DeliveryQueue] Compat record error: %s" % e, file=sys.stderr)
 

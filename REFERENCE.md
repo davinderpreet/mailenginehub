@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-19 12:22. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-19 12:36. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -219,9 +219,9 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (52 files, 30,474 lines)
+## Python Files — Detailed (52 files, 30,516 lines)
 
-### `app.py` (6,519 lines)
+### `app.py` (6,548 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
 
 Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,
@@ -529,7 +529,7 @@ Key functions:
 - `compute_action_effectiveness() — Action type performance per segment`
 - `compute_optimal_frequency() — Personalized send gap per contact`
 
-### `delivery_engine.py` (421 lines)
+### `delivery_engine.py` (434 lines)
 **Email delivery queue — priority-based, warmup-compliant, shadow/sandbox/live modes**
 
 Separates email generation from sending via DeliveryQueue model. enqueue_email() stages

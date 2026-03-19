@@ -6143,7 +6143,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
             import sys as _sas; _sas.path.insert(0, APP_DIR)
             from database import (MessageDecision, Contact, CustomerProfile, ContactScore,
                                   EmailTemplate, FlowEnrollment, DeliveryQueue, SuppressionEntry,
-                                  init_db, get_system_config)
+                                  AutoEmail, init_db, get_system_config)
             from delivery_engine import enqueue_email
             from action_ledger import log_action
             from learning_config import get_learning_enabled
@@ -6263,7 +6263,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                     html = html.replace("{{first_name}}", contact.first_name or "Friend")
                     html = html.replace("{{last_name}}", contact.last_name or "")
                     html = html.replace("{{email}}", contact.email)
-                    _unsub = "https://mailenginehub.com/unsubscribe/%s" % contact.email
+                    _unsub = _make_unsubscribe_url(contact)
 
                     html = html.replace("{{unsubscribe_url}}", _unsub)
 
@@ -6350,14 +6350,42 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                     from email_shell import wrap_email
                     html = wrap_email(html, preview_text=template.preview_text or '', unsubscribe_url=_unsub)
 
-                    # Add tracking pixel
-                    _auto_pixel = "https://mailenginehub.com/track/auto-open/%d/%d" % (contact.id, template_id)
-                    html += '<img src="%s" width="1" height="1" />' % _auto_pixel
-
                     subject = template.subject or "A message from LDAS Electronics"
                     subject = subject.replace("{{first_name}}", contact.first_name or "Friend")
 
                     from_email = os.getenv("DEFAULT_FROM_EMAIL", "news@news.ldaselectronics.com")
+
+                    # Pre-create AutoEmail record so we have an ID for tracking tokens
+                    ae = AutoEmail.create(
+                        contact=contact,
+                        template=template_id,
+                        subject=subject,
+                        status="queued",
+                        auto_run_date=datetime.now().date(),
+                    )
+
+                    # Add token-based tracking pixel
+                    from itsdangerous import URLSafeSerializer as _USS
+                    _s_open = _USS(app.secret_key, salt="auto-open")
+                    _auto_token = _s_open.dumps({"aeid": ae.id})
+                    _auto_pixel = "https://mailenginehub.com/track/auto-open/%s" % _auto_token
+                    html += '<img src="%s" width="1" height="1" />' % _auto_pixel
+
+                    # Wrap all links with click tracking URLs
+                    import re as _re
+                    from urllib.parse import quote as _quote
+                    _s_click = _USS(app.secret_key, salt="auto-click")
+                    _click_token = _s_click.dumps({"aeid": ae.id})
+
+                    def _wrap_auto_link(match):
+                        original_url = match.group(1)
+                        if "unsubscribe" in original_url or "track/" in original_url:
+                            return match.group(0)
+                        wrapped = "https://mailenginehub.com/track/auto-click/%s?url=%s" % (
+                            _click_token, _quote(original_url, safe=""))
+                        return 'href="%s"' % wrapped
+
+                    html = _re.sub(r'href="([^"]+)"', _wrap_auto_link, html)
 
                     # Log to ledger
                     ledger = log_action(contact, "auto", 0, "rendered", "RC_AUTO_SCHEDULED",
@@ -6368,7 +6396,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                                         reason_detail="NBM action: %s → template: %s, scheduled: %s"
                                                       % (decision.action_type, template.name, _sched.strftime("%H:%M")))
 
-                    # Enqueue with scheduled_at
+                    # Enqueue with scheduled_at, linking the pre-created AutoEmail
                     enqueue_email(
                         contact=contact,
                         email_type="auto",
@@ -6384,6 +6412,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                         priority=60,
                         ledger_id=ledger.id if ledger else 0,
                         scheduled_at=_sched,
+                        auto_email_id=ae.id,
                     )
                     scheduled += 1
 
