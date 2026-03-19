@@ -2361,6 +2361,16 @@ def warmup_dashboard():
     except Exception:
         pass
 
+    # ── Google Postmaster Tools metrics ──────────────────
+    postmaster_latest = None
+    postmaster_trend = []
+    try:
+        from postmaster_tools import get_latest_metrics, get_metrics_trend
+        postmaster_latest = get_latest_metrics()
+        postmaster_trend = get_metrics_trend(days=14)
+    except Exception:
+        pass  # Module or credentials not available yet
+
     sent_today = config.emails_sent_today if config.is_active else 0
     safe_send_volume = max(0, daily_limit - sent_today) if config.is_active else daily_limit
 
@@ -2419,6 +2429,9 @@ def warmup_dashboard():
         suppression_breakdown=suppression_breakdown,
         risky_domains=risky_domains,
         recommended_speed=recommended_speed,
+        # Google Postmaster Tools
+        postmaster_latest=postmaster_latest,
+        postmaster_trend=postmaster_trend,
     )
 
 
@@ -6704,6 +6717,19 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                        id="learning_engine", replace_existing=True)
     _scheduler.add_job(_run_strategy_optimizer, "cron", hour=6, minute=0,
                        id="strategy_optimizer", replace_existing=True)
+
+    # ── Google Postmaster Tools fetch (6:30 AM) ──
+    def _run_postmaster_fetch():
+        try:
+            from postmaster_tools import fetch_postmaster_metrics
+            count = fetch_postmaster_metrics(days_back=7)
+            if count:
+                app.logger.info(f"[Postmaster] Fetched {count} new metric days")
+        except Exception as e:
+            app.logger.error(f"[Postmaster] Fetch failed: {e}")
+
+    _scheduler.add_job(_run_postmaster_fetch, "cron", hour=6, minute=30,
+                       id="postmaster_fetch", replace_existing=True)
 
     _scheduler.start()
     atexit.register(lambda: _scheduler.shutdown(wait=False))

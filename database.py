@@ -783,7 +783,7 @@ def init_db():
          SystemConfig, ActionLedger, DeliveryQueue, IdentityJob, AIRenderLog,
          KnowledgeEntry, AIModelConfig, StudioJob, TemplateCandidate, TemplatePerformance,
          OutcomeLog, ActionPerformance, TemplateSegmentPerformance, ModelWeights, LearningConfig,
-         ScrapeSource, ScrapeLog, RejectionLog],
+         ScrapeSource, ScrapeLog, RejectionLog, PostmasterMetric],
         safe=True
     )
     _migrate_contact_columns()
@@ -1741,6 +1741,27 @@ class RejectionLog(BaseModel):
 
     class Meta:
         table_name = "rejection_logs"
+
+
+class PostmasterMetric(BaseModel):
+    """Daily Google Postmaster Tools metrics for sending domain."""
+    date                     = DateField()
+    domain                   = CharField(default="news.ldaselectronics.com")
+    spam_rate                = FloatField(default=0.0)        # 0.0 to 1.0
+    ip_reputation            = CharField(default="")           # HIGH, MEDIUM, LOW, BAD
+    domain_reputation        = CharField(default="")           # HIGH, MEDIUM, LOW, BAD
+    spf_success_rate         = FloatField(default=0.0)         # 0.0 to 1.0
+    dkim_success_rate        = FloatField(default=0.0)         # 0.0 to 1.0
+    dmarc_success_rate       = FloatField(default=0.0)         # 0.0 to 1.0
+    inbound_encryption_rate  = FloatField(default=0.0)
+    outbound_encryption_rate = FloatField(default=0.0)
+    delivery_error_rate      = FloatField(default=0.0)
+    raw_json                 = TextField(default="{}")          # full API response
+    fetched_at               = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "postmaster_metrics"
+        indexes = ((("date", "domain"), True),)  # unique per date+domain
 
 
 def get_system_config():
