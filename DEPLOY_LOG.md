@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-19 13:19 -- `df566b1`
+
+**fix: send time optimization — learn from 1 open + spread unknown contacts across business hours**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+customer_intelligence.py
+```
+
+---
+
 ### 2026-03-19 13:07 -- `78ff644`
 
 **fix: add auto email type to sent email preview route**
