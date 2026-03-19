@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-19 15:03 -- `cf6f0dd`
+
+**fix: force-send Welcome Step 1 before pausing for higher-priority flow**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-19 14:27 -- `0dbed3b`
 
 **Auto-update CLAUDE.md before deploy**
