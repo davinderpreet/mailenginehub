@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-19 11:54. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-19 12:20. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -219,7 +219,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (52 files, 30,340 lines)
+## Python Files — Detailed (52 files, 30,363 lines)
 
 ### `app.py` (6,408 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -529,6 +529,22 @@ Key functions:
 - `compute_action_effectiveness() — Action type performance per segment`
 - `compute_optimal_frequency() — Personalized send gap per contact`
 
+### `delivery_engine.py` (421 lines)
+**Email delivery queue — priority-based, warmup-compliant, shadow/sandbox/live modes**
+
+Separates email generation from sending via DeliveryQueue model. enqueue_email() stages
+emails with priority (checkout_abandoned=10 highest, contact_created=50 lowest).
+process_queue() runs every 30s: drains by priority, respects warmup phase caps.
+8 warmup phases: Ignition (50/day, 3d) -> Spark (150, 4d) -> Gaining Trust (350, 7d) ->
+Building (750, 7d) -> Momentum (1500, 7d) -> Scaling (3000, 7d) -> High Volume (7000, 7d) ->
+Full Send (999999, 99d). Delivery modes: live (send via SES), shadow (mark as shadowed, no SES),
+sandbox (SES sandbox mode with 5/day cap). SystemConfig.delivery_mode controls the mode.
+
+Key functions:
+- `enqueue_email(contact, email_type, ...) — Stage email in queue with priority`
+- `process_queue() — Drain queue respecting warmup limits and delivery mode`
+- `_get_warmup_remaining() — Calculate remaining daily capacity`
+
 ### `system_map_data.py` (414 lines)
 **System architecture visualization — 65+ nodes, relationships, stats for D3.js force graph**
 
@@ -545,22 +561,6 @@ checkout create) with HMAC SHA256 signature verification. (2) Nightly (2:00 UTC)
 via Shopify REST API — fetches all customers and orders, upserts ShopifyCustomer + ShopifyOrder
 + ShopifyOrderItem + Contact. Enriches Contact with total_orders, total_spent, first/last order dates.
 Also incremental sync every 2s for recent changes.
-
-### `delivery_engine.py` (396 lines)
-**Email delivery queue — priority-based, warmup-compliant, shadow/sandbox/live modes**
-
-Separates email generation from sending via DeliveryQueue model. enqueue_email() stages
-emails with priority (checkout_abandoned=10 highest, contact_created=50 lowest).
-process_queue() runs every 30s: drains by priority, respects warmup phase caps.
-8 warmup phases: Ignition (50/day, 3d) -> Spark (150, 4d) -> Gaining Trust (350, 7d) ->
-Building (750, 7d) -> Momentum (1500, 7d) -> Scaling (3000, 7d) -> High Volume (7000, 7d) ->
-Full Send (999999, 99d). Delivery modes: live (send via SES), shadow (mark as shadowed, no SES),
-sandbox (SES sandbox mode with 5/day cap). SystemConfig.delivery_mode controls the mode.
-
-Key functions:
-- `enqueue_email(contact, email_type, ...) — Stage email in queue with priority`
-- `process_queue() — Drain queue respecting warmup limits and delivery mode`
-- `_get_warmup_remaining() — Calculate remaining daily capacity`
 
 ### `data_enrichment.py` (390 lines)
 **General contact enrichment — activity aggregation, profile metrics computation**
@@ -655,7 +655,7 @@ sync_shopify_products() fetches all products via Shopify API, populates ProductI
 (product_id, product_title, image_url, product_url, price, compare_price, product_type, handle).
 get_products_for_email(product_refs) returns product data formatted for email template insertion.
 
-### `email_sender.py` (251 lines)
+### `email_sender.py` (249 lines)
 **AWS SES integration — MIME-based, RFC 8058 one-click unsubscribe, suppression checks**
 
 Sends emails via boto3 SES raw send. Builds MIME multipart (text/plain + text/html).

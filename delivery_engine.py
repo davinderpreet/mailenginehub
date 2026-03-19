@@ -13,7 +13,7 @@ from database import (
     DeliveryQueue, ActionLedger, SystemConfig,
     WarmupConfig, FlowEmail, CampaignEmail,
     FlowEnrollment, FlowStep, Flow, Contact,
-    ContactScore, db, get_system_config,
+    ContactScore, AutoEmail, db, get_system_config,
 )
 from action_ledger import update_ledger_status
 
@@ -263,6 +263,7 @@ def _process_live(queued):
                 html_body=item.html,
                 unsubscribe_url=item.unsubscribe_url,
                 campaign_id=item.campaign_id or None,
+                template_id=item.template_id if item.email_type == "auto" else None,
             )
 
             if success:
@@ -271,6 +272,14 @@ def _process_live(queued):
                 item.save()
                 update_ledger_status(item.ledger_id, "sent", ses_message_id=msg_id or "")
                 _create_compat_record(item, status="sent")
+                # Update AutoEmail with ses_message_id
+                if item.email_type == "auto" and msg_id and item.auto_email_id:
+                    try:
+                        AutoEmail.update(ses_message_id=msg_id).where(
+                            AutoEmail.id == item.auto_email_id
+                        ).execute()
+                    except Exception:
+                        pass
                 _increment_warmup_counter()
                 _increment_contact_counters(item.contact_id if item.contact else None)
 
@@ -319,6 +328,22 @@ def _create_compat_record(item, status, error_msg=""):
                 status=status if status != "shadowed" else "sent",
                 error_msg=error_msg,
             )
+        elif item.email_type == "auto" and item.template_id:
+            ae = AutoEmail.create(
+                contact=item.contact,
+                template=item.template_id,
+                subject=item.subject or "",
+                status=status if status != "shadowed" else "sent",
+                error_msg=error_msg,
+                ses_message_id="",  # will be updated below
+                auto_run_date=datetime.now().date(),
+            )
+            # Store the auto_email_id on the queue item for tracking URL generation
+            try:
+                item.auto_email_id = ae.id
+                item.save()
+            except Exception:
+                pass
     except Exception as e:
         print("[DeliveryQueue] Compat record error: %s" % e, file=sys.stderr)
 

@@ -58,7 +58,7 @@ def _check_suppression(email):
 
 
 def send_campaign_email(to_email, to_name, from_email, from_name, subject, html_body,
-                        unsubscribe_url=None, campaign_id=None):
+                        unsubscribe_url=None, campaign_id=None, template_id=None):
     """
     Send a single email via Amazon SES using raw MIME for full header control.
     Includes RFC 8058 one-click unsubscribe, Feedback-ID, and Precedence headers.
@@ -90,7 +90,7 @@ def send_campaign_email(to_email, to_name, from_email, from_name, subject, html_
     msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
     # Google Postmaster Tools tracking
-    cid = campaign_id if campaign_id else "general"
+    cid = campaign_id if campaign_id else (f"auto-t{template_id}" if template_id else "general")
     msg["Feedback-ID"] = f"{cid}:mailenginehub:mailenginehub"
 
     # Identify as bulk marketing email
@@ -119,10 +119,8 @@ def send_campaign_email(to_email, to_name, from_email, from_name, subject, html_
         tags = []
         if campaign_id:
             tags.append({"Name": "campaign_id", "Value": str(campaign_id)})
-        try:
-            template_id = campaign_id  # Will be overridden by caller if available
-        except Exception:
-            pass
+        if template_id:
+            tags.append({"Name": "template_id", "Value": str(template_id)})
         if tags:
             send_args["Tags"] = tags
 
