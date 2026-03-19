@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-19 16:03 -- `c455a17`
+
+**fix: remove invalid @requires_auth decorator — route already auth-protected by before_request**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-19 15:46 -- `8a4df22`
 
 **fix: flow emails bypass warmup + dedup prevents re-queuing**
