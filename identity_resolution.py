@@ -538,7 +538,7 @@ def _evaluate_welcome_eligibility(contact, created, source, subscribe):
                 continue
             next_send = datetime.now() + timedelta(hours=first_step.delay_hours)
             try:
-                FlowEnrollment.create(
+                enrollment = FlowEnrollment.create(
                     flow=flow,
                     contact=contact,
                     current_step=1,
@@ -548,6 +548,17 @@ def _evaluate_welcome_eligibility(contact, created, source, subscribe):
                 enrolled_any = True
                 logger.info("Welcome: enrolled %s in '%s' via identity resolution (%s)"
                             % (contact.email, flow.name, source))
+
+                # ── Immediate Step 1 send for popup subscribers ──
+                # Popup subscribers expect their discount code instantly.
+                # Without this, the 60s flow processor delay lets browse/cart
+                # flows preempt the welcome series before Step 1 is sent.
+                if source == "popup_subscribe":
+                    try:
+                        _send_welcome_step1_immediately(enrollment, flow, first_step, contact)
+                    except Exception as e:
+                        logger.error("Welcome immediate send failed for %s: %s" % (contact.email, e))
+
             except Exception:
                 pass  # Unique constraint — already enrolled
 
@@ -568,6 +579,89 @@ def _evaluate_welcome_eligibility(contact, created, source, subscribe):
     except Exception as e:
         logger.warning("Welcome eligibility check failed for %s: %s" % (contact.email, e))
         return False
+
+
+def _send_welcome_step1_immediately(enrollment, flow, first_step, contact):
+    """Send Welcome Series Step 1 immediately at enrollment time.
+
+    Popup subscribers are promised a discount code. If we wait for the 60s flow
+    processor, browse/cart flows can preempt the welcome series before Step 1
+    is ever sent. This function enqueues Step 1 right now and advances the
+    enrollment to step 2 so the flow processor picks up from there.
+    """
+    import os
+    from database import EmailTemplate, FlowEmail
+    from delivery_engine import enqueue_email, get_priority_for_trigger
+    from discount_engine import generate_discount_code
+    from token_utils import create_token
+
+    SITE_URL = os.environ.get("SITE_URL", "https://mailenginehub.com").rstrip("/")
+
+    template = EmailTemplate.get_by_id(first_step.template_id)
+
+    # Build unsubscribe URL
+    _token = create_token({"p": "unsub", "cid": contact.id, "e": contact.email})
+    _unsub = "%s/unsubscribe/%s" % (SITE_URL, _token)
+
+    # Render template
+    if getattr(template, 'template_format', 'html') == 'blocks':
+        from block_registry import render_template_blocks
+        html = render_template_blocks(template, contact, products=[], discount=None)
+        html = html.replace("{{unsubscribe_url}}", _unsub)
+    else:
+        html = template.html_body or ""
+        html = html.replace("{{first_name}}", contact.first_name or "Friend")
+        html = html.replace("{{last_name}}", contact.last_name or "")
+        html = html.replace("{{email}}", contact.email)
+        html = html.replace("{{unsubscribe_url}}", _unsub)
+
+    # Inject discount code
+    if "{{discount_code}}" in html:
+        try:
+            _result = generate_discount_code(contact.email, "welcome")
+            _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
+            html = html.replace("{{discount_code}}", _dcode)
+        except Exception:
+            html = html.replace("{{discount_code}}", "LDAS10")
+
+    subject = (first_step.subject_override or template.subject or "Welcome!").replace(
+        "{{first_name}}", contact.first_name or "Friend")
+
+    _priority = get_priority_for_trigger(flow.trigger_type)
+
+    enqueue_email(
+        contact_id=contact.id,
+        email=contact.email,
+        subject=subject,
+        html=html,
+        email_type="flow",
+        source_id=flow.id,
+        enrollment_id=enrollment.id,
+        step_id=first_step.id,
+        template_id=first_step.template_id,
+        priority=_priority,
+        unsubscribe_url=_unsub,
+    )
+
+    # Record flow email so the processor knows Step 1 is done
+    FlowEmail.create(
+        enrollment=enrollment,
+        step=first_step,
+        contact=contact,
+        status="queued",
+    )
+
+    # Advance enrollment to step 2 so flow processor continues from there
+    second_step = (FlowStep.select()
+                   .where(FlowStep.flow == flow, FlowStep.step_order == 2)
+                   .first())
+    enrollment.current_step = 2
+    if second_step:
+        enrollment.next_send_at = datetime.now() + timedelta(hours=second_step.delay_hours)
+    enrollment.save()
+
+    logger.info("[WelcomeInstant] Immediately enqueued Step 1 of '%s' for %s (discount code promised via popup)"
+                % (flow.name, contact.email))
 
 
 def _replay_behavioral_triggers(contact_id, email, source):
