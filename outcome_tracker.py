@@ -275,6 +275,94 @@ def _process_flow_emails(lookback_hours=48):
     return processed, errors
 
 
+def _process_auto_emails(lookback_hours=48):
+    """Process AutoEmail rows from the last lookback_hours."""
+    from database import (AutoEmail, Contact, OutcomeLog, EmailTemplate)
+
+    cutoff = datetime.now() - timedelta(hours=lookback_hours)
+    processed = 0
+    errors = 0
+
+    emails = list(
+        AutoEmail
+        .select()
+        .where(
+            AutoEmail.status == "sent",
+            AutoEmail.sent_at >= cutoff,
+        )
+    )
+
+    for ae in emails:
+        try:
+            contact = Contact.get_by_id(ae.contact_id)
+            sent_at = ae.sent_at
+
+            opened = bool(ae.opened)
+            clicked = bool(ae.clicked)
+            hours_to_open = None
+            if opened and ae.opened_at and sent_at:
+                hours_to_open = round(
+                    (ae.opened_at - sent_at).total_seconds() / 3600, 2
+                )
+
+            unsubscribed = (not contact.subscribed and
+                            sent_at and contact.created_at and
+                            contact.created_at < sent_at)
+            purchased, revenue, hours_to_purchase = _attribute_purchase(
+                contact, sent_at
+            )
+
+            segment = _get_contact_segment(contact.id)
+            action_type = _get_action_type(contact.id)
+            template_id = ae.template_id if ae.template_id else 0
+            subject_line = ae.subject or ""
+            if not subject_line:
+                try:
+                    tpl = EmailTemplate.get_by_id(template_id)
+                    subject_line = tpl.subject or ""
+                except Exception:
+                    pass
+
+            send_gap = _get_send_gap_hours(contact.id, sent_at)
+
+            OutcomeLog.insert(
+                email_type="auto",
+                email_id=ae.id,
+                contact=contact.id,
+                template_id=template_id,
+                action_type=action_type,
+                segment=segment,
+                opened=opened,
+                clicked=clicked,
+                purchased=purchased,
+                unsubscribed=unsubscribed,
+                revenue=revenue,
+                hours_to_open=hours_to_open,
+                hours_to_purchase=hours_to_purchase,
+                sent_at=sent_at,
+                subject_line=subject_line[:200],
+                send_gap_hours=send_gap,
+            ).on_conflict(
+                conflict_target=[OutcomeLog.email_type, OutcomeLog.email_id],
+                update={
+                    OutcomeLog.opened: opened,
+                    OutcomeLog.clicked: clicked,
+                    OutcomeLog.purchased: purchased,
+                    OutcomeLog.unsubscribed: unsubscribed,
+                    OutcomeLog.revenue: revenue,
+                    OutcomeLog.hours_to_open: hours_to_open,
+                    OutcomeLog.hours_to_purchase: hours_to_purchase,
+                },
+            ).execute()
+            processed += 1
+
+        except Exception as e:
+            logger.error("OutcomeTracker auto email %s error: %s", ae.id, e)
+            errors += 1
+
+    return processed, errors
+
+
 def run_outcome_tracker():
     """
     Main entry point — called nightly at 5:00 AM by APScheduler.
@@ -296,13 +384,19 @@ def run_outcome_tracker():
     # Process last 48h of flow emails
     flow_ok, flow_err = _process_flow_emails(lookback_hours=48)
 
+    # Process last 48h of auto-pilot emails
+    auto_ok, auto_err = _process_auto_emails(lookback_hours=48)
+
     # Re-check 72h window for purchase attribution on older emails
     camp_ok2, _ = _process_campaign_emails(lookback_hours=72)
     flow_ok2, _ = _process_flow_emails(lookback_hours=72)
+    auto_ok2, _ = _process_auto_emails(lookback_hours=72)
 
     logger.info(
         "[OutcomeTracker] Done — campaigns: %d processed (%d errors), "
         "flows: %d processed (%d errors), "
-        "72h re-check: %d campaign, %d flow",
-        camp_ok, camp_err, flow_ok, flow_err, camp_ok2, flow_ok2
+        "auto: %d processed (%d errors), "
+        "72h re-check: %d campaign, %d flow, %d auto",
+        camp_ok, camp_err, flow_ok, flow_err, auto_ok, auto_err,
+        camp_ok2, flow_ok2, auto_ok2
     )

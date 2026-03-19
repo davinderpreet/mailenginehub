@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-19 12:45. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-19 12:47. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -219,7 +219,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (52 files, 30,607 lines)
+## Python Files — Detailed (52 files, 30,701 lines)
 
 ### `app.py` (6,639 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -553,6 +553,15 @@ build_system_map_nodes() returns 65+ nodes representing every system component
 build_system_map_edges() returns relationships between nodes (data flow, dependencies).
 Consumed by /api/system-map/data endpoint, rendered as D3.js force-directed graph on /system-map page.
 
+### `outcome_tracker.py` (403 lines)
+**Nightly outcome collection — opened/clicked/purchased/revenue attribution for learning**
+
+Nightly (5:00 UTC). Queries CampaignEmail + FlowEmail from last 48h.
+Attributes purchases via last-touch within 72h window. Computes hours_to_open, hours_to_purchase.
+Writes OutcomeLog entries (email_type, email_id, contact, template_id, action_type, segment,
+opened, clicked, purchased, revenue, send_gap_hours). Re-checks 72h window for older emails
+to catch delayed purchases. Data feeds into learning_engine.py for performance computation.
+
 ### `shopify_sync.py` (399 lines)
 **Shopify customer/order sync — webhook handlers + nightly full sync + HMAC verification**
 
@@ -622,15 +631,6 @@ Gate function before sending any campaign. 10 checks:
 <5% safe, 5-10% warning, >10% block. (6) Fatigue — avg_fatigue <50 safe. (7) Suppression list —
 excluded. (8) SPF/DKIM — configured. (9) Unsubscribe link — present. (10) Bounce domain analysis —
 per-domain complaint rate. Output: PreflightLog with overall status (PASS/WARN/BLOCK) + detailed checks JSON.
-
-### `outcome_tracker.py` (309 lines)
-**Nightly outcome collection — opened/clicked/purchased/revenue attribution for learning**
-
-Nightly (5:00 UTC). Queries CampaignEmail + FlowEmail from last 48h.
-Attributes purchases via last-touch within 72h window. Computes hours_to_open, hours_to_purchase.
-Writes OutcomeLog entries (email_type, email_id, contact, template_id, action_type, segment,
-opened, clicked, purchased, revenue, send_gap_hours). Re-checks 72h window for older emails
-to catch delayed purchases. Data feeds into learning_engine.py for performance computation.
 
 ### `ai_provider.py` (273 lines)
 **Multi-model AI abstraction — Anthropic (Claude), OpenAI (GPT), OpenRouter (200+ models)**
