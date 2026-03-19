@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-19 15:19 -- `f92cea2`
+
+**fix: send Welcome Step 1 immediately for popup subscribers so discount code arrives before browse flow preempts**
+
+Files changed:
+```
+identity_resolution.py
+```
+
+---
+
 ### 2026-03-19 15:03 -- `cf6f0dd`
 
 **fix: force-send Welcome Step 1 before pausing for higher-priority flow**
