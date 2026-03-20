@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 16:40 -- `d755d1f`
+
+**Flow → AI Account Manager handover: skip contacts mid-flow, auto-enroll after flows complete**
+
+Files changed:
+```
+account_manager.py
+app.py
+delivery_engine.py
+templates/account_manager.html
+```
+
+---
+
 ### 2026-03-20 16:24 -- `ff37dc6`
 
 **Auto-update CLAUDE.md before deploy**
