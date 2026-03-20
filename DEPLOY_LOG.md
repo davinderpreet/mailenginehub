@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 13:13 -- `f60a5d0`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-03-20 12:31 -- `5c23c48`
 
 **Smart per-contact AI email personalization for nightly pipeline**
