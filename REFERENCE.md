@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-20 16:17. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-20 16:20. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -234,7 +234,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (55 files, 33,080 lines)
+## Python Files — Detailed (55 files, 33,114 lines)
 
 ### `app.py` (7,275 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -347,7 +347,7 @@ Key functions:
 - `scrape_competitor(source) — Extracts product/pricing from competitor pages`
 - `classify_content(text, source_type) — AI classifies and scores relevance`
 
-### `account_manager.py` (837 lines)
+### `account_manager.py` (871 lines)
 ### `ai_engine.py` (819 lines)
 **Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution**
 
@@ -996,7 +996,7 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 
 ## HTML Templates (38 files)
 
-- **`account_manager.html`** (36.2KB, extends base.html)
+- **`account_manager.html`** (36.5KB, extends base.html)
 - **`activity.html`** (25.4KB, extends base.html) -- Activity feed — real-time event log with type filters, auto-refresh via /api/activity/feed polling.
 - **`agent.html`** (16.4KB, extends base.html) -- IT Agent chat — ChatGPT-style interface, message bubbles, input field, sends to /api/agent/chat.
 - **`ai_engine.html`** (28.5KB, extends base.html) -- AI Engine dashboard (28KB) — segment distribution pie chart, today's plan table, decision log with filters, run-now button, sample email generator.

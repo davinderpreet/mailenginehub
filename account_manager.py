@@ -573,13 +573,14 @@ Keep strategy_update COMPACT — max 3-4 phases, each with name + goal + 1 tacti
 
                 if result:
                     if cs.autonomous:
-                        # Autonomous — straight to delivery queue
+                        # Autonomous — straight to delivery queue at optimal time
+                        send_at = _get_optimal_send_time(contact)
                         _unsub = f"https://mailenginehub.com/unsubscribe?email={contact.email}"
                         ledger = log_action(contact, "auto", 0, "rendered", "RC_ACCOUNT_MANAGER",
                                             source_type="account_manager",
                                             subject=result["subject"],
                                             html=result["body_html"], priority=60,
-                                            reason_detail=f"AM action: {purpose}")
+                                            reason_detail=f"AM auto: {purpose}, scheduled {send_at.strftime('%H:%M')}")
                         enqueue_email(
                             contact=contact,
                             email_type="auto",
@@ -594,6 +595,7 @@ Keep strategy_update COMPACT — max 3-4 phases, each with name + goal + 1 tacti
                             unsubscribe_url=_unsub,
                             priority=60,
                             ledger_id=ledger.id if ledger else 0,
+                            scheduled_at=send_at,
                         )
                         emails_generated += 1
                     else:
@@ -644,6 +646,33 @@ Keep strategy_update COMPACT — max 3-4 phases, each with name + goal + 1 tacti
 
 
 # ─────────────────────────────────
+#  OPTIMAL SEND TIME
+# ─────────────────────────────────
+
+def _get_optimal_send_time(contact):
+    """Calculate the next optimal send datetime for a contact based on their profile."""
+    from database import CustomerProfile
+    profile = CustomerProfile.get_or_none(CustomerProfile.email == contact.email)
+
+    send_hour = -1
+    if profile and profile.preferred_send_hour >= 0:
+        send_hour = profile.preferred_send_hour
+
+    if send_hour < 0:
+        send_hour = 10  # Default: 10 AM if no preference known
+
+    now = datetime.now()
+    # Build target datetime for today at the preferred hour
+    target = now.replace(hour=send_hour, minute=0, second=0, microsecond=0)
+
+    # If that time already passed today, schedule for tomorrow
+    if target <= now:
+        target += timedelta(days=1)
+
+    return target
+
+
+# ─────────────────────────────────
 #  APPROVAL / REJECTION / EDIT
 # ─────────────────────────────────
 
@@ -664,12 +693,15 @@ def approve_email(pending_id):
     subject = pe.edited_subject if pe.edited_subject else pe.subject
     html = pe.edited_html if pe.edited_html else pe.body_html
 
+    # Schedule at the contact's optimal send time
+    send_at = _get_optimal_send_time(contact)
+
     _unsub = f"https://mailenginehub.com/unsubscribe?email={contact.email}"
     ledger = log_action(contact, "auto", 0, "rendered", "RC_ACCOUNT_MANAGER",
                         source_type="account_manager",
                         subject=subject,
                         html=html, priority=60,
-                        reason_detail=f"AM approved: {pe.action_type}")
+                        reason_detail=f"AM approved: {pe.action_type}, scheduled for {send_at.strftime('%H:%M')}")
 
     enqueue_email(
         contact=contact,
@@ -685,10 +717,12 @@ def approve_email(pending_id):
         unsubscribe_url=_unsub,
         priority=60,
         ledger_id=ledger.id if ledger else 0,
+        scheduled_at=send_at,
     )
 
     pe.status = "approved"
     pe.reviewed_at = datetime.now()
+    pe.send_at = send_at
     pe.save()
 
     # Update strategy confidence

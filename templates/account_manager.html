@@ -176,6 +176,9 @@
             <div style="font-size:11px;color:var(--text3);">
               <i class="fas fa-clock" style="margin-right:4px;"></i>
               {{ pe.created_at.strftime('%b %d, %H:%M') }}
+              {% if pe.send_at %}
+              <span style="margin-left:6px;color:var(--green);"><i class="fas fa-paper-plane" style="margin-right:3px;"></i>Sends {{ pe.send_at.strftime('%b %d, %I:%M %p') }}</span>
+              {% endif %}
             </div>
           </div>
 
