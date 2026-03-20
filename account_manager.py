@@ -182,15 +182,19 @@ def gather_business_context():
     # Products with commercial data
     products = ProductImageCache.select().limit(50)
     for p in products:
-        line = f"- {p.title}: ${p.price:.2f}"
-        comm = ProductCommercial.get_or_none(ProductCommercial.shopify_product_id == p.shopify_product_id)
+        try:
+            price_val = float(p.price) if p.price else 0
+        except (ValueError, TypeError):
+            price_val = 0
+        line = f"- {p.product_title}: ${price_val:.2f}"
+        comm = ProductCommercial.get_or_none(ProductCommercial.product_id == p.product_id)
         if comm:
             if comm.margin_pct:
                 line += f" (margin: {comm.margin_pct:.0f}%)"
-            if comm.promo_eligible:
+            if comm.promotion_eligible:
                 line += " [PROMO ELIGIBLE]"
-            if comm.stock_level:
-                line += f" stock: {comm.stock_level}"
+            if comm.inventory_level:
+                line += f" stock: {comm.inventory_level}"
         lines.append(line)
 
     # Competitor data
