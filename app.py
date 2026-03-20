@@ -5814,7 +5814,7 @@ def auto_pilot_preview(item_id):
 # ═══════════════════════════════════════════════════════════════
 
 @app.route("/account-manager")
-@requires_auth
+
 def account_manager_dashboard():
     from database import (AMPendingReview, ContactStrategy, Contact,
                           LearningConfig)
@@ -5873,7 +5873,7 @@ def account_manager_dashboard():
 
 
 @app.route("/account-manager/approve/<int:pending_id>", methods=["POST"])
-@requires_auth
+
 def am_approve(pending_id):
     from account_manager import approve_email
     approve_email(pending_id)
@@ -5882,7 +5882,7 @@ def am_approve(pending_id):
 
 
 @app.route("/account-manager/reject/<int:pending_id>", methods=["POST"])
-@requires_auth
+
 def am_reject(pending_id):
     from account_manager import reject_email
     reason = request.form.get("reason", "")
@@ -5892,7 +5892,7 @@ def am_reject(pending_id):
 
 
 @app.route("/account-manager/edit/<int:pending_id>", methods=["POST"])
-@requires_auth
+
 def am_edit(pending_id):
     from database import AMPendingReview
     pe = AMPendingReview.get_or_none(AMPendingReview.id == pending_id)
@@ -5919,7 +5919,7 @@ def am_edit(pending_id):
 
 
 @app.route("/account-manager/regenerate/<int:pending_id>", methods=["POST"])
-@requires_auth
+
 def am_regenerate(pending_id):
     from account_manager import regenerate_email
     feedback = request.form.get("feedback", "")
@@ -5932,7 +5932,7 @@ def am_regenerate(pending_id):
 
 
 @app.route("/account-manager/bulk-approve", methods=["POST"])
-@requires_auth
+
 def am_bulk_approve():
     from account_manager import approve_email
     ids = request.form.getlist("pending_ids")
@@ -5945,7 +5945,7 @@ def am_bulk_approve():
 
 
 @app.route("/account-manager/contact/<int:contact_id>")
-@requires_auth
+
 def am_contact_detail(contact_id):
     from database import (Contact, ContactStrategy, AMPendingReview,
                           CustomerProfile, ContactScore)
@@ -5985,7 +5985,7 @@ def am_contact_detail(contact_id):
 
 
 @app.route("/account-manager/enroll/<int:contact_id>", methods=["POST"])
-@requires_auth
+
 def am_enroll(contact_id):
     from account_manager import enroll_contact
     enroll_contact(contact_id)
@@ -5994,7 +5994,7 @@ def am_enroll(contact_id):
 
 
 @app.route("/account-manager/unenroll/<int:contact_id>", methods=["POST"])
-@requires_auth
+
 def am_unenroll(contact_id):
     from account_manager import unenroll_contact
     unenroll_contact(contact_id)
@@ -6003,7 +6003,7 @@ def am_unenroll(contact_id):
 
 
 @app.route("/account-manager/settings", methods=["GET", "POST"])
-@requires_auth
+
 def am_settings():
     from database import LearningConfig
     if request.method == "POST":
@@ -6021,7 +6021,7 @@ def am_settings():
 
 
 @app.route("/account-manager/preview/<int:pending_id>")
-@requires_auth
+
 def am_preview_email(pending_id):
     from database import AMPendingReview
     pe = AMPendingReview.get_or_none(AMPendingReview.id == pending_id)
@@ -6032,7 +6032,7 @@ def am_preview_email(pending_id):
 
 
 @app.route("/account-manager/prompts")
-@requires_auth
+
 def am_prompts():
     from database import PromptVersion
     from account_manager import DEFAULT_PROMPTS, seed_default_prompts
@@ -6064,7 +6064,7 @@ def am_prompts():
 
 
 @app.route("/account-manager/prompts/save", methods=["POST"])
-@requires_auth
+
 def am_save_prompt():
     from database import PromptVersion
     prompt_key = request.form.get("prompt_key")
@@ -6096,7 +6096,7 @@ def am_save_prompt():
 
 
 @app.route("/account-manager/prompts/revert", methods=["POST"])
-@requires_auth
+
 def am_revert_prompt():
     from database import PromptVersion
     version_id = int(request.form.get("version_id"))
@@ -6114,7 +6114,7 @@ def am_revert_prompt():
 
 
 @app.route("/account-manager/prompts/preview", methods=["POST"])
-@requires_auth
+
 def am_prompt_preview():
     """Test a prompt against a specific contact — returns AI response as JSON."""
     from database import Contact, ContactStrategy
