@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 15:36 -- `e43f802`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-03-20 15:34 -- `f4caea8`
 
 **fix: remove @requires_auth decorator — app uses before_request auth**
