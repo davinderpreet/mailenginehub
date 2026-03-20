@@ -30,12 +30,12 @@ def _get_anthropic_client():
 #  AI EMAIL GENERATION (Phase G)
 # ─────────────────────────────────
 
-BRAND_CONTEXT = """You are the email copywriter for LDAS Electronics (ldas.ca / ldas-electronics.com),
+BRAND_CONTEXT = """You are the email copywriter for LDAS Electronics (ldas.ca),
 a Canadian electronics store specializing in trucking electronics, dash cams, headsets, CB radios,
 and accessories for professional drivers and fleet operators. Our tone is friendly, knowledgeable,
 and helpful — like a fellow trucker who knows their tech. We are not pushy or corporate.
 
-Store URL: https://ldas-electronics.com
+Store URL: https://ldas.ca
 Brand name: LDAS Electronics"""
 
 EMAIL_PURPOSES = {
@@ -158,7 +158,9 @@ def generate_personalized_email(email, purpose, extra_context=""):
     prompt += """
 
 INSTRUCTIONS:
-- Write a short, personal email for this specific customer
+- Write a SHORT, scannable email — nobody reads long paragraphs in marketing emails
+- Each body_paragraphs entry must be 1-2 sentences MAX (under 30 words each)
+- Use 2-3 short paragraphs total, NOT long blocks of text. Think billboard copy.
 - Use the customer's first name if available (otherwise say "Hey there")
 - Reference specific products, browsing behavior, or purchase history from their profile
 - Keep it warm and conversational — like a helpful friend, not a corporation
@@ -166,17 +168,18 @@ INSTRUCTIONS:
 - Do NOT use generic filler phrases like "valued customer" or "exclusive offer"
 - Use the INTELLIGENCE BRIEF to understand this customer's exact situation — their reorder cycle, what they bought, when they're likely to buy again
 - If purpose is 'education', do NOT pitch products or push discounts. Share useful tips, care advice, trucking industry info, or maintenance guides relevant to their purchase category. The goal is to be helpful, not to sell.
+- ALL URLs must use the domain ldas.ca (e.g., https://ldas.ca, https://ldas.ca/collections/all). NEVER use ldas-electronics.com.
 
 Return ONLY valid JSON (no markdown, no code blocks) with this structure:
 {
-  "subject": "the email subject line (short, personal, compelling)",
+  "subject": "the email subject line (short, personal, compelling, under 50 chars)",
   "preheader": "inbox preview text (different from subject, max 80 chars)",
-  "hero_headline": "big headline shown at top of email (short, punchy, personal)",
-  "hero_subheadline": "smaller text below headline (optional context)",
-  "body_paragraphs": ["paragraph 1", "paragraph 2", "paragraph 3 (optional)"],
-  "cta_text": "call-to-action button text (e.g., 'Shop Now', 'Complete Your Order')",
-  "cta_url": "https://ldas-electronics.com or specific product/collection URL",
-  "urgency_message": "urgency text shown in amber bar (optional, leave empty if not applicable)",
+  "hero_headline": "big headline (max 8 words, punchy, personal)",
+  "hero_subheadline": "smaller text below headline (max 15 words)",
+  "body_paragraphs": ["short paragraph 1 (1-2 sentences)", "short paragraph 2 (1-2 sentences)"],
+  "cta_text": "button text (2-4 words, e.g., 'Shop Now', 'Browse Headsets')",
+  "cta_url": "https://ldas.ca or https://ldas.ca/collections/... or https://ldas.ca/products/...",
+  "urgency_message": "urgency text (optional, leave empty string if not applicable)",
   "reasoning": "1 sentence explaining your strategy for this email"
 }"""
 
@@ -249,7 +252,7 @@ Return ONLY valid JSON (no markdown, no code blocks) with this structure:
             "hero_subheadline": result.get("hero_subheadline", ""),
             "body_paragraphs": result.get("body_paragraphs", [result.get("body_text", "")]),
             "cta_text": result.get("cta_text", "Shop Now"),
-            "cta_url": result.get("cta_url", "https://ldas-electronics.com"),
+            "cta_url": result.get("cta_url", "https://ldas.ca"),
             "urgency_message": result.get("urgency_message", ""),
             "preheader": result.get("preheader", result.get("subject", "")),
         }

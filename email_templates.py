@@ -278,7 +278,7 @@ def render_winback_email(content, products, discount=None, unsubscribe_url="{{un
     hero = _hero_section(
         content.get("hero_headline", "We miss you!"),
         content.get("hero_subheadline", "It's been a while — here's something special"),
-        bg_color="linear-gradient(135deg, %s 0%%, #ddd6fe 100%%)" % BRAND_COLOR_LIGHT,
+        bg_color="linear-gradient(135deg, %s 0%%, %s 100%%)" % (BRAND_COLOR_LIGHT, "#dbeafe"),
     )
     body = _body_paragraphs(content.get("body_paragraphs", []))
     discount_section = _discount_block(discount) if discount else ""
@@ -447,6 +447,146 @@ def render_high_intent_email(content, products, discount=None, unsubscribe_url="
     )
 
 
+def render_education_email(content, products, discount=None, unsubscribe_url="{{unsubscribe_url}}"):
+    """
+    Educational content — tips, guides, care advice. No hard sell.
+    """
+    hero = _hero_section(
+        content.get("hero_headline", "A quick tip for you"),
+        content.get("hero_subheadline", ""),
+        bg_color="linear-gradient(135deg, %s 0%%, %s 100%%)" % (BRAND_COLOR_LIGHT, "#dbeafe"),
+    )
+    body = _body_paragraphs(content.get("body_paragraphs", []))
+    # Education emails: products as light recommendations, no discount
+    products_section = ""
+    if products:
+        products_section = _section_header("Recommended For You", BRAND_COLOR)
+        products_section += '<tr><td style="padding:0 24px;" class="mobile-pad">' + _product_grid(products) + '</td></tr>'
+
+    cta = _cta_button(
+        content.get("cta_text", "Browse Accessories & Parts"),
+        content.get("cta_url", BRAND_URL),
+    )
+
+    body_html = hero + body + products_section + cta
+    return _email_base(
+        content.get("preheader", "A helpful tip from LDAS Electronics"),
+        body_html, unsubscribe_url
+    )
+
+
+def render_reorder_reminder_email(content, products, discount=None, unsubscribe_url="{{unsubscribe_url}}"):
+    """
+    Reorder reminder — gentle nudge when approaching reorder cycle.
+    """
+    hero = _hero_section(
+        content.get("hero_headline", "Time for a refresh?"),
+        content.get("hero_subheadline", ""),
+        bg_color="linear-gradient(135deg, %s 0%%, %s 100%%)" % (BRAND_COLOR_LIGHT, "#dbeafe"),
+    )
+    body = _body_paragraphs(content.get("body_paragraphs", []))
+    products_section = ""
+    if products:
+        products_section = _section_header("Recommended For You", BRAND_COLOR)
+        products_section += '<tr><td style="padding:0 24px;" class="mobile-pad">' + _product_grid(products) + '</td></tr>'
+
+    discount_section = _discount_block(discount) if discount else ""
+    cta = _cta_button(
+        content.get("cta_text", "Browse Headsets"),
+        content.get("cta_url", BRAND_URL),
+    )
+
+    body_html = hero + body + products_section + discount_section + cta
+    return _email_base(
+        content.get("preheader", "Your gear might be due for a refresh"),
+        body_html, unsubscribe_url
+    )
+
+
+def render_cross_sell_email(content, products, discount=None, unsubscribe_url="{{unsubscribe_url}}"):
+    """
+    Cross-sell — complementary products from different categories.
+    """
+    hero = _hero_section(
+        content.get("hero_headline", "Goes great with your gear"),
+        content.get("hero_subheadline", ""),
+        bg_color="linear-gradient(135deg, %s 0%%, %s 100%%)" % (BRAND_COLOR_LIGHT, "#dbeafe"),
+    )
+    body = _body_paragraphs(content.get("body_paragraphs", []))
+    products_section = ""
+    if products:
+        products_section = _section_header("Recommended For You", BRAND_COLOR)
+        products_section += '<tr><td style="padding:0 24px;" class="mobile-pad">' + _product_grid(products) + '</td></tr>'
+
+    discount_section = _discount_block(discount) if discount else ""
+    cta = _cta_button(
+        content.get("cta_text", "Explore More"),
+        content.get("cta_url", BRAND_URL),
+    )
+
+    body_html = hero + body + products_section + discount_section + cta
+    return _email_base(
+        content.get("preheader", "Products that pair well with your setup"),
+        body_html, unsubscribe_url
+    )
+
+
+def render_new_product_email(content, products, discount=None, unsubscribe_url="{{unsubscribe_url}}"):
+    """
+    New product announcement — exciting new arrivals.
+    """
+    hero = _hero_section(
+        content.get("hero_headline", "Something new just dropped"),
+        content.get("hero_subheadline", ""),
+        bg_color="linear-gradient(135deg, %s 0%%, %s 100%%)" % (BRAND_COLOR_LIGHT, "#dbeafe"),
+    )
+    body = _body_paragraphs(content.get("body_paragraphs", []))
+    products_section = ""
+    if products:
+        products_section = _section_header("New Arrivals", BRAND_COLOR)
+        products_section += '<tr><td style="padding:0 24px;" class="mobile-pad">' + _product_grid(products) + '</td></tr>'
+
+    cta = _cta_button(
+        content.get("cta_text", "See What's New"),
+        content.get("cta_url", BRAND_URL),
+    )
+
+    body_html = hero + body + products_section + cta
+    return _email_base(
+        content.get("preheader", "New gear just landed at LDAS"),
+        body_html, unsubscribe_url
+    )
+
+
+def render_discount_offer_email(content, products, discount=None, unsubscribe_url="{{unsubscribe_url}}"):
+    """
+    Discount offer — targeted deal for price-sensitive or at-risk customers.
+    """
+    hero = _hero_section(
+        content.get("hero_headline", "A deal just for you"),
+        content.get("hero_subheadline", ""),
+        bg_color="linear-gradient(135deg, %s 0%%, %s 100%%)" % (BRAND_COLOR_LIGHT, "#dbeafe"),
+    )
+    body = _body_paragraphs(content.get("body_paragraphs", []))
+    discount_section = _discount_block(discount) if discount else ""
+    products_section = ""
+    if products:
+        products_section = _section_header("Recommended For You", BRAND_COLOR)
+        products_section += '<tr><td style="padding:0 24px;" class="mobile-pad">' + _product_grid(products) + '</td></tr>'
+
+    urgency = _urgency_bar(content.get("urgency_message", ""))
+    cta = _cta_button(
+        content.get("cta_text", "Grab Your Deal"),
+        content.get("cta_url", BRAND_URL),
+    )
+
+    body_html = hero + body + discount_section + products_section + urgency + cta
+    return _email_base(
+        content.get("preheader", "We've got a deal with your name on it"),
+        body_html, unsubscribe_url
+    )
+
+
 # ── Template Registry ────────────────────────────────────────
 
 TEMPLATE_RENDERERS = {
@@ -458,6 +598,11 @@ TEMPLATE_RENDERERS = {
     "loyalty_reward":     render_loyalty_reward_email,
     "re_engagement":      render_re_engagement_email,
     "high_intent":        render_high_intent_email,
+    "education":          render_education_email,
+    "reorder_reminder":   render_reorder_reminder_email,
+    "cross_sell":         render_cross_sell_email,
+    "new_product":        render_new_product_email,
+    "discount_offer":     render_discount_offer_email,
 }
 
 

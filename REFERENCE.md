@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-20 12:29. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-20 13:11. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -222,7 +222,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (54 files, 31,649 lines)
+## Python Files — Detailed (54 files, 31,797 lines)
 
 ### `app.py` (6,908 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -335,7 +335,7 @@ Key functions:
 - `scrape_competitor(source) — Extracts product/pricing from competitor pages`
 - `classify_content(text, source_type) — AI classifies and scores relevance`
 
-### `ai_engine.py` (816 lines)
+### `ai_engine.py` (819 lines)
 **Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution**
 
 Two-phase nightly pipeline:
@@ -465,6 +465,14 @@ Sources (/studio/sources) — ScrapeSource CRUD with run/toggle/fix actions.
 Scrape log (/studio/scrape-log) — historical log of scraping runs.
 API (/studio/api/intelligence-score) — JSON endpoint for dashboard polling.
 
+### `email_templates.py` (625 lines)
+**Seed template library — pre-built templates for each journey type in blocks_json format**
+
+Defines seed templates for: welcome, browse_recovery, cart_recovery, checkout_recovery,
+post_purchase, winback, loyalty, promo. Each template has subject, preview_text, and blocks_json
+(hero + text + CTA + relevant blocks for the journey). Used by init_db() to populate
+the EmailTemplate table on first run.
+
 ### `activity_sync.py` (613 lines)
 **Email engagement sync — opens, clicks, unsubscribes from SES webhooks and tracking pixels**
 
@@ -502,14 +510,6 @@ Key functions:
 - `generate_block_content(block_type, contact, family, fallback, purpose) — AI content merged with fallback`
 - `personalize_text_field(field_name, template_text, contact, fallback) — Send-time personalization`
 - `generate_template_content(blocks, family, contact) — Batch generation for all blocks`
-
-### `email_templates.py` (480 lines)
-**Seed template library — pre-built templates for each journey type in blocks_json format**
-
-Defines seed templates for: welcome, browse_recovery, cart_recovery, checkout_recovery,
-post_purchase, winback, loyalty, promo. Each template has subject, preview_text, and blocks_json
-(hero + text + CTA + relevant blocks for the journey). Used by init_db() to populate
-the EmailTemplate table on first run.
 
 ### `create_showcase_templates.py` (474 lines)
 **Showcase template generator — creates example templates demonstrating all block types**
