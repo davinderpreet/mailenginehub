@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-20 16:09. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-20 16:17. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -234,7 +234,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (55 files, 33,066 lines)
+## Python Files — Detailed (55 files, 33,080 lines)
 
 ### `app.py` (7,275 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -347,7 +347,7 @@ Key functions:
 - `scrape_competitor(source) — Extracts product/pricing from competitor pages`
 - `classify_content(text, source_type) — AI classifies and scores relevance`
 
-### `account_manager.py` (823 lines)
+### `account_manager.py` (837 lines)
 ### `ai_engine.py` (819 lines)
 **Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution**
 

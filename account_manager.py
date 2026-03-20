@@ -491,7 +491,9 @@ Current phase: {cs.current_phase or "Not set"}
 Phase number: {cs.current_phase_num}
 Last reviewed: {cs.last_reviewed_at.strftime('%Y-%m-%d') if cs.last_reviewed_at else "Never"}
 
-FEEDBACK HISTORY (learn from this — do NOT repeat rejected approaches):
+FEEDBACK HISTORY (learn from ALL of this — do NOT repeat mistakes):
+- "type": "edit_feedback" = reviewer asked for specific changes (apply these corrections to ALL future emails)
+- "type": absent or "rejection" = email was rejected entirely (avoid this approach)
 {json.dumps(rejection_history[-10:], indent=2) if rejection_history else "No feedback yet."}
 
 {strategy_prompt}
@@ -754,9 +756,21 @@ def regenerate_email(pending_id, feedback):
         pe.status = "pending"  # Reset to pending for re-review
         pe.save()
 
-        # Track the edit
+        # Track the edit AND log feedback so AI learns from it
         cs = pe.strategy
         cs.total_edited += 1
+        try:
+            reasons = json.loads(cs.rejection_reasons) if cs.rejection_reasons and cs.rejection_reasons != "[]" else []
+        except Exception:
+            reasons = []
+        reasons.append({
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "action_type": pe.action_type,
+            "type": "edit_feedback",
+            "reason": feedback,
+            "original_subject": pe.subject
+        })
+        cs.rejection_reasons = json.dumps(reasons[-20:])
         cs.save()
 
     return result
