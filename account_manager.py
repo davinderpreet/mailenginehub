@@ -172,8 +172,8 @@ def gather_contact_profile(contact):
         ord_lines = []
         for o in orders:
             items = ShopifyOrderItem.select().where(ShopifyOrderItem.order == o)
-            item_names = [i.title for i in items]
-            ord_lines.append(f"  {o.created_at.strftime('%b %d, %Y')}: ${o.total_price:.2f} — {', '.join(item_names[:3])}")
+            item_names = [i.product_title for i in items]
+            ord_lines.append(f"  {o.created_at.strftime('%b %d, %Y')}: ${o.order_total:.2f} — {', '.join(item_names[:3])}")
         lines.append(f"\nOrder History:\n" + "\n".join(ord_lines))
 
     return "\n".join(lines)
