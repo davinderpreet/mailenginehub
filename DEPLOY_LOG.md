@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 15:34 -- `f4caea8`
+
+**fix: remove @requires_auth decorator — app uses before_request auth**
+
+Files changed:
+```
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-20 13:52 -- `8b2fa4b`
 
 **Rebuild /system-map page — clean architecture dashboard replacing D3.js node graph**
