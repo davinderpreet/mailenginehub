@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-20 16:47. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-20 16:58. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -234,9 +234,9 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (55 files, 33,324 lines)
+## Python Files — Detailed (56 files, 33,476 lines)
 
-### `app.py` (7,306 lines)
+### `app.py` (7,311 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
 
 Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,
@@ -720,6 +720,7 @@ Captures: trigger_type (browse, cart, checkout, tag, score_change, etc.), source
 ai_engine, manual), status (pending, sent, failed, skipped), reason_code (RC_* constants),
 template_id, enrollment_id, step_id. Every significant system action gets an audit trail entry.
 
+### `migrate_to_am.py` (147 lines)
 ### `rebuild_templates.py` (143 lines)
 **Batch template rebuild — regenerates blocks_json for multiple templates**
 

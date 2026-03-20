@@ -6749,9 +6749,14 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
     _scheduler.add_job(_run_nightly_opportunity_scan, "cron", hour=4, minute=15,
                        id="opportunity_scan", replace_existing=True)
 
-    # ── Auto-Pilot: Per-contact scheduled sends based on NBM decisions ──
+    # ── Auto-Pilot: DISABLED — replaced by AI Account Manager ──
+    # All non-flow contacts are now managed by AM. This scheduler is kept
+    # for reference but no longer runs. See account_manager.py.
     def _run_auto_scheduler():
-        """Read nightly NBM decisions, map to templates, schedule at each contact's preferred hour."""
+        """DISABLED: Replaced by AI Account Manager for all non-flow contacts."""
+        app.logger.info("[AutoScheduler] Disabled — all non-flow contacts are managed by AI Account Manager")
+        return
+        # ── Legacy code below (kept for reference, never reached) ──
         try:
             import sys as _sas; _sas.path.insert(0, APP_DIR)
             from database import (MessageDecision, Contact, CustomerProfile, ContactScore,
