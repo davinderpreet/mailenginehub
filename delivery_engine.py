@@ -390,6 +390,12 @@ def _advance_flow_enrollment(enrollment_id, step_id, flow_id):
         else:
             enrollment.status = "completed"
             enrollment.save()
+            # Update flow tag to completed
+            try:
+                from account_manager import add_flow_tag
+                add_flow_tag(enrollment.contact, enrollment.flow.name, "completed")
+            except Exception:
+                pass
             # Resume any flows that were paused by this one
             _resume_paused(flow_id)
             # Hand over to AI Account Manager if no more active flows
@@ -413,6 +419,12 @@ def _resume_paused(completed_flow_id):
             enrollment.paused_by_flow = 0
             enrollment.next_send_at = datetime.now()
             enrollment.save()
+            # Update tag back to active
+            try:
+                from account_manager import add_flow_tag
+                add_flow_tag(enrollment.contact, enrollment.flow.name, "active")
+            except Exception:
+                pass
     except Exception:
         pass
 

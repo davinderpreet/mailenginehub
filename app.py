@@ -2629,6 +2629,12 @@ def _pause_lower_priority_enrollments(contact, new_flow):
         enrollment.status = "paused"
         enrollment.paused_by_flow = new_flow.id
         enrollment.save()
+        # Tag contact with paused flow status
+        try:
+            from account_manager import add_flow_tag
+            add_flow_tag(contact, enrollment.flow.name, "paused")
+        except Exception:
+            pass
         paused_count += 1
         app.logger.info(
             "[SmartExit] Paused '%s' (priority=%s) for contact #%s — entering '%s' (priority=%s)"
@@ -2648,6 +2654,12 @@ def _resume_paused_enrollments(completed_flow_id):
         enrollment.paused_by_flow = 0
         enrollment.next_send_at = datetime.now()
         enrollment.save()
+        # Update tag back to active
+        try:
+            from account_manager import add_flow_tag
+            add_flow_tag(enrollment.contact, enrollment.flow.name, "active")
+        except Exception:
+            pass
         resumed_count += 1
         app.logger.info(
             "[SmartExit] Resumed enrollment #%s (flow #%s) for contact #%s — pausing flow #%s completed/cancelled"
@@ -2672,6 +2684,12 @@ def _exit_flows_by_trigger_type(contact, trigger_types, reason_code="flow_exit_p
             old_status = enrollment.status
             enrollment.status = "cancelled"
             enrollment.save()
+            # Update flow tag to exited
+            try:
+                from account_manager import add_flow_tag
+                add_flow_tag(contact, flow.name, "exited")
+            except Exception:
+                pass
             log_action(
                 contact, "flow", flow.id, "exited", reason_code,
                 source_type=flow.name,
@@ -2732,6 +2750,12 @@ def _enroll_contact_in_flows(contact, trigger_type, trigger_value=""):
                 next_send_at=next_send,
                 status="active",
             )
+            # Tag contact with active flow
+            try:
+                from account_manager import add_flow_tag
+                add_flow_tag(contact, flow.name, "active")
+            except Exception:
+                pass
             # ── Phase 3: Pause lower-priority enrollments ──
             _pause_lower_priority_enrollments(contact, flow)
         except Exception:
@@ -6030,7 +6054,7 @@ def am_settings():
         view="settings",
         am_enabled=LearningConfig.get_val("am_enabled", "false"),
         am_max_daily_contacts=LearningConfig.get_val("am_max_daily_contacts", "200"),
-        am_enrollment_mode=LearningConfig.get_val("am_enrollment_mode", "manual"))
+        am_enrollment_mode=LearningConfig.get_val("am_enrollment_mode", "auto_post_flow"))
 
 
 @app.route("/account-manager/preview/<int:pending_id>")

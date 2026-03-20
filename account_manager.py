@@ -27,6 +27,50 @@ def _get_anthropic_client():
     return anthropic.Anthropic(api_key=api_key)
 
 
+# ─────────────────────────────────
+#  FLOW TAG HELPERS
+# ─────────────────────────────────
+
+def _slugify_flow_name(flow_name):
+    """Convert flow name to a tag-safe slug: 'Welcome Series' -> 'welcome_series'."""
+    import re
+    slug = flow_name.lower().strip()
+    slug = re.sub(r'[^a-z0-9]+', '_', slug)
+    return slug.strip('_')
+
+
+def add_flow_tag(contact, flow_name, status):
+    """Add a flow tracking tag to a contact. e.g. flow:welcome_series:active.
+    Removes any existing tag for this flow before adding the new one."""
+    slug = _slugify_flow_name(flow_name)
+    prefix = f"flow:{slug}:"
+
+    # Parse existing tags
+    existing = [t.strip() for t in (contact.tags or "").split(",") if t.strip()]
+
+    # Remove any existing tag for this flow (any status)
+    existing = [t for t in existing if not t.startswith(prefix)]
+
+    # Add the new status tag
+    existing.append(f"flow:{slug}:{status}")
+
+    contact.tags = ",".join(existing)
+    contact.save()
+    logger.debug("[FlowTag] Contact #%s: set flow:%s:%s", contact.id, slug, status)
+
+
+def remove_flow_tag(contact, flow_name):
+    """Remove all flow tags for a specific flow from a contact."""
+    slug = _slugify_flow_name(flow_name)
+    prefix = f"flow:{slug}:"
+
+    existing = [t.strip() for t in (contact.tags or "").split(",") if t.strip()]
+    existing = [t for t in existing if not t.startswith(prefix)]
+
+    contact.tags = ",".join(existing)
+    contact.save()
+
+
 def _get_active_prompt(prompt_key, default=""):
     """Get the active version of an editable prompt, falling back to default."""
     from database import PromptVersion
@@ -905,17 +949,12 @@ def maybe_handover_from_flow(contact):
 
     Called when a flow enrollment completes or is cancelled. Checks:
     1. Contact has zero remaining active/paused flow enrollments
-    2. AM enrollment mode includes post-flow handover
-    3. Contact isn't already enrolled in AM
+    2. Contact isn't already enrolled in AM
+    Tags contact with 'am_managed' on handover.
     """
     from database import (FlowEnrollment, ContactStrategy, LearningConfig,
                           FlowEmail, init_db)
     init_db()
-
-    # Only hand over if enrollment mode supports it
-    mode = LearningConfig.get_val("am_enrollment_mode", "manual")
-    if mode not in ("auto_post_flow", "auto_all"):
-        return None
 
     # Check if contact still has active/paused flows
     remaining = (FlowEnrollment.select()
@@ -979,6 +1018,13 @@ def maybe_handover_from_flow(contact):
     }
     cs.strategy_json = json.dumps(existing_strategy)
     cs.save()
+
+    # Tag contact as AM-managed
+    existing_tags = [t.strip() for t in (contact.tags or "").split(",") if t.strip()]
+    if "am_managed" not in existing_tags:
+        existing_tags.append("am_managed")
+        contact.tags = ",".join(existing_tags)
+        contact.save()
 
     logger.info("[AccountManager] Flow handover: contact #%s enrolled in AM after completing all flows "
                 "(%d flow(s) in history)", contact.id, len(flow_history))
