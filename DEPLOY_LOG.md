@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 16:24 -- `ff37dc6`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-03-20 15:53 -- `c7bc373`
 
 **fix: increase max_tokens to 4000 for strategy + email response**
