@@ -4,6 +4,22 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 17:13 -- `54670e4`
+
+**Remove Auto-Scheduler + Auto-Pilot dashboard (replaced by AM)**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+migrate_to_am.py
+templates/auto_pilot.html
+templates/base.html
+```
+
+---
+
 ### 2026-03-20 17:00 -- `01c31de`
 
 **Two umbrellas only: Flows or AM — disable Auto-Scheduler, add migration script**
