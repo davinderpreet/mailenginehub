@@ -4,6 +4,21 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 11:17 -- `8612c0e`
+
+**Connect discount codes across all email paths — reuse existing codes**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+block_registry.py
+discount_engine.py
+```
+
+---
+
 ### 2026-03-20 10:43 -- `e8b08b2`
 
 **Add discount codes section to customer profile page**
