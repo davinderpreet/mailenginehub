@@ -85,13 +85,12 @@ def generate_discount_code(email, purpose, override_value=None):
         return None
 
     # Generate unique code
-    prefix = strategy["prefix"]
-    code = "LDAS-%s-%s" % (prefix, _random_code(6))
+    code = _random_code(6)
 
     # Ensure uniqueness
     attempts = 0
     while GeneratedDiscount.get_or_none(GeneratedDiscount.code == code):
-        code = "LDAS-%s-%s" % (prefix, _random_code(6))
+        code = _random_code(6)
         attempts += 1
         if attempts > 10:
             logger.error("Could not generate unique code after 10 attempts")
