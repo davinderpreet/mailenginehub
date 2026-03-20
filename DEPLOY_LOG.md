@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 15:53 -- `c7bc373`
+
+**fix: increase max_tokens to 4000 for strategy + email response**
+
+Files changed:
+```
+REFERENCE.md
+account_manager.py
+```
+
+---
+
 ### 2026-03-20 15:50 -- `2c57582`
 
 **fix: correct ShopifyOrderItem and ShopifyOrder field names**
