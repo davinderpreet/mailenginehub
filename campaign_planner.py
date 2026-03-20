@@ -692,7 +692,7 @@ INSTRUCTIONS:
 - Reference the top products naturally if relevant to the campaign type
 - Keep it warm, conversational, and helpful — like a fellow trucker who knows their tech
 - Subject line should be short and compelling — you may include {{first_name}} if it fits
-- The CTA button should link to https://ldas-electronics.com or a relevant collection page
+- The CTA button should link to https://ldas.ca or a relevant collection page
 - Keep body paragraphs concise (2-3 sentences each, max 3 paragraphs)
 
 Return ONLY valid JSON (no markdown, no code blocks) with this structure:
@@ -703,7 +703,7 @@ Return ONLY valid JSON (no markdown, no code blocks) with this structure:
   "hero_subheadline": "optional smaller text below headline",
   "body_paragraphs": ["paragraph 1", "paragraph 2"],
   "cta_text": "button text like Shop Now",
-  "cta_url": "https://ldas-electronics.com",
+  "cta_url": "https://ldas.ca",
   "urgency_message": "optional urgency text (leave empty string if not needed)"
 }"""
 

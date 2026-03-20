@@ -2087,7 +2087,7 @@ def track_flow_click(token):
         enrollment_id, step_id = decoded.split(":")
         enrollment_id, step_id = int(enrollment_id), int(step_id)
     except Exception:
-        return redirect(request.args.get("url", "https://ldas-electronics.com"))
+        return redirect(request.args.get("url", "https://ldas.ca"))
 
     from database import FlowEmail
     fe = FlowEmail.get_or_none(
@@ -2104,7 +2104,7 @@ def track_flow_click(token):
             fe.opened_at = datetime.now()
             fe.save()
 
-    redirect_url = request.args.get("url", "https://ldas-electronics.com")
+    redirect_url = request.args.get("url", "https://ldas.ca")
     return redirect(redirect_url)
 
 
