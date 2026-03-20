@@ -47,7 +47,8 @@ def gather_contact_profile(contact):
     from database import (CustomerProfile, ContactScore, CustomerActivity,
                           AutoEmail, CampaignEmail, AbandonedCheckout,
                           ProductImageCache, ProductCommercial,
-                          CompetitorProduct, ShopifyOrder, ShopifyOrderItem)
+                          CompetitorProduct, ShopifyOrder, ShopifyOrderItem,
+                          FlowEnrollment, FlowEmail)
 
     lines = []
     lines.append(f"Name: {(contact.first_name or '')} {(contact.last_name or '')}".strip())
@@ -175,6 +176,26 @@ def gather_contact_profile(contact):
             item_names = [i.product_title for i in items]
             ord_lines.append(f"  {o.created_at.strftime('%b %d, %Y')}: ${o.order_total:.2f} — {', '.join(item_names[:3])}")
         lines.append(f"\nOrder History:\n" + "\n".join(ord_lines))
+
+    # Flow history — what automated sequences this contact went through
+    flow_enrollments = (FlowEnrollment.select()
+                        .where(FlowEnrollment.contact == contact)
+                        .order_by(FlowEnrollment.enrolled_at.desc())
+                        .limit(10))
+    if flow_enrollments:
+        flow_lines = []
+        for fe in flow_enrollments:
+            try:
+                flow_name = fe.flow.name
+            except Exception:
+                flow_name = "Unknown"
+            emails_in_flow = (FlowEmail.select()
+                              .where(FlowEmail.enrollment == fe,
+                                     FlowEmail.status == "sent")
+                              .count())
+            enrolled_date = fe.enrolled_at.strftime("%b %d, %Y") if fe.enrolled_at else "?"
+            flow_lines.append(f"  {flow_name}: {fe.status} (enrolled {enrolled_date}, {emails_in_flow} emails sent)")
+        lines.append(f"\nFlow History (automated sequences before Account Manager):\n" + "\n".join(flow_lines))
 
     return "\n".join(lines)
 
@@ -403,7 +424,7 @@ def run_account_manager():
     """
     from database import (ContactStrategy, AMPendingReview, Contact,
                           SuppressionEntry, LearningConfig, DeliveryQueue,
-                          ContactScore, init_db)
+                          ContactScore, FlowEnrollment, init_db)
     from delivery_engine import enqueue_email
     from ai_engine import generate_personalized_email
     from action_ledger import log_action
@@ -453,6 +474,15 @@ def run_account_manager():
                 continue
             # Already reviewed today
             if cs.last_reviewed_at and cs.last_reviewed_at >= today_start:
+                continue
+            # Skip contacts still in active flows — flows handle them first
+            active_flows = (FlowEnrollment.select()
+                            .where(FlowEnrollment.contact == contact,
+                                   FlowEnrollment.status.in_(["active", "paused"]))
+                            .count())
+            if active_flows > 0:
+                logger.debug("[AccountManager] Skipping contact #%s — still in %d active flow(s)",
+                             contact.id, active_flows)
                 continue
 
             processed += 1
@@ -867,4 +897,89 @@ def unenroll_contact(contact_id):
         cs.enrolled = False
         cs.updated_at = datetime.now()
         cs.save()
+    return cs
+
+
+def maybe_handover_from_flow(contact):
+    """Auto-enroll a contact in Account Manager if they have no more active flows.
+
+    Called when a flow enrollment completes or is cancelled. Checks:
+    1. Contact has zero remaining active/paused flow enrollments
+    2. AM enrollment mode includes post-flow handover
+    3. Contact isn't already enrolled in AM
+    """
+    from database import (FlowEnrollment, ContactStrategy, LearningConfig,
+                          FlowEmail, init_db)
+    init_db()
+
+    # Only hand over if enrollment mode supports it
+    mode = LearningConfig.get_val("am_enrollment_mode", "manual")
+    if mode not in ("auto_post_flow", "auto_all"):
+        return None
+
+    # Check if contact still has active/paused flows
+    remaining = (FlowEnrollment.select()
+                 .where(FlowEnrollment.contact == contact,
+                        FlowEnrollment.status.in_(["active", "paused"]))
+                 .count())
+    if remaining > 0:
+        return None  # Still in flows — not ready for handover
+
+    # Check if already enrolled
+    existing = ContactStrategy.get_or_none(ContactStrategy.contact == contact)
+    if existing and existing.enrolled:
+        return None  # Already managed by AM
+
+    # Build flow graduation summary for the AI strategist
+    flow_history = []
+    completed_flows = (FlowEnrollment.select()
+                       .where(FlowEnrollment.contact == contact,
+                              FlowEnrollment.status.in_(["completed", "cancelled"]))
+                       .order_by(FlowEnrollment.enrolled_at.desc())
+                       .limit(10))
+    for fe in completed_flows:
+        try:
+            flow_name = fe.flow.name
+        except Exception:
+            flow_name = "Unknown"
+        # Count emails sent in this flow
+        emails_in_flow = (FlowEmail.select()
+                          .where(FlowEmail.enrollment == fe,
+                                 FlowEmail.status == "sent")
+                          .count())
+        flow_history.append({
+            "flow": flow_name,
+            "status": fe.status,
+            "enrolled": fe.enrolled_at.strftime("%Y-%m-%d") if fe.enrolled_at else "",
+            "emails_sent": emails_in_flow
+        })
+
+    # Enroll in AM with flow context
+    import json
+    cs, created = ContactStrategy.get_or_create(
+        contact=contact,
+        defaults={
+            "enrolled": True,
+            "created_at": datetime.now(),
+            "updated_at": datetime.now()
+        }
+    )
+    if not created:
+        cs.enrolled = True
+        cs.updated_at = datetime.now()
+
+    # Store flow graduation context so AI strategist knows the backstory
+    try:
+        existing_strategy = json.loads(cs.strategy_json) if cs.strategy_json and cs.strategy_json != "{}" else {}
+    except Exception:
+        existing_strategy = {}
+    existing_strategy["flow_graduation"] = {
+        "graduated_at": datetime.now().strftime("%Y-%m-%d"),
+        "completed_flows": flow_history
+    }
+    cs.strategy_json = json.dumps(existing_strategy)
+    cs.save()
+
+    logger.info("[AccountManager] Flow handover: contact #%s enrolled in AM after completing all flows "
+                "(%d flow(s) in history)", contact.id, len(flow_history))
     return cs

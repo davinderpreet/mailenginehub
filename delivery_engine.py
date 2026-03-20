@@ -392,6 +392,12 @@ def _advance_flow_enrollment(enrollment_id, step_id, flow_id):
             enrollment.save()
             # Resume any flows that were paused by this one
             _resume_paused(flow_id)
+            # Hand over to AI Account Manager if no more active flows
+            try:
+                from account_manager import maybe_handover_from_flow
+                maybe_handover_from_flow(enrollment.contact)
+            except Exception as e:
+                print("[DeliveryQueue] AM handover error: %s" % e, file=sys.stderr)
     except Exception as e:
         print("[DeliveryQueue] Enrollment advance error: %s" % e, file=sys.stderr)
 

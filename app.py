@@ -2684,6 +2684,13 @@ def _exit_flows_by_trigger_type(contact, trigger_types, reason_code="flow_exit_p
             # If this flow was pausing others, resume them
             _resume_paused_enrollments(flow.id)
 
+    # After all exits processed, check if contact is ready for AM handover
+    try:
+        from account_manager import maybe_handover_from_flow
+        maybe_handover_from_flow(contact)
+    except Exception as e:
+        app.logger.warning("[SmartExit] AM handover error for contact #%s: %s" % (contact.id, e))
+
 
 def _enroll_contact_in_flows(contact, trigger_type, trigger_value=""):
     """Enroll a contact in all active flows matching trigger_type (and trigger_value if relevant).

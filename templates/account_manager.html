@@ -598,10 +598,11 @@
           <label>Enrollment Mode</label>
           <select name="am_enrollment_mode">
             <option value="manual"           {% if am_enrollment_mode == 'manual' %}selected{% endif %}>Manual — Enroll contacts individually</option>
+            <option value="auto_post_flow"   {% if am_enrollment_mode == 'auto_post_flow' %}selected{% endif %}>Auto (Post-Flow) — Auto-enroll after all flows complete</option>
             <option value="auto_high_value"  {% if am_enrollment_mode == 'auto_high_value' %}selected{% endif %}>Auto (High Value) — Auto-enroll VIP and high-LTV contacts</option>
             <option value="auto_all"         {% if am_enrollment_mode == 'auto_all' %}selected{% endif %}>Auto (All) — Auto-enroll all subscribed contacts</option>
           </select>
-          <div style="font-size:11.5px;color:var(--text3);margin-top:6px;">Controls which contacts are automatically added to the Account Manager program.</div>
+          <div style="font-size:11.5px;color:var(--text3);margin-top:6px;">Controls which contacts are automatically added to the Account Manager program. "Post-Flow" enrolls contacts after they finish all automated flow sequences — recommended for proper handover.</div>
         </div>
 
         <!-- Save -->
