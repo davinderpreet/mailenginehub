@@ -4,6 +4,21 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 12:31 -- `5c23c48`
+
+**Smart per-contact AI email personalization for nightly pipeline**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+ai_engine.py
+app.py
+next_best_message.py
+```
+
+---
+
 ### 2026-03-20 12:02 -- `dc274ac`
 
 **Auto-update CLAUDE.md before deploy**
