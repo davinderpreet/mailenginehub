@@ -203,12 +203,10 @@
               <i class="fas fa-eye"></i> Preview
             </a>
 
-            <!-- Approve -->
-            <form method="POST" action="/account-manager/approve/{{ pe.id }}" style="margin:0;">
-              <button type="submit" class="btn btn-success btn-sm">
-                <i class="fas fa-check"></i> Approve
-              </button>
-            </form>
+            <!-- Approve (JS submit to avoid nested form inside bulk-form) -->
+            <button type="button" class="btn btn-success btn-sm" onclick="approveEmail({{ pe.id }})">
+              <i class="fas fa-check"></i> Approve
+            </button>
 
             <!-- Edit -->
             <button type="button" class="btn btn-sm" style="background:linear-gradient(135deg,var(--purple),#5b21b6);color:#fff;box-shadow:0 4px 12px var(--purple-glow);" onclick="openEditModal({{ pe.id }})">
@@ -277,33 +275,45 @@
     </div>
     <div style="padding:22px;">
 
-      <!-- Feedback / Regenerate -->
-      <form method="POST" action="/account-manager/regenerate/{{ pe.id }}" style="margin-bottom:20px;">
-        <div class="form-group">
-          <label>Feedback for AI regeneration</label>
-          <textarea name="feedback" rows="3" placeholder="Tell AI what to change... e.g. 'Make it more casual' or 'Focus on the sale ending soon'"></textarea>
+      <!-- Option 1: Regenerate — AI rewrites with your feedback -->
+      <div style="margin-bottom:18px;">
+        <div style="font-size:12px;font-weight:700;color:var(--cyan);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px;">
+          <i class="fas fa-robot" style="margin-right:5px;"></i>Option 1: AI Regenerate
         </div>
-        <button type="submit" class="btn btn-outline btn-sm">
-          <i class="fas fa-rotate-right"></i> Regenerate with Feedback
-        </button>
-      </form>
+        <form method="POST" action="/account-manager/regenerate/{{ pe.id }}">
+          <div class="form-group" style="margin-bottom:10px;">
+            <textarea name="feedback" rows="3" placeholder="Tell AI what to change... e.g. 'Make it more casual' or 'Focus on the sale ending soon'" required></textarea>
+          </div>
+          <button type="submit" class="btn btn-sm" style="background:linear-gradient(135deg,var(--cyan),#0891b2);color:#fff;">
+            <i class="fas fa-rotate-right"></i> Regenerate Email
+          </button>
+          <span style="font-size:11px;color:var(--text3);margin-left:8px;">AI will rewrite and return to queue for review</span>
+        </form>
+      </div>
 
       <div style="height:1px;background:var(--border);margin:18px 0;"></div>
 
-      <!-- Edit subject + Save & Approve -->
-      <form method="POST" action="/account-manager/edit/{{ pe.id }}">
-        <div class="form-group">
-          <label>Subject Line</label>
-          <input type="text" name="edited_subject" value="{{ pe.subject or '' }}" placeholder="Email subject...">
+      <!-- Option 2: Manual Edit — change subject yourself and approve -->
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--purple2);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px;">
+          <i class="fas fa-pen" style="margin-right:5px;"></i>Option 2: Manual Edit
         </div>
-        <input type="hidden" name="save_and_approve" value="true">
-        <div style="display:flex;gap:10px;margin-top:4px;">
-          <button type="submit" class="btn btn-success btn-sm">
-            <i class="fas fa-check"></i> Save & Approve
-          </button>
-          <button type="button" class="btn btn-outline btn-sm" onclick="closeEditModal({{ pe.id }})">Cancel</button>
-        </div>
-      </form>
+        <form method="POST" action="/account-manager/edit/{{ pe.id }}">
+          <div class="form-group" style="margin-bottom:10px;">
+            <label style="font-size:12px;">Subject Line</label>
+            <input type="text" name="edited_subject" value="{{ pe.edited_subject or pe.subject or '' }}" placeholder="Email subject...">
+          </div>
+          <div style="display:flex;gap:10px;margin-top:4px;">
+            <button type="submit" name="save_and_approve" value="true" class="btn btn-success btn-sm">
+              <i class="fas fa-check"></i> Save & Approve
+            </button>
+            <button type="submit" class="btn btn-outline btn-sm">
+              <i class="fas fa-save"></i> Save Only
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="closeEditModal({{ pe.id }})" style="opacity:0.7;">Cancel</button>
+          </div>
+        </form>
+      </div>
 
     </div>
   </div>
@@ -635,6 +645,15 @@ function openRejectModal(id) {
 function closeRejectModal(id) {
   var el = document.getElementById('reject-modal-' + id);
   if (el) { el.style.display = 'none'; document.body.style.overflow = ''; }
+}
+
+/* ── Approve single email (JS to avoid nested form) ── */
+function approveEmail(id) {
+  var f = document.createElement('form');
+  f.method = 'POST';
+  f.action = '/account-manager/approve/' + id;
+  document.body.appendChild(f);
+  f.submit();
 }
 
 /* ── Bulk select ────────────────────────────────── */

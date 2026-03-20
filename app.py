@@ -5923,11 +5923,17 @@ def am_edit(pending_id):
 def am_regenerate(pending_id):
     from account_manager import regenerate_email
     feedback = request.form.get("feedback", "")
-    result = regenerate_email(pending_id, feedback)
-    if result:
-        flash("Email regenerated with your feedback.", "success")
-    else:
-        flash("Failed to regenerate email.", "error")
+    if not feedback:
+        flash("Please provide feedback for regeneration.", "error")
+        return redirect(url_for("account_manager_dashboard"))
+    try:
+        result = regenerate_email(pending_id, feedback)
+        if result:
+            flash("Email regenerated with your feedback. Review the updated version below.", "success")
+        else:
+            flash("Failed to regenerate email — AI returned no result.", "error")
+    except Exception as e:
+        flash(f"Regeneration error: {str(e)}", "error")
     return redirect(url_for("account_manager_dashboard"))
 
 
