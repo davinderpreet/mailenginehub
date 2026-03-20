@@ -2862,13 +2862,11 @@ def _process_flow_enrollments():
         if getattr(template, 'template_format', 'html') == 'blocks':
             # Block-based template -- render via block_registry
             from block_registry import render_template_blocks
-            html = render_template_blocks(template, contact, products=[], discount=None)
+            from discount_engine import get_or_create_discount, get_discount_display
+            _discount_info = get_or_create_discount(contact.email, _discount_purpose)
+            _discount_display = get_discount_display(_discount_info) if _discount_info else None
+            html = render_template_blocks(template, contact, products=[], discount=_discount_display)
             html = html.replace("{{unsubscribe_url}}", _unsub)
-            # Discount code injection for blocks templates
-            if "{{discount_code}}" in html:
-                _result = generate_discount_code(contact.email, _discount_purpose)
-                _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
-                html = html.replace("{{discount_code}}", _dcode)
         else:
             # Legacy HTML template -- existing path unchanged
             html = template.html_body
