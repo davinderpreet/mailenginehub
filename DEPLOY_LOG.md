@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 15:50 -- `2c57582`
+
+**fix: correct ShopifyOrderItem and ShopifyOrder field names**
+
+Files changed:
+```
+REFERENCE.md
+account_manager.py
+```
+
+---
+
 ### 2026-03-20 15:42 -- `4a3ce27`
 
 **Auto-update CLAUDE.md before deploy**
