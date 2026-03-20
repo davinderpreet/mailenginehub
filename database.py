@@ -783,7 +783,8 @@ def init_db():
          SystemConfig, ActionLedger, DeliveryQueue, IdentityJob, AIRenderLog,
          KnowledgeEntry, AIModelConfig, StudioJob, TemplateCandidate, TemplatePerformance,
          OutcomeLog, ActionPerformance, TemplateSegmentPerformance, ModelWeights, LearningConfig,
-         ScrapeSource, ScrapeLog, RejectionLog, PostmasterMetric],
+         ScrapeSource, ScrapeLog, RejectionLog, PostmasterMetric,
+         ContactStrategy, AMPendingReview, PromptVersion, CompetitorProduct],
         safe=True
     )
     _migrate_contact_columns()
@@ -1762,6 +1763,81 @@ class PostmasterMetric(BaseModel):
     class Meta:
         table_name = "postmaster_metrics"
         indexes = ((("date", "domain"), True),)  # unique per date+domain
+
+
+class ContactStrategy(BaseModel):
+    """AI Account Manager — per-contact 6-month marketing strategy."""
+    contact           = ForeignKeyField(Contact, unique=True, on_delete="CASCADE")
+    strategy_json     = TextField(default="{}")
+    current_phase     = CharField(default="")
+    current_phase_num = IntegerField(default=1)
+    next_action_date  = DateTimeField(null=True)
+    next_action_type  = CharField(default="")
+    total_approved    = IntegerField(default=0)
+    total_rejected    = IntegerField(default=0)
+    total_edited      = IntegerField(default=0)
+    rejection_reasons = TextField(default="[]")
+    confidence_score  = IntegerField(default=0)
+    autonomous        = BooleanField(default=False)
+    enrolled          = BooleanField(default=False)
+    strategy_version  = IntegerField(default=1)
+    created_at        = DateTimeField(default=datetime.now)
+    updated_at        = DateTimeField(default=datetime.now)
+    last_reviewed_at  = DateTimeField(null=True)
+
+    class Meta:
+        table_name = "contact_strategies"
+
+
+class AMPendingReview(BaseModel):
+    """AI Account Manager — emails pending human approval."""
+    contact          = ForeignKeyField(Contact, on_delete="CASCADE")
+    strategy         = ForeignKeyField(ContactStrategy, on_delete="CASCADE")
+    subject          = CharField()
+    preheader        = CharField(default="")
+    body_html        = TextField()
+    reasoning        = TextField()
+    strategy_context = TextField(default="")
+    status           = CharField(default="pending")  # pending | approved | rejected | edited
+    reviewer_notes   = TextField(default="")
+    edited_html      = TextField(default="")
+    edited_subject   = CharField(default="")
+    action_type      = CharField()
+    send_at          = DateTimeField(null=True)
+    created_at       = DateTimeField(default=datetime.now)
+    reviewed_at      = DateTimeField(null=True)
+
+    class Meta:
+        table_name = "am_pending_reviews"
+
+
+class PromptVersion(BaseModel):
+    """Version-controlled editable prompts for the AI Account Manager."""
+    prompt_key  = CharField(index=True)  # e.g. "am_system_prompt"
+    version     = IntegerField()
+    content     = TextField()
+    change_note = CharField(default="")
+    is_active   = BooleanField(default=False)
+    created_at  = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "prompt_versions"
+
+
+class CompetitorProduct(BaseModel):
+    """Structured competitive intelligence for AI Account Manager business context."""
+    brand              = CharField()
+    product_name       = CharField()
+    price              = FloatField(null=True)
+    key_features       = TextField(default="[]")
+    weaknesses         = TextField(default="[]")
+    ldas_product_id    = CharField(default="")
+    comparison_summary = TextField(default="")
+    source_url         = CharField(default="")
+    last_scraped       = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "competitor_products"
 
 
 def get_system_config():
