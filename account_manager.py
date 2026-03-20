@@ -500,10 +500,17 @@ FEEDBACK HISTORY (learn from this — do NOT repeat rejected approaches):
 
 Based on everything above, decide what to do TODAY for this contact.
 
-Respond with ONLY valid JSON (do NOT include email content — emails are generated separately):
+Respond with ONLY valid JSON (do NOT include email content — emails are generated separately).
+Keep strategy_update COMPACT — max 3-4 phases, each with name + goal + 1 tactic line. No verbose descriptions.
+
 {{
   "action": "send_email" | "wait" | "update_strategy_only",
-  "strategy_update": {{...updated strategy object with phases, goals, tactics...}} or null,
+  "strategy_update": {{
+    "phases": [
+      {{"name": "Phase Name", "months": "1-2", "goal": "short goal", "tactic": "one-line tactic"}}
+    ],
+    "overall_goal": "one sentence"
+  }} or null,
   "email_purpose": "education" | "product_recommendation" | "reorder_reminder" | "cart_recovery" | "winback" | "cross_sell" | "loyalty" | null,
   "email_brief": "1-sentence description of what the email should say" or null,
   "reasoning": "1-2 sentences explaining your decision",
