@@ -2587,7 +2587,8 @@ def _pause_lower_priority_enrollments(contact, new_flow):
                     html = html.replace("{{unsubscribe_url}}", _unsub)
                     if "{{discount_code}}" in html:
                         try:
-                            _result = generate_discount_code(contact.email, _dpurpose)
+                            from discount_engine import get_or_create_discount
+                            _result = get_or_create_discount(contact.email, _dpurpose)
                             _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
                             html = html.replace("{{discount_code}}", _dcode)
                         except Exception:
@@ -2890,14 +2891,12 @@ def _process_flow_enrollments():
             html = html.replace("{{last_name}}",  contact.last_name  or "")
             html = html.replace("{{email}}",      contact.email)
             html = html.replace("{{unsubscribe_url}}", _unsub)
-            # Generate real Shopify discount code via discount_engine
+            # Reuse existing discount code or create new one
             if "{{discount_code}}" in html:
-                _result = generate_discount_code(contact.email, _discount_purpose)
+                from discount_engine import get_or_create_discount
+                _result = get_or_create_discount(contact.email, _discount_purpose)
                 _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
-                if _dcode:
-                    html = html.replace("{{discount_code}}", _dcode)
-                else:
-                    html = html.replace("{{discount_code}}", "")
+                html = html.replace("{{discount_code}}", _dcode)
 
             # Inject checkout/cart variables for abandoned checkout flows
             if flow.trigger_type == "checkout_abandoned" and ("{{cart_items}}" in html or "{{checkout_url}}" in html):
@@ -6590,21 +6589,21 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                         html = html.replace("{{total_orders}}", "0")
                         html = html.replace("{{total_spent}}", "$0")
 
-                    # Discount code — generate for ANY template that uses {{discount_code}}
+                    # Discount code — reuse existing or create new
                     if "{{discount_code}}" in html:
                         try:
-                            from discount_engine import generate_discount_code
+                            from discount_engine import get_or_create_discount
                             _purpose_map = {
                                 "discount_offer": "cart_abandonment",
                                 "winback": "winback",
                                 "loyalty_reward": "loyalty_reward",
                             }
                             _dpurpose = _purpose_map.get(decision.action_type, "welcome")
-                            _result = generate_discount_code(contact.email, _dpurpose)
+                            _result = get_or_create_discount(contact.email, _dpurpose)
                             _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
                             html = html.replace("{{discount_code}}", _dcode)
                         except Exception:
-                            html = html.replace("{{discount_code}}", "LDAS10")
+                            html = html.replace("{{discount_code}}", "")
 
                     # Cart items — resolve from abandoned checkout or browse history
                     if "{{cart_items}}" in html:

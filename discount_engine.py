@@ -235,6 +235,37 @@ def get_or_create_discount(email, purpose):
     return generate_discount_code(email, purpose)
 
 
+def get_active_discount(email, purpose=None):
+    """
+    Look up the customer's most recent active (unexpired, unused) discount code.
+    If purpose is given, filter by purpose. Otherwise return any active code.
+
+    Returns:
+        dict: {code, value, discount_type, expires_at} or None
+    """
+    now = datetime.now()
+    query = (GeneratedDiscount.select()
+        .where(
+            GeneratedDiscount.email == email,
+            GeneratedDiscount.used == False,
+            GeneratedDiscount.expires_at > now,
+        )
+        .order_by(GeneratedDiscount.created_at.desc()))
+
+    if purpose:
+        query = query.where(GeneratedDiscount.purpose == purpose)
+
+    existing = query.first()
+    if existing:
+        return {
+            "code": existing.code,
+            "value": existing.value,
+            "discount_type": existing.discount_type,
+            "expires_at": existing.expires_at,
+        }
+    return None
+
+
 def get_discount_display(discount_info):
     """
     Convert discount info to human-readable display text.

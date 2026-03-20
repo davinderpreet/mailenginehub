@@ -1931,6 +1931,18 @@ def render_template_blocks(template, contact=None, products=None, discount=None,
         except Exception:
             products = []
 
+    # Auto-resolve discount from customer's existing codes if not provided
+    if discount is None and contact:
+        has_discount_block = any(b.get("block_type") == "discount" for b in blocks)
+        if has_discount_block:
+            try:
+                from discount_engine import get_active_discount, get_discount_display
+                _active = get_active_discount(getattr(contact, "email", ""))
+                if _active:
+                    discount = get_discount_display(_active)
+            except Exception:
+                pass
+
     # Build contact context for variant resolution
     contact_context = None
     if contact:
