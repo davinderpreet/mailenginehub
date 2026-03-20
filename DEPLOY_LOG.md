@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 15:39 -- `809d49f`
+
+**fix: correct field names in gather_business_context()**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+account_manager.py
+```
+
+---
+
 ### 2026-03-20 15:36 -- `e43f802`
 
 **Auto-update CLAUDE.md before deploy**
