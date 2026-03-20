@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 13:52 -- `8b2fa4b`
+
+**Rebuild /system-map page — clean architecture dashboard replacing D3.js node graph**
+
+Files changed:
+```
+templates/system_map.html
+```
+
+---
+
 ### 2026-03-20 13:28 -- `6230df7`
 
 **Purge ldas-electronics.com — all references now use ldas.ca**
