@@ -5055,6 +5055,19 @@ def profile_detail(contact_id):
     except Exception:
         pass
 
+    # Discount codes for this customer
+    _discount_codes = []
+    try:
+        from database import GeneratedDiscount
+        _discount_codes = list(
+            GeneratedDiscount.select()
+            .where(GeneratedDiscount.email == contact.email.lower())
+            .order_by(GeneratedDiscount.created_at.desc())
+            .limit(10)
+        )
+    except Exception:
+        pass
+
     return render_template("profile_detail.html",
         contact=contact,
         profile=profile,
@@ -5074,6 +5087,8 @@ def profile_detail(contact_id):
         churn_color=_churn_color,
         intelligence=_intelligence,
         decision=_decision,
+        discount_codes=_discount_codes,
+        now=datetime.now(),
     )
 
 

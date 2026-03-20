@@ -771,6 +771,48 @@
     </div>
     {% endif %}
 
+    <!-- ── Discount Codes ──────────────────────────────────────── -->
+    {% if discount_codes %}
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">
+          <i class="fas fa-ticket-alt me-2" style="color:var(--green);"></i>Discount Codes
+        </span>
+        <span class="badge badge-green">{{ discount_codes|length }}</span>
+      </div>
+      <div style="padding:0;">
+        {% for dc in discount_codes %}
+        <div style="display:flex; align-items:center; justify-content:space-between;
+                    padding:12px 20px; border-bottom:1px solid rgba(255,255,255,0.04);">
+          <div style="flex:1; min-width:0;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="font-family:'Courier New',monospace; font-size:14px; font-weight:700; color:var(--green);
+                           background:rgba(16,185,129,0.1); padding:4px 10px; border-radius:8px; letter-spacing:1px;">
+                {{ dc.code }}
+              </span>
+              <span style="font-size:11px; padding:2px 7px; border-radius:6px; font-weight:700;
+                           background:rgba(124,58,237,0.12); color:var(--purple2); text-transform:uppercase; letter-spacing:0.3px;">
+                {{ dc.purpose }}
+              </span>
+              {% if dc.used %}
+                <span class="badge badge-pink" style="font-size:9.5px;">Used</span>
+              {% elif dc.expires_at and dc.expires_at < now %}
+                <span class="badge badge-ghost" style="font-size:9.5px;">Expired</span>
+              {% else %}
+                <span class="badge badge-green" style="font-size:9.5px;">Active</span>
+              {% endif %}
+            </div>
+            <div style="font-size:11px; color:var(--text3); margin-top:4px;">
+              {% if dc.discount_type == 'free_shipping' %}Free Shipping{% else %}{{ dc.value }}% off{% endif %}
+              · Created {{ dc.created_at|et("%b %d, %I:%M %p") }}
+              {% if dc.expires_at %} · Expires {{ dc.expires_at|et("%b %d") }}{% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
 
     <!-- ── Marketing Intelligence ──────────────────────────────── -->
     {% if top_intent_product or viewed_not_bought or search_terms or blog_reads %}
