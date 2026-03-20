@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-20 15:28. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-20 15:30. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -994,8 +994,9 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 
 ---
 
-## HTML Templates (37 files)
+## HTML Templates (38 files)
 
+- **`account_manager.html`** (35.0KB, extends base.html)
 - **`activity.html`** (25.4KB, extends base.html) -- Activity feed — real-time event log with type filters, auto-refresh via /api/activity/feed polling.
 - **`agent.html`** (16.4KB, extends base.html) -- IT Agent chat — ChatGPT-style interface, message bubbles, input field, sends to /api/agent/chat.
 - **`ai_engine.html`** (28.5KB, extends base.html) -- AI Engine dashboard (28KB) — segment distribution pie chart, today's plan table, decision log with filters, run-now button, sample email generator.

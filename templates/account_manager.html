@@ -1,0 +1,666 @@
+{% extends "base.html" %}
+{% block title %}AI Account Manager — MailEngineHub{% endblock %}
+{% block page_title %}AI Account Manager{% endblock %}
+
+{% block topbar_actions %}
+{% if view == "default" %}
+<a href="/account-manager/settings" class="btn btn-outline btn-sm">
+  <i class="fas fa-gear"></i> Settings
+</a>
+{% endif %}
+{% if view == "contact_detail" %}
+<a href="/account-manager" class="btn btn-outline btn-sm">
+  <i class="fas fa-arrow-left"></i> Back to Queue
+</a>
+{% endif %}
+{% if view == "settings" %}
+<a href="/account-manager" class="btn btn-outline btn-sm">
+  <i class="fas fa-arrow-left"></i> Back to Queue
+</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+
+{# ══════════════════════════════════════════════════════════════
+   DEFAULT VIEW — Approval Queue
+══════════════════════════════════════════════════════════════ #}
+{% if view == "default" or view is not defined %}
+
+<!-- Subtitle -->
+<div style="margin-bottom:24px;">
+  <p style="color:var(--text2);margin:0;font-size:14px;">
+    Your personal AI strategist crafts individualised emails for each contact.
+    Review, edit, or approve them here — the AI learns from every decision.
+  </p>
+</div>
+
+<!-- ── 4 Stat Cards ─────────────────────────────────────────── -->
+<div class="stats-grid" style="margin-bottom:24px;">
+
+  <!-- Pending -->
+  <div class="stat-card purple">
+    <div class="stat-icon"><i class="fas fa-inbox"></i></div>
+    <div class="stat-value">{{ pending_count }}</div>
+    <div class="stat-label">Pending Approval</div>
+  </div>
+
+  <!-- Approved Today -->
+  <div class="stat-card green">
+    <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+    <div class="stat-value">{{ approved_today }}</div>
+    <div class="stat-label">Approved Today</div>
+  </div>
+
+  <!-- Rejected Today -->
+  <div class="stat-card pink">
+    <div class="stat-icon"><i class="fas fa-times-circle"></i></div>
+    <div class="stat-value">{{ rejected_today }}</div>
+    <div class="stat-label">Rejected Today</div>
+  </div>
+
+  <!-- AI Score -->
+  <div class="stat-card cyan">
+    <div class="stat-icon"><i class="fas fa-brain"></i></div>
+    <div class="stat-value">{{ approval_rate|round(0)|int }}%</div>
+    <div class="stat-label">AI Approval Rate</div>
+  </div>
+
+</div>
+
+<!-- ── AI Learning Progress Banner ──────────────────────────── -->
+<div style="background:linear-gradient(135deg,rgba(124,58,237,0.1) 0%,rgba(6,182,212,0.06) 100%);border:1px solid rgba(124,58,237,0.25);border-radius:16px;padding:20px 24px;margin-bottom:20px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+    <div style="flex:1;min-width:240px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <i class="fas fa-graduation-cap" style="color:var(--purple2);font-size:15px;"></i>
+        <span style="font-size:13px;font-weight:700;color:var(--text);">AI Learning Progress</span>
+        <span style="font-size:10.5px;color:var(--text3);background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.2);border-radius:20px;padding:2px 9px;">Target: 90%</span>
+      </div>
+      <!-- Progress bar -->
+      <div style="background:rgba(255,255,255,0.06);border-radius:100px;height:8px;margin-bottom:10px;overflow:hidden;">
+        <div style="height:100%;border-radius:100px;width:{{ [approval_rate, 100]|min }}%;background:{% if approval_rate >= 90 %}linear-gradient(90deg,var(--green),#059669){% else %}linear-gradient(90deg,var(--purple),var(--cyan)){% endif %};transition:width 0.6s ease;"></div>
+      </div>
+      <div style="font-size:12px;color:var(--text2);">
+        {{ approved_today + (total_decided - rejected_today - approved_today + approved_today) }} approved
+        &middot; {{ rejected_today }} rejected today
+        &middot; <span style="color:{% if approval_rate >= 90 %}var(--green){% else %}var(--cyan){% endif %};font-weight:600;">{{ approval_rate|round(1) }}% approval rate</span>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;">
+        {{ total_decided }} total decisions recorded
+      </div>
+    </div>
+    <div style="flex-shrink:0;">
+      {% if approval_rate >= 90 %}
+      <form method="POST" action="/account-manager/settings" style="margin:0;">
+        <input type="hidden" name="am_enabled" value="true">
+        <button type="submit" class="btn btn-success">
+          <i class="fas fa-robot"></i> Enable Autonomous Mode
+        </button>
+      </form>
+      {% else %}
+      <div style="text-align:center;">
+        <button class="btn btn-outline btn-sm" disabled style="opacity:0.45;cursor:not-allowed;">
+          <i class="fas fa-robot"></i> Autonomous Mode
+        </button>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;">
+          Ready in ~{{ [(((90 - approval_rate) / 10)|round(0)|int), 1]|max }} days
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ── Enrolled Contacts Info ────────────────────────────────── -->
+<div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
+  <div style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text2);">
+    <i class="fas fa-users" style="color:var(--cyan);"></i>
+    <span><strong style="color:var(--text);">{{ enrolled_count }}</strong> contacts enrolled</span>
+  </div>
+  <div style="width:1px;height:16px;background:var(--border);"></div>
+  <div style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--text2);">
+    <i class="fas fa-robot" style="color:var(--green);"></i>
+    <span><strong style="color:var(--text);">{{ autonomous_count }}</strong> autonomous</span>
+  </div>
+  {% if am_enabled %}
+  <span class="badge badge-green" style="margin-left:4px;"><i class="fas fa-circle" style="font-size:7px;margin-right:4px;"></i> AI Active</span>
+  {% else %}
+  <span class="badge badge-ghost" style="margin-left:4px;">AI Off</span>
+  {% endif %}
+</div>
+
+<!-- ── Bulk Approve Form ──────────────────────────────────────── -->
+{% if pending_emails %}
+<form method="POST" action="/account-manager/bulk-approve" id="bulk-form">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <h3 style="margin:0;font-size:16px;font-weight:700;color:var(--text);">
+        <i class="fas fa-envelope-open" style="color:var(--purple2);margin-right:6px;"></i>
+        Pending Emails
+      </h3>
+      <span style="font-size:11px;color:var(--text3);background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.2);border-radius:8px;padding:2px 10px;">{{ total }} total</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text2);cursor:pointer;margin:0;">
+        <input type="checkbox" id="select-all" onchange="toggleAll(this)" style="width:auto;">
+        Select All
+      </label>
+      <button type="submit" class="btn btn-success btn-sm" onclick="return confirmBulk()">
+        <i class="fas fa-check-double"></i> Approve Selected
+      </button>
+    </div>
+  </div>
+
+  <!-- Pending Email Cards -->
+  <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:24px;">
+    {% for pe in pending_emails %}
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;position:relative;transition:border-color 0.2s;" onmouseenter="this.style.borderColor='rgba(124,58,237,0.35)'" onmouseleave="this.style.borderColor='rgba(255,255,255,0.07)'">
+
+      <!-- Checkbox + Contact Row -->
+      <div style="display:flex;align-items:flex-start;gap:14px;">
+        <div style="padding-top:3px;">
+          <input type="checkbox" name="pending_ids" value="{{ pe.id }}" class="bulk-cb" style="width:16px;height:16px;cursor:pointer;accent-color:var(--purple);">
+        </div>
+        <div style="flex:1;min-width:0;">
+
+          <!-- Header row -->
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <a href="/account-manager/contact/{{ pe.contact.id }}" style="font-size:14px;font-weight:700;color:var(--purple2);text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
+                {{ pe.contact.email }}
+              </a>
+              <span class="badge badge-purple">{{ pe.action_type }}</span>
+              <span class="badge badge-ghost">{{ pe.strategy.current_phase if pe.strategy else 'No phase' }}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text3);">
+              <i class="fas fa-clock" style="margin-right:4px;"></i>
+              {{ pe.created_at.strftime('%b %d, %H:%M') }}
+            </div>
+          </div>
+
+          <!-- Subject -->
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:6px;">
+            <i class="fas fa-envelope" style="color:var(--text3);font-size:11px;margin-right:5px;"></i>
+            {{ pe.subject or '(no subject)' }}
+          </div>
+
+          <!-- AI Reasoning -->
+          {% if pe.reasoning %}
+          <div style="background:rgba(124,58,237,0.07);border:1px solid rgba(124,58,237,0.15);border-radius:10px;padding:10px 14px;margin-bottom:12px;">
+            <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.7px;color:var(--purple2);font-weight:700;margin-bottom:5px;">
+              <i class="fas fa-brain" style="margin-right:4px;"></i>AI Reasoning
+            </div>
+            <div style="font-size:12.5px;color:var(--text2);line-height:1.6;">{{ pe.reasoning }}</div>
+          </div>
+          {% endif %}
+
+          <!-- Action Buttons -->
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+
+            <!-- Preview -->
+            <a href="/account-manager/preview/{{ pe.id }}" target="_blank" class="btn btn-outline btn-sm">
+              <i class="fas fa-eye"></i> Preview
+            </a>
+
+            <!-- Approve -->
+            <form method="POST" action="/account-manager/approve/{{ pe.id }}" style="margin:0;">
+              <button type="submit" class="btn btn-success btn-sm">
+                <i class="fas fa-check"></i> Approve
+              </button>
+            </form>
+
+            <!-- Edit -->
+            <button type="button" class="btn btn-sm" style="background:linear-gradient(135deg,var(--purple),#5b21b6);color:#fff;box-shadow:0 4px 12px var(--purple-glow);" onclick="openEditModal({{ pe.id }})">
+              <i class="fas fa-pen"></i> Edit
+            </button>
+
+            <!-- Reject -->
+            <button type="button" class="btn btn-sm" style="background:linear-gradient(135deg,var(--pink),#be185d);color:#fff;" onclick="openRejectModal({{ pe.id }})">
+              <i class="fas fa-times"></i> Reject
+            </button>
+
+          </div><!-- /buttons -->
+        </div><!-- /flex:1 -->
+      </div><!-- /checkbox row -->
+    </div><!-- /card -->
+    {% endfor %}
+  </div><!-- /cards list -->
+</form><!-- /bulk-form -->
+
+{% else %}
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:60px 20px;text-align:center;">
+  <i class="fas fa-inbox" style="font-size:40px;color:var(--text3);opacity:0.4;display:block;margin-bottom:16px;"></i>
+  <h3 style="font-size:16px;font-weight:600;color:var(--text2);margin-bottom:8px;">No pending emails</h3>
+  <p style="font-size:13px;color:var(--text3);">The AI Account Manager hasn't generated any emails yet, or all have been reviewed.</p>
+</div>
+{% endif %}
+
+<!-- ── Pagination ─────────────────────────────────────────────── -->
+{% if total_pages and total_pages > 1 %}
+<div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:24px;">
+  {% if page > 1 %}
+  <a href="?page={{ page - 1 }}&filter_type={{ filter_type }}" class="btn btn-outline btn-sm">
+    <i class="fas fa-chevron-left"></i> Previous
+  </a>
+  {% else %}
+  <button class="btn btn-outline btn-sm" disabled style="opacity:0.4;cursor:not-allowed;">
+    <i class="fas fa-chevron-left"></i> Previous
+  </button>
+  {% endif %}
+
+  <span style="font-size:13px;color:var(--text2);">Page {{ page }} of {{ total_pages }}</span>
+
+  {% if page < total_pages %}
+  <a href="?page={{ page + 1 }}&filter_type={{ filter_type }}" class="btn btn-outline btn-sm">
+    Next <i class="fas fa-chevron-right"></i>
+  </a>
+  {% else %}
+  <button class="btn btn-outline btn-sm" disabled style="opacity:0.4;cursor:not-allowed;">
+    Next <i class="fas fa-chevron-right"></i>
+  </button>
+  {% endif %}
+</div>
+{% endif %}
+
+
+{# ── Edit Modals (one per pending email) ──────────────────────── #}
+{% for pe in pending_emails %}
+<div id="edit-modal-{{ pe.id }}" style="display:none;position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,0.65);backdrop-filter:blur(4px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeEditModal({{ pe.id }})">
+  <div style="background:#0d1025;border:1px solid rgba(124,58,237,0.3);border-radius:16px;width:560px;max-width:94vw;max-height:90vh;overflow-y:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border);">
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--text);">Edit Email</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">{{ pe.contact.email }}</div>
+      </div>
+      <button onclick="closeEditModal({{ pe.id }})" style="background:rgba(255,255,255,0.08);border:none;color:var(--text3);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">&times;</button>
+    </div>
+    <div style="padding:22px;">
+
+      <!-- Feedback / Regenerate -->
+      <form method="POST" action="/account-manager/regenerate/{{ pe.id }}" style="margin-bottom:20px;">
+        <div class="form-group">
+          <label>Feedback for AI regeneration</label>
+          <textarea name="feedback" rows="3" placeholder="Tell AI what to change... e.g. 'Make it more casual' or 'Focus on the sale ending soon'"></textarea>
+        </div>
+        <button type="submit" class="btn btn-outline btn-sm">
+          <i class="fas fa-rotate-right"></i> Regenerate with Feedback
+        </button>
+      </form>
+
+      <div style="height:1px;background:var(--border);margin:18px 0;"></div>
+
+      <!-- Edit subject + Save & Approve -->
+      <form method="POST" action="/account-manager/edit/{{ pe.id }}">
+        <div class="form-group">
+          <label>Subject Line</label>
+          <input type="text" name="edited_subject" value="{{ pe.subject or '' }}" placeholder="Email subject...">
+        </div>
+        <input type="hidden" name="save_and_approve" value="true">
+        <div style="display:flex;gap:10px;margin-top:4px;">
+          <button type="submit" class="btn btn-success btn-sm">
+            <i class="fas fa-check"></i> Save & Approve
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="closeEditModal({{ pe.id }})">Cancel</button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{# ── Reject Modals (one per pending email) ────────────────────── #}
+{% for pe in pending_emails %}
+<div id="reject-modal-{{ pe.id }}" style="display:none;position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,0.65);backdrop-filter:blur(4px);align-items:center;justify-content:center;" onclick="if(event.target===this)closeRejectModal({{ pe.id }})">
+  <div style="background:#0d1025;border:1px solid rgba(236,72,153,0.3);border-radius:16px;width:500px;max-width:94vw;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border);">
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--text);">Reject Email</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">{{ pe.contact.email }}</div>
+      </div>
+      <button onclick="closeRejectModal({{ pe.id }})" style="background:rgba(255,255,255,0.08);border:none;color:var(--text3);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;">&times;</button>
+    </div>
+    <div style="padding:22px;">
+      <form method="POST" action="/account-manager/reject/{{ pe.id }}">
+        <div class="form-group">
+          <label>Rejection Reason</label>
+          <textarea name="reason" rows="3" placeholder="Why are you rejecting? AI will learn from this... e.g. 'Too salesy', 'Wrong timing', 'Not relevant to this customer'"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:4px;">
+          <button type="submit" class="btn btn-sm" style="background:linear-gradient(135deg,var(--pink),#be185d);color:#fff;">
+            <i class="fas fa-times"></i> Reject
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="closeRejectModal({{ pe.id }})">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+
+{# ══════════════════════════════════════════════════════════════
+   CONTACT DETAIL VIEW
+══════════════════════════════════════════════════════════════ #}
+{% elif view == "contact_detail" %}
+
+<!-- Contact Header -->
+<div style="background:linear-gradient(135deg,rgba(124,58,237,0.12) 0%,rgba(6,182,212,0.06) 100%);border:1px solid rgba(124,58,237,0.25);border-radius:16px;padding:24px;margin-bottom:20px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--purple),var(--cyan));display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff;flex-shrink:0;">
+        {{ (contact.first_name or contact.email)[0]|upper }}
+      </div>
+      <div>
+        <div style="font-size:18px;font-weight:700;color:#fff;">
+          {{ contact.first_name or '' }} {{ contact.last_name or '' }}
+          {% if not contact.first_name and not contact.last_name %}<span style="color:var(--text2);">Anonymous</span>{% endif %}
+        </div>
+        <div style="font-size:13px;color:var(--cyan);margin-top:2px;">{{ contact.email }}</div>
+        {% if profile and profile.lifecycle_stage %}
+        <div style="margin-top:6px;">
+          <span class="badge badge-purple">{{ profile.lifecycle_stage }}</span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <form method="POST" action="/account-manager/unenroll/{{ contact.id }}" style="margin:0;">
+        <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);color:#fca5a5;" onclick="return confirm('Pause this contact from AI Account Manager?')">
+          <i class="fas fa-pause"></i> Pause Contact
+        </button>
+      </form>
+      <button type="button" class="btn btn-outline btn-sm" onclick="alert('Autonomous toggle coming soon.')">
+        <i class="fas fa-robot"></i> Mark Autonomous
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="two-col" style="margin-bottom:20px;">
+
+  <!-- Current Phase Card -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;">
+    <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px;">
+      <i class="fas fa-map-pin" style="color:var(--purple2);margin-right:7px;"></i>Current Phase
+    </div>
+    {% if strategy %}
+    <div style="font-size:22px;font-weight:800;color:var(--purple2);margin-bottom:4px;">{{ strategy.current_phase or 'Phase 1' }}</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:14px;">Phase {{ strategy.phase_number or 1 }}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div style="background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.15);border-radius:10px;padding:10px 12px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);margin-bottom:4px;">Next Action</div>
+        <div style="font-size:12.5px;font-weight:600;color:var(--text);">
+          {% if strategy.next_action_date %}{{ strategy.next_action_date.strftime('%b %d') }}{% else %}—{% endif %}
+        </div>
+      </div>
+      <div style="background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.15);border-radius:10px;padding:10px 12px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.7px;color:var(--text3);margin-bottom:4px;">Confidence</div>
+        <div style="font-size:12.5px;font-weight:600;color:var(--cyan);">
+          {% if strategy.confidence_score %}{{ (strategy.confidence_score * 100)|round(0)|int }}%{% else %}—{% endif %}
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div style="color:var(--text3);font-size:13px;">No active strategy</div>
+    {% endif %}
+  </div>
+
+  <!-- Profile Summary Card -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;">
+    <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px;">
+      <i class="fas fa-id-card" style="color:var(--cyan);margin-right:7px;"></i>Profile Summary
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      {% if profile %}
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;">
+        <span style="color:var(--text2);">Orders</span>
+        <span style="color:var(--text);font-weight:600;">{{ profile.total_orders or 0 }}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;">
+        <span style="color:var(--text2);">Total Spend</span>
+        <span style="color:var(--green);font-weight:600;">${{ '%.2f'|format(profile.total_spent or 0) }}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;">
+        <span style="color:var(--text2);">Churn Risk</span>
+        <span style="color:{% if profile.churn_risk and profile.churn_risk > 1.5 %}var(--pink){% else %}var(--text){% endif %};font-weight:600;">
+          {% if profile.churn_risk %}{{ '%.1f'|format(profile.churn_risk) }}{% else %}—{% endif %}
+        </span>
+      </div>
+      {% endif %}
+      {% if score %}
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;">
+        <span style="color:var(--text2);">Engagement</span>
+        <span style="color:var(--cyan);font-weight:600;">{{ score.email_engagement_score or '—' }}</span>
+      </div>
+      {% endif %}
+      {% if profile and profile.browse_count %}
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;">
+        <span style="color:var(--text2);">Browse Sessions</span>
+        <span style="color:var(--text);font-weight:600;">{{ profile.browse_count }}</span>
+      </div>
+      {% endif %}
+      {% if not profile %}
+      <div style="color:var(--text3);font-size:12.5px;">No profile data</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ── Strategy Timeline ─────────────────────────────────────── -->
+{% if strategy_data and strategy_data.phases is defined %}
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:20px;">
+  <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:18px;">
+    <i class="fas fa-route" style="color:var(--purple2);margin-right:7px;"></i>6-Month Strategy Timeline
+  </div>
+  <div style="display:flex;flex-direction:column;gap:12px;">
+    {% for phase in strategy_data.phases %}
+    {% set is_active = loop.index == (strategy.phase_number or 1) %}
+    <div style="display:flex;gap:14px;align-items:flex-start;">
+      <!-- Timeline dot -->
+      <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;margin-top:3px;">
+        <div style="width:14px;height:14px;border-radius:50%;background:{% if is_active %}var(--purple){% else %}rgba(255,255,255,0.1){% endif %};border:2px solid {% if is_active %}var(--purple2){% else %}var(--border2){% endif %};{% if is_active %}box-shadow:0 0 10px var(--purple-glow);{% endif %}"></div>
+        {% if not loop.last %}<div style="width:2px;flex:1;min-height:20px;background:var(--border);margin-top:4px;"></div>{% endif %}
+      </div>
+      <!-- Phase content -->
+      <div style="flex:1;background:{% if is_active %}rgba(124,58,237,0.08){% else %}transparent{% endif %};border:1px solid {% if is_active %}rgba(124,58,237,0.2){% else %}transparent{% endif %};border-radius:12px;padding:{% if is_active %}12px 14px{% else %}4px 0{% endif %};margin-bottom:{% if is_active %}0{% else %}8px{% endif %};">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:{% if phase.goal or phase.tactics %}6px{% else %}0{% endif %};">
+          <span style="font-size:13px;font-weight:700;color:{% if is_active %}var(--purple2){% else %}var(--text){% endif %};">{{ phase.name or 'Phase ' ~ loop.index }}</span>
+          {% if phase.months %}<span style="font-size:10.5px;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:1px 8px;">{{ phase.months }}</span>{% endif %}
+          {% if is_active %}<span class="badge badge-purple" style="font-size:9px;">ACTIVE</span>{% endif %}
+        </div>
+        {% if phase.goal %}
+        <div style="font-size:12px;color:var(--text2);margin-bottom:5px;">{{ phase.goal }}</div>
+        {% endif %}
+        {% if phase.tactics %}
+        <ul style="margin:0;padding-left:16px;list-style:disc;">
+          {% for tactic in phase.tactics %}
+          <li style="font-size:11.5px;color:var(--text3);margin-bottom:2px;">{{ tactic }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Email History Table ──────────────────────────────────── -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;">
+  <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+    <i class="fas fa-history" style="color:var(--cyan);font-size:15px;"></i>
+    <h3 style="margin:0;font-size:15px;font-weight:700;color:var(--text);">Email History</h3>
+    {% if email_history %}
+    <span style="font-size:11px;color:var(--text3);background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.2);border-radius:8px;padding:2px 10px;">{{ email_history|length }} emails</span>
+    {% endif %}
+  </div>
+  {% if email_history %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Subject</th>
+          <th>Action Type</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for eh in email_history %}
+        <tr>
+          <td style="color:var(--text2);white-space:nowrap;">
+            {% if eh.created_at %}{{ eh.created_at.strftime('%b %d, %H:%M') }}{% else %}—{% endif %}
+          </td>
+          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);">{{ eh.subject or '(no subject)' }}</td>
+          <td>
+            {% if eh.action_type %}
+            <span class="badge badge-purple" style="font-size:10px;">{{ eh.action_type }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if eh.status == 'approved' or eh.status == 'sent' %}
+            <span class="badge badge-green">{{ eh.status }}</span>
+            {% elif eh.status == 'rejected' %}
+            <span class="badge badge-pink">{{ eh.status }}</span>
+            {% elif eh.status == 'pending' %}
+            <span class="badge badge-amber">{{ eh.status }}</span>
+            {% else %}
+            <span class="badge badge-ghost">{{ eh.status or '—' }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:40px 20px;">
+    <i class="fas fa-inbox" style="font-size:28px;color:var(--text3);opacity:0.4;display:block;margin-bottom:12px;"></i>
+    <div style="font-size:13px;color:var(--text3);">No email history yet</div>
+  </div>
+  {% endif %}
+</div>
+
+
+{# ══════════════════════════════════════════════════════════════
+   SETTINGS VIEW
+══════════════════════════════════════════════════════════════ #}
+{% elif view == "settings" %}
+
+<div style="max-width:600px;">
+  <div style="margin-bottom:24px;">
+    <p style="color:var(--text2);margin:0;font-size:14px;">Configure the AI Account Manager's behaviour — enrollment mode, daily limits, and autonomous sending.</p>
+  </div>
+
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+      <i class="fas fa-gear" style="color:var(--purple2);font-size:15px;"></i>
+      <h3 style="margin:0;font-size:15px;font-weight:700;color:var(--text);">Account Manager Settings</h3>
+    </div>
+
+    <form method="POST" action="/account-manager/settings">
+      <div style="padding:24px;display:flex;flex-direction:column;gap:22px;">
+
+        <!-- Enable / Disable -->
+        <div class="form-group" style="margin-bottom:0;">
+          <label>AI Account Manager Status</label>
+          <select name="am_enabled">
+            <option value="true"  {% if am_enabled %}selected{% endif %}>Enabled — AI generates and queues emails nightly</option>
+            <option value="false" {% if not am_enabled %}selected{% endif %}>Disabled — No new emails generated</option>
+          </select>
+          <div style="font-size:11.5px;color:var(--text3);margin-top:6px;">When enabled, the AI runs nightly at 3:40 AM and creates personalised emails for enrolled contacts.</div>
+        </div>
+
+        <!-- Max Daily Contacts -->
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Max Daily Contacts</label>
+          <input type="number" name="am_max_daily_contacts" value="{{ am_max_daily_contacts or 200 }}" min="1" max="5000" placeholder="200">
+          <div style="font-size:11.5px;color:var(--text3);margin-top:6px;">Maximum number of contacts the AI will generate emails for per nightly run.</div>
+        </div>
+
+        <!-- Enrollment Mode -->
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Enrollment Mode</label>
+          <select name="am_enrollment_mode">
+            <option value="manual"           {% if am_enrollment_mode == 'manual' %}selected{% endif %}>Manual — Enroll contacts individually</option>
+            <option value="auto_high_value"  {% if am_enrollment_mode == 'auto_high_value' %}selected{% endif %}>Auto (High Value) — Auto-enroll VIP and high-LTV contacts</option>
+            <option value="auto_all"         {% if am_enrollment_mode == 'auto_all' %}selected{% endif %}>Auto (All) — Auto-enroll all subscribed contacts</option>
+          </select>
+          <div style="font-size:11.5px;color:var(--text3);margin-top:6px;">Controls which contacts are automatically added to the Account Manager program.</div>
+        </div>
+
+        <!-- Save -->
+        <div style="padding-top:4px;border-top:1px solid var(--border);margin-top:4px;">
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save"></i> Save Settings
+          </button>
+        </div>
+
+      </div>
+    </form>
+  </div>
+
+  <!-- Info box -->
+  <div style="background:rgba(6,182,212,0.07);border:1px solid rgba(6,182,212,0.2);border-radius:14px;padding:16px 20px;margin-top:18px;">
+    <div style="font-size:12px;font-weight:700;color:var(--cyan);margin-bottom:6px;"><i class="fas fa-circle-info" style="margin-right:5px;"></i>How autonomous mode works</div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.7;">
+      When the AI reaches a 90% approval rate, you can enable autonomous mode. In this mode, emails for approved contacts skip the review queue and are sent automatically after the nightly run. You can always pause individual contacts or revert to manual review in settings.
+    </div>
+  </div>
+</div>
+
+{% endif %}
+{# ── END view blocks ── #}
+
+{% endblock %}
+
+
+{% block extra_scripts %}
+<script>
+/* ── Modal helpers ─────────────────────────────── */
+function openEditModal(id) {
+  var el = document.getElementById('edit-modal-' + id);
+  if (el) { el.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
+}
+function closeEditModal(id) {
+  var el = document.getElementById('edit-modal-' + id);
+  if (el) { el.style.display = 'none'; document.body.style.overflow = ''; }
+}
+function openRejectModal(id) {
+  var el = document.getElementById('reject-modal-' + id);
+  if (el) { el.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
+}
+function closeRejectModal(id) {
+  var el = document.getElementById('reject-modal-' + id);
+  if (el) { el.style.display = 'none'; document.body.style.overflow = ''; }
+}
+
+/* ── Bulk select ────────────────────────────────── */
+function toggleAll(master) {
+  document.querySelectorAll('.bulk-cb').forEach(function(cb) {
+    cb.checked = master.checked;
+  });
+}
+
+function confirmBulk() {
+  var checked = document.querySelectorAll('.bulk-cb:checked');
+  if (checked.length === 0) {
+    alert('Select at least one email to bulk approve.');
+    return false;
+  }
+  return confirm('Approve ' + checked.length + ' email(s)?');
+}
+
+/* ── Close modals on Escape ─────────────────────── */
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('[id^="edit-modal-"], [id^="reject-modal-"]').forEach(function(el) {
+      el.style.display = 'none';
+    });
+    document.body.style.overflow = '';
+  }
+});
+</script>
+{% endblock %}
