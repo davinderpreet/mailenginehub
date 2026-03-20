@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 12:02 -- `dc274ac`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-03-20 11:17 -- `8612c0e`
 
 **Connect discount codes across all email paths — reuse existing codes**
