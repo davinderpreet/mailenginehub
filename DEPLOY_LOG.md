@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 13:28 -- `6230df7`
+
+**Purge ldas-electronics.com — all references now use ldas.ca**
+
+Files changed:
+```
+REFERENCE.md
+app.py
+campaign_planner.py
+templates/template_editor.html
+```
+
+---
+
 ### 2026-03-20 13:17 -- `11f5c92`
 
 **Fix old domain in product URLs + add safety net for ldas.ca**
