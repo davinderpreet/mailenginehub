@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-20 11:16. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-20 12:00. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -222,7 +222,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (54 files, 31,585 lines)
+## Python Files — Detailed (54 files, 31,584 lines)
 
 ### `app.py` (6,873 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -574,7 +574,7 @@ Writes OutcomeLog entries (email_type, email_id, contact, template_id, action_ty
 opened, clicked, purchased, revenue, send_gap_hours). Re-checks 72h window for older emails
 to catch delayed purchases. Data feeds into learning_engine.py for performance computation.
 
-### `discount_engine.py` (398 lines)
+### `discount_engine.py` (397 lines)
 **Dynamic discount generation — per-contact codes via Shopify price rules**
 
 get_or_create_discount(email, purpose) returns a unique discount code for a contact.
