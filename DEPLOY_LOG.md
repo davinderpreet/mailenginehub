@@ -4,6 +4,21 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 16:49 -- `85ef4d0`
+
+**Flow tags on contacts + always-on flow→AM handover (no setting needed)**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+account_manager.py
+app.py
+delivery_engine.py
+```
+
+---
+
 ### 2026-03-20 16:40 -- `d755d1f`
 
 **Flow → AI Account Manager handover: skip contacts mid-flow, auto-enroll after flows complete**
