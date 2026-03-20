@@ -77,7 +77,8 @@ for f in app.py database.py block_registry.py studio_routes.py studio_skills.py 
          profit_engine.py discount_engine.py discount_codes.py condition_engine.py \
          cascade.py customer_intelligence.py data_enrichment.py identity_resolution.py \
          shopify_sync.py shopify_products.py shopify_enrichment.py activity_sync.py \
-         action_ledger.py token_utils.py health_check.py watchdog.py run.py; do
+         action_ledger.py token_utils.py health_check.py watchdog.py run.py \
+         account_manager.py email_sanitizer.py postmaster_tools.py; do
     if [ -f "$f" ]; then
         $SCP "$f" "$VPS_HOST:$VPS_PATH/$f"
     fi
