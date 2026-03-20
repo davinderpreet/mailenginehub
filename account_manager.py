@@ -124,29 +124,35 @@ def gather_contact_profile(contact):
     thirty_days_ago = datetime.now() - timedelta(days=30)
     activities = (CustomerActivity.select()
                   .where(CustomerActivity.contact == contact,
-                         CustomerActivity.created_at >= thirty_days_ago)
-                  .order_by(CustomerActivity.created_at.desc())
+                         CustomerActivity.occurred_at >= thirty_days_ago)
+                  .order_by(CustomerActivity.occurred_at.desc())
                   .limit(20))
     if activities:
         act_lines = []
         for a in activities:
-            act_lines.append(f"  {a.created_at.strftime('%b %d')}: {a.activity_type} — {a.page_url or a.product_title or ''}")
+            detail = ""
+            try:
+                ed = json.loads(a.event_data) if a.event_data else {}
+                detail = ed.get("product_title") or ed.get("page_title") or ed.get("url", "")
+            except Exception:
+                pass
+            act_lines.append(f"  {a.occurred_at.strftime('%b %d')}: {a.event_type} — {detail}")
         lines.append(f"\nRecent Activity (last 30 days):\n" + "\n".join(act_lines))
 
     # Email history (last 10 emails)
     emails_sent = (AutoEmail.select()
                    .where(AutoEmail.contact == contact)
-                   .order_by(AutoEmail.created_at.desc())
+                   .order_by(AutoEmail.sent_at.desc())
                    .limit(10))
     if emails_sent:
         em_lines = []
         for e in emails_sent:
-            status_parts = [e.action_type or "email"]
-            if getattr(e, "opened_at", None):
+            status_parts = [e.status or "sent"]
+            if e.opened:
                 status_parts.append("opened")
-            if getattr(e, "clicked_at", None):
+            if e.clicked:
                 status_parts.append("clicked")
-            em_lines.append(f"  {e.created_at.strftime('%b %d')}: {' | '.join(status_parts)} — {e.subject or ''}")
+            em_lines.append(f"  {e.sent_at.strftime('%b %d')}: {' | '.join(status_parts)} — {e.subject or ''}")
         lines.append(f"\nEmail History:\n" + "\n".join(em_lines))
 
     # Abandoned checkouts
