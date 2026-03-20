@@ -1,0 +1,595 @@
+{% extends "base.html" %}
+
+{% block title %}Prompt Configuration — AI Account Manager{% endblock %}
+
+{% block page_title %}AI Account Manager — Prompt Configuration{% endblock %}
+
+{% block topbar_actions %}
+<a href="/account-manager/prompts" class="btn btn-outline btn-sm">
+  <i class="fas fa-arrow-left"></i> Back to Prompts
+</a>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── TAB BAR ─────────────────────────────── */
+  .tab-bar {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 6px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+  .tab-bar::-webkit-scrollbar { height: 3px; }
+
+  .tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    color: var(--text2);
+    white-space: nowrap;
+    transition: all .2s;
+    font-family: inherit;
+  }
+  .tab-btn:hover {
+    color: var(--text);
+    background: var(--surface2);
+  }
+  .tab-btn.active {
+    background: linear-gradient(135deg, var(--purple), #5b21b6);
+    color: #fff;
+    box-shadow: 0 4px 14px var(--purple-glow);
+  }
+  .tab-btn .tab-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.6;
+  }
+  .tab-btn.active .tab-dot { opacity: 1; }
+
+  /* ── TAB PANELS ──────────────────────────── */
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── EDITOR LAYOUT ───────────────────────── */
+  .editor-layout {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 1100px) {
+    .editor-layout { grid-template-columns: 1fr; }
+  }
+
+  /* ── PROMPT TEXTAREA ─────────────────────── */
+  .prompt-textarea {
+    width: 100%;
+    padding: 16px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    font-size: 13px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    color: var(--text);
+    line-height: 1.65;
+    resize: vertical;
+    transition: border .15s, box-shadow .15s;
+  }
+  .prompt-textarea:focus {
+    outline: none;
+    border-color: var(--purple);
+    box-shadow: 0 0 0 3px rgba(124,58,237,0.15);
+  }
+  .prompt-textarea::placeholder { color: var(--text3); }
+
+  /* ── VARIABLES HINT ──────────────────────── */
+  .vars-hint {
+    margin-top: 10px;
+    padding: 12px 16px;
+    background: rgba(6,182,212,0.06);
+    border: 1px solid rgba(6,182,212,0.18);
+    border-radius: 10px;
+    font-size: 11.5px;
+    color: var(--text2);
+    line-height: 1.7;
+  }
+  .vars-hint strong {
+    display: block;
+    color: var(--cyan);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .vars-hint code {
+    display: inline-block;
+    background: rgba(6,182,212,0.1);
+    color: var(--cyan);
+    border: 1px solid rgba(6,182,212,0.2);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 11px;
+    margin: 2px 2px 2px 0;
+  }
+
+  /* ── SAVE BAR ────────────────────────────── */
+  .save-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .save-bar input {
+    flex: 1;
+    padding: 9px 14px;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text);
+    font-family: inherit;
+    transition: border .15s;
+  }
+  .save-bar input:focus {
+    outline: none;
+    border-color: var(--purple);
+    box-shadow: 0 0 0 3px rgba(124,58,237,0.12);
+  }
+  .save-bar input::placeholder { color: var(--text3); }
+
+  /* ── VERSION HISTORY ─────────────────────── */
+  .history-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    position: sticky;
+    top: 80px;
+  }
+  .history-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border2), transparent);
+  }
+  .history-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .history-header h3 {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .history-header i { color: var(--purple2); font-size: 13px; }
+
+  .history-list { max-height: 520px; overflow-y: auto; }
+
+  .history-entry {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background .15s;
+  }
+  .history-entry:last-child { border-bottom: none; }
+  .history-entry:hover { background: var(--surface2); }
+  .history-entry.current {
+    background: rgba(124,58,237,0.07);
+    border-left: 2px solid var(--purple2);
+  }
+
+  .history-entry-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 5px;
+  }
+  .version-num {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--purple2);
+    background: rgba(124,58,237,0.12);
+    border: 1px solid rgba(124,58,237,0.25);
+    padding: 2px 8px;
+    border-radius: 20px;
+  }
+  .version-num.current-badge {
+    background: rgba(16,185,129,0.12);
+    color: var(--green);
+    border-color: rgba(16,185,129,0.25);
+  }
+  .history-date {
+    font-size: 10.5px;
+    color: var(--text3);
+  }
+  .history-note {
+    font-size: 12px;
+    color: var(--text2);
+    margin-bottom: 8px;
+    line-height: 1.4;
+  }
+  .history-note:empty::before {
+    content: 'No change note';
+    color: var(--text3);
+    font-style: italic;
+  }
+
+  /* ── TEST SECTION ────────────────────────── */
+  .test-section {
+    margin-top: 20px;
+  }
+  .test-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+  }
+  .test-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(16,185,129,0.4), transparent);
+  }
+  .test-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .test-header h3 {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .test-header i { color: var(--green); }
+  .test-body { padding: 18px 20px; }
+  .test-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    margin-bottom: 14px;
+  }
+  .test-row .form-group { flex: 1; margin: 0; }
+  .test-result {
+    min-height: 80px;
+    padding: 14px;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--border2);
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--text2);
+    line-height: 1.65;
+    white-space: pre-wrap;
+    display: none;
+  }
+  .test-result.visible { display: block; }
+  .test-result.loading { color: var(--text3); font-style: italic; }
+  .test-result.error { color: var(--red); border-color: rgba(239,68,68,0.3); }
+
+  /* ── VERSION BADGE IN TOPBAR ─────────────── */
+  .prompt-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .prompt-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .v-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 20px;
+    background: rgba(124,58,237,0.15);
+    color: var(--purple2);
+    border: 1px solid rgba(124,58,237,0.3);
+  }
+  .no-prompt-notice {
+    padding: 14px 18px;
+    background: rgba(245,158,11,0.07);
+    border: 1px solid rgba(245,158,11,0.2);
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--amber);
+    margin-bottom: 14px;
+  }
+  .no-prompt-notice i { margin-right: 6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{% set friendly_names = {
+  'am_system_prompt':          'System Prompt',
+  'am_business_brief':         'Business Brief',
+  'am_strategy_prompt':        'Strategy',
+  'am_email_generation_prompt':'Email Style',
+  'am_learning_prompt':        'Learning Rules',
+  'am_evaluation_prompt':      'Evaluation'
+} %}
+
+{% set tab_icons = {
+  'am_system_prompt':          'fa-robot',
+  'am_business_brief':         'fa-building',
+  'am_strategy_prompt':        'fa-chess',
+  'am_email_generation_prompt':'fa-envelope',
+  'am_learning_prompt':        'fa-graduation-cap',
+  'am_evaluation_prompt':      'fa-star-half-stroke'
+} %}
+
+<!-- Tab Bar -->
+<div class="tab-bar" role="tablist">
+  {% for key in prompt_keys %}
+  <button
+    class="tab-btn {% if loop.first %}active{% endif %}"
+    role="tab"
+    aria-selected="{{ 'true' if loop.first else 'false' }}"
+    aria-controls="panel-{{ key }}"
+    id="tab-{{ key }}"
+    onclick="switchTab('{{ key }}')"
+  >
+    <i class="fas {{ tab_icons[key] }}" style="font-size:12px;"></i>
+    {{ friendly_names[key] }}
+    {% if active_prompts.get(key) %}
+    <span class="tab-dot" style="background:var(--green);opacity:0.8;"></span>
+    {% else %}
+    <span class="tab-dot" style="background:var(--text3);opacity:0.5;"></span>
+    {% endif %}
+  </button>
+  {% endfor %}
+</div>
+
+<!-- Tab Panels -->
+{% for key in prompt_keys %}
+<div
+  class="tab-panel {% if loop.first %}active{% endif %}"
+  id="panel-{{ key }}"
+  role="tabpanel"
+  aria-labelledby="tab-{{ key }}"
+>
+  <div class="editor-layout">
+
+    <!-- ── LEFT: Editor ─────────────────────── -->
+    <div>
+      <!-- Prompt meta -->
+      <div class="prompt-meta">
+        <span class="prompt-title">{{ friendly_names[key] }}</span>
+        {% if active_prompts.get(key) %}
+        <span class="v-badge">v{{ active_prompts[key].version }}</span>
+        {% endif %}
+      </div>
+
+      {% if not active_prompts.get(key) %}
+      <div class="no-prompt-notice">
+        <i class="fas fa-triangle-exclamation"></i>
+        No prompt configured yet. Enter content below and save to create v1.
+      </div>
+      {% endif %}
+
+      <!-- Save form -->
+      <form method="POST" action="/account-manager/prompts/save" id="form-{{ key }}">
+        <input type="hidden" name="prompt_key" value="{{ key }}">
+
+        <textarea
+          class="prompt-textarea"
+          name="content"
+          rows="20"
+          placeholder="Enter prompt content here…"
+          id="textarea-{{ key }}"
+        >{% if active_prompts.get(key) %}{{ active_prompts[key].content }}{% endif %}</textarea>
+
+        <!-- Variables reference -->
+        <div class="vars-hint">
+          <strong><i class="fas fa-brackets-curly" style="margin-right:5px;"></i>Available Variables</strong>
+          <code>&#123;&#123;contact_name&#125;&#125;</code>
+          <code>&#123;&#123;product_catalog&#125;&#125;</code>
+          <code>&#123;&#123;competitor_data&#125;&#125;</code>
+          <code>&#123;&#123;strategy_json&#125;&#125;</code>
+          <code>&#123;&#123;feedback_history&#125;&#125;</code>
+          <code>&#123;&#123;cross_account_learnings&#125;&#125;</code>
+          <code>&#123;&#123;recent_activity&#125;&#125;</code>
+        </div>
+
+        <!-- Save bar -->
+        <div class="save-bar">
+          <input
+            type="text"
+            name="change_note"
+            placeholder="What did you change?"
+            autocomplete="off"
+          >
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-floppy-disk"></i> Save &amp; Apply
+          </button>
+          <a href="/account-manager/prompts" class="btn btn-outline">
+            <i class="fas fa-arrow-left"></i> Back
+          </a>
+        </div>
+      </form>
+
+      <!-- Test section -->
+      <div class="test-section">
+        <div class="test-card">
+          <div class="test-header">
+            <i class="fas fa-flask"></i>
+            <h3>Test with Contact</h3>
+          </div>
+          <div class="test-body">
+            <div class="test-row">
+              <div class="form-group">
+                <label for="test-email-{{ key }}">Contact Email</label>
+                <input
+                  type="email"
+                  id="test-email-{{ key }}"
+                  placeholder="customer@example.com"
+                  autocomplete="off"
+                >
+              </div>
+              <button
+                class="btn btn-success"
+                onclick="runPreview('{{ key }}')"
+                type="button"
+              >
+                <i class="fas fa-play"></i> Test Preview
+              </button>
+            </div>
+            <div class="test-result" id="test-result-{{ key }}"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── RIGHT: Version History ─────────────── -->
+    <div>
+      <div class="history-card">
+        <div class="history-header">
+          <i class="fas fa-clock-rotate-left"></i>
+          <h3>Version History</h3>
+        </div>
+        <div class="history-list">
+          {% if prompt_history.get(key) %}
+            {% for pv in prompt_history[key] %}
+            {% set is_current = active_prompts.get(key) and active_prompts[key].version == pv.version %}
+            <div class="history-entry {% if is_current %}current{% endif %}">
+              <div class="history-entry-top">
+                <span class="version-num {% if is_current %}current-badge{% endif %}">
+                  v{{ pv.version }}{% if is_current %} · active{% endif %}
+                </span>
+                <span class="history-date">
+                  {{ pv.created_at.strftime('%b %d, %Y') }}
+                </span>
+              </div>
+              <div class="history-note">{{ pv.change_note or '' }}</div>
+              {% if not is_current %}
+              <form method="POST" action="/account-manager/prompts/revert" style="margin:0;">
+                <input type="hidden" name="version_id" value="{{ pv.id }}">
+                <button type="submit" class="btn btn-outline btn-sm" style="width:100%;">
+                  <i class="fas fa-rotate-left"></i> Revert to v{{ pv.version }}
+                </button>
+              </form>
+              {% else %}
+              <span style="font-size:11px;color:var(--green);display:flex;align-items:center;gap:5px;">
+                <i class="fas fa-check-circle"></i> Currently active
+              </span>
+              {% endif %}
+            </div>
+            {% endfor %}
+          {% else %}
+          <div style="padding:28px 16px;text-align:center;color:var(--text3);">
+            <i class="fas fa-clock" style="font-size:24px;display:block;margin-bottom:10px;opacity:0.3;"></i>
+            <span style="font-size:12px;">No history yet.<br>Save your first version.</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /editor-layout -->
+</div><!-- /tab-panel -->
+{% endfor %}
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // ── Tab switching ──────────────────────────────────────────────────────────
+  function switchTab(key) {
+    // Deactivate all tabs and panels
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.remove('active');
+      btn.setAttribute('aria-selected', 'false');
+    });
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+      panel.classList.remove('active');
+    });
+
+    // Activate selected tab and panel
+    const btn = document.getElementById('tab-' + key);
+    const panel = document.getElementById('panel-' + key);
+    if (btn) {
+      btn.classList.add('active');
+      btn.setAttribute('aria-selected', 'true');
+    }
+    if (panel) {
+      panel.classList.add('active');
+    }
+  }
+
+  // ── AJAX prompt preview ────────────────────────────────────────────────────
+  function runPreview(key) {
+    const emailInput = document.getElementById('test-email-' + key);
+    const textarea   = document.getElementById('textarea-' + key);
+    const resultEl   = document.getElementById('test-result-' + key);
+
+    const contactEmail   = emailInput ? emailInput.value.trim() : '';
+    const promptContent  = textarea ? textarea.value.trim() : '';
+
+    if (!contactEmail) {
+      showResult(resultEl, 'Please enter a contact email address.', 'error');
+      return;
+    }
+    if (!promptContent) {
+      showResult(resultEl, 'Textarea is empty — nothing to preview.', 'error');
+      return;
+    }
+
+    showResult(resultEl, 'Running preview, please wait…', 'loading');
+
+    fetch('/account-manager/prompts/preview', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({
+        contact_email: contactEmail,
+        prompt_key: key,
+        prompt_content: promptContent
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        showResult(resultEl, 'Error: ' + data.error, 'error');
+      } else {
+        showResult(resultEl, data.result || data.output || JSON.stringify(data, null, 2), '');
+      }
+    })
+    .catch(err => {
+      showResult(resultEl, 'Request failed: ' + err.message, 'error');
+    });
+  }
+
+  function showResult(el, text, state) {
+    el.className = 'test-result visible';
+    if (state) el.classList.add(state);
+    el.textContent = text;
+  }
+</script>
+{% endblock %}

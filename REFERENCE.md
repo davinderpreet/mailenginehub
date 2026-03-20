@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-20 15:26. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-20 15:28. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -994,7 +994,7 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 
 ---
 
-## HTML Templates (36 files)
+## HTML Templates (37 files)
 
 - **`activity.html`** (25.4KB, extends base.html) -- Activity feed — real-time event log with type filters, auto-refresh via /api/activity/feed polling.
 - **`agent.html`** (16.4KB, extends base.html) -- IT Agent chat — ChatGPT-style interface, message bubbles, input field, sends to /api/agent/chat.
@@ -1014,6 +1014,7 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 - **`profile_detail.html`** (70.3KB, extends base.html) -- Full contact profile (67KB) — intelligence summary card, lifecycle/type/intent/churn badges, purchase history timeline, engagement chart, category affinity radar, AI email preview modal, quick send form, decision history table.
 - **`profiles.html`** (20.2KB, extends base.html) -- Intelligence profiles — search, lifecycle stage filter pills, sortable table (email, lifecycle, type, intent, churn risk, LTV, last decision).
 - **`profit_dashboard.html`** (11.5KB, extends base.html) -- Profit dashboard — product profitability table, margin analysis, promo eligibility recommendations.
+- **`prompt_editor.html`** (17.8KB, extends base.html)
 - **`sent_emails.html`** (11.1KB, extends base.html) -- Sent email log — filterable table (campaign/flow emails), preview link, status, open/click timestamps.
 - **`settings.html`** (9.8KB, extends base.html) -- Settings — delivery mode selector (live/shadow/sandbox), SES test send, system config.
 - **`studio\dashboard.html`** (13.1KB, extends base.html)
