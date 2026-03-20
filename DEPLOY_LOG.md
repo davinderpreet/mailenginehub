@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 17:00 -- `01c31de`
+
+**Two umbrellas only: Flows or AM — disable Auto-Scheduler, add migration script**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+migrate_to_am.py
+```
+
+---
+
 ### 2026-03-20 16:49 -- `85ef4d0`
 
 **Flow tags on contacts + always-on flow→AM handover (no setting needed)**
