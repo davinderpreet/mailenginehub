@@ -523,7 +523,7 @@ Respond with ONLY valid JSON:
             client = _get_anthropic_client()
             response = client.messages.create(
                 model="claude-haiku-4-5-20251001",
-                max_tokens=1500,
+                max_tokens=4000,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}]
             )
