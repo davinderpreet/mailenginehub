@@ -1,6 +1,6 @@
 # MailEngineHub — Project Context
 > Email marketing platform for LDAS Electronics. Flask + SQLite (Peewee) + Amazon SES + Gunicorn.
-> 54 files, 31,584 lines. For full detail: read `REFERENCE.md`
+> 54 files, 31,649 lines. For full detail: read `REFERENCE.md`
 
 ## Deployment
 - **Repo**: `C:\Users\davin\Claude Work Folder\mailenginehub-repo\`
@@ -21,16 +21,16 @@ Studio: knowledge + performance -> studio_skills(6 AI skills) -> candidate -> ap
 ## Key Files (top 10 by importance)
 | File | Lines | Role |
 |------|-------|------|
-| `app.py` | 6,873 | Flask application — all routes, scheduler, webhooks, auth |
+| `app.py` | 6,908 | Flask application — all routes, scheduler, webhooks, auth |
 | `block_registry.py` | 2,416 | Email template block rendering engine — 26 block types, validation, personalization |
 | `database.py` | 1,775 | All 53 Peewee ORM models + init_db() + migration helpers |
 | `generate-context.py` | 1,243 | Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file) |
 | `identity_resolution.py` | 1,084 | Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching |
 | `customer_intelligence.py` | 1,004 | Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV |
 | `knowledge_scraper.py` | 952 | Auto-enrichment pipeline — scrapes products, blogs, competitors, FAQs into knowledge base |
-| `ai_engine.py` | 797 | Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution |
+| `ai_engine.py` | 816 | Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution |
+| `next_best_message.py` | 801 | Deterministic decision engine — 10 action types, per-contact scoring with cooldowns |
 | `campaign_planner.py` | 791 | Aggregate decisions into campaign opportunities — scoring, preflight simulation, ranking |
-| `next_best_message.py` | 790 | Deterministic decision engine — 10 action types, per-contact scoring with cooldowns |
 
 ## Gotchas
 - `LearningConfig`: use `get_val(key, default)` / `set_val(key, value)` — NOT field access

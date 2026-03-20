@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-20 12:01. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-20 12:29. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -222,9 +222,9 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (54 files, 31,584 lines)
+## Python Files — Detailed (54 files, 31,649 lines)
 
-### `app.py` (6,873 lines)
+### `app.py` (6,908 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
 
 Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,
@@ -335,7 +335,7 @@ Key functions:
 - `scrape_competitor(source) — Extracts product/pricing from competitor pages`
 - `classify_content(text, source_type) — AI classifies and scores relevance`
 
-### `ai_engine.py` (797 lines)
+### `ai_engine.py` (816 lines)
 **Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution**
 
 Two-phase nightly pipeline:
@@ -355,24 +355,7 @@ Key functions:
 - `generate_personalized_email(email, purpose) — On-demand AI email generation`
 - `update_template_performance() — Rolls up open/click/revenue rates per template`
 
-### `campaign_planner.py` (791 lines)
-**Aggregate decisions into campaign opportunities — scoring, preflight simulation, ranking**
-
-Nightly (4:15 UTC) after next-best-message. Groups MessageDecision rows by action_type
-into campaign opportunities across 8 types: reorder, cross_sell, upsell, new_product, winback,
-education, loyalty_reward, discount_offer. For each opportunity: computes segment size, avg
-engagement score, predicted revenue (CONVERSION_RATES x segment_size x AOV), simulates preflight
-(warmup headroom, fatigue, complaint risk). Quality score (0-100): segment_size (20 pts) +
-avg_engagement (15 pts) + revenue (15 pts) - complaint_risk (-10 to block) - fatigue (-10 pts).
-Stores SuggestedCampaign rows with quality_score, urgency, subject_line_angles, target_template_id,
-accepted/dismissed flags. Dashboard shows opportunities ranked by score.
-
-Key functions:
-- `scan_opportunities() — Group decisions into campaigns, score, rank`
-- `simulate_preflight(campaign) — Check warmup headroom, fatigue, complaints`
-- `compute_quality_score(opportunity) — 0-100 multi-factor score`
-
-### `next_best_message.py` (790 lines)
+### `next_best_message.py` (801 lines)
 **Deterministic decision engine — 10 action types, per-contact scoring with cooldowns**
 
 Nightly (4:00 UTC) after intelligence. For each active contact, scores 10 action types:
@@ -391,6 +374,23 @@ Key functions:
 - `_score_winback(contact, profile) — Churn risk + days since purchase`
 - `_score_wait(contact, profile) — Fatigue/frequency default action`
 - `run_nightly_decisions() — Batch: decide for all active contacts`
+
+### `campaign_planner.py` (791 lines)
+**Aggregate decisions into campaign opportunities — scoring, preflight simulation, ranking**
+
+Nightly (4:15 UTC) after next-best-message. Groups MessageDecision rows by action_type
+into campaign opportunities across 8 types: reorder, cross_sell, upsell, new_product, winback,
+education, loyalty_reward, discount_offer. For each opportunity: computes segment size, avg
+engagement score, predicted revenue (CONVERSION_RATES x segment_size x AOV), simulates preflight
+(warmup headroom, fatigue, complaint risk). Quality score (0-100): segment_size (20 pts) +
+avg_engagement (15 pts) + revenue (15 pts) - complaint_risk (-10 to block) - fatigue (-10 pts).
+Stores SuggestedCampaign rows with quality_score, urgency, subject_line_angles, target_template_id,
+accepted/dismissed flags. Dashboard shows opportunities ranked by score.
+
+Key functions:
+- `scan_opportunities() — Group decisions into campaigns, score, rank`
+- `simulate_preflight(campaign) — Check warmup headroom, fatigue, complaints`
+- `compute_quality_score(opportunity) — 0-100 multi-factor score`
 
 ### `condition_engine.py` (786 lines)
 **Journey-aware template families, per-contact variant resolution, family constraints**

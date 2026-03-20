@@ -6480,13 +6480,38 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                     if _active_flow:
                         skipped += 1; continue
 
-                    # Get template
+                    # ── AI PERSONALIZATION ──
+                    # Try per-contact AI generation first, fall back to hardcoded template
+                    from database import LearningConfig
+                    _ai_personalization = LearningConfig.get_val("ai_personalization_enabled", "false") == "true"
+                    _ai_result = None
+                    _used_ai = False
+
+                    if _ai_personalization:
+                        try:
+                            from ai_engine import generate_personalized_email
+                            from next_best_message import ACTION_TO_PURPOSE
+                            _purpose = ACTION_TO_PURPOSE.get(decision.action_type, "")
+                            if _purpose:
+                                _ai_result = generate_personalized_email(
+                                    contact.email, _purpose,
+                                    extra_context=decision.action_reason or ""
+                                )
+                                import time as _t; _t.sleep(0.5)  # rate limit Claude calls
+                        except Exception as _ai_err:
+                            app.logger.warning("[AutoScheduler] AI gen failed for %s: %s", contact.email, _ai_err)
+
+                    # Get template (used as fallback or when AI is disabled)
                     template_id = ACTION_TEMPLATE.get(decision.action_type)
-                    if not template_id:
-                        skipped += 1; continue
-                    try:
-                        template = EmailTemplate.get_by_id(template_id)
-                    except EmailTemplate.DoesNotExist:
+                    template = None
+                    if template_id:
+                        try:
+                            template = EmailTemplate.get_by_id(template_id)
+                        except EmailTemplate.DoesNotExist:
+                            pass
+
+                    # If no AI result and no template, skip
+                    if not _ai_result and not template:
                         skipped += 1; continue
 
                     # ── SEND TIME OPTIMIZATION ──
@@ -6570,107 +6595,115 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                     if _sched <= now:
                         _sched += timedelta(days=1)
 
-                    # Render template
-                    html = template.html_body or ""
-                    html = html.replace("{{first_name}}", contact.first_name or "Friend")
-                    html = html.replace("{{last_name}}", contact.last_name or "")
-                    html = html.replace("{{email}}", contact.email)
                     _unsub = _make_unsubscribe_url(contact)
 
-                    html = html.replace("{{unsubscribe_url}}", _unsub)
+                    # ── RENDER EMAIL (AI path or template fallback) ──
+                    if _ai_result and _ai_result.get("body_html"):
+                        # AI-generated: already has product images, discount codes, full HTML
+                        html = _ai_result["body_html"]
+                        subject = _ai_result.get("subject", "A message from LDAS Electronics")
+                        _used_ai = True
+                    elif template:
+                        # Fallback: existing hardcoded template path
+                        html = template.html_body or ""
+                        html = html.replace("{{first_name}}", contact.first_name or "Friend")
+                        html = html.replace("{{last_name}}", contact.last_name or "")
+                        html = html.replace("{{email}}", contact.email)
+                        html = html.replace("{{unsubscribe_url}}", _unsub)
 
-                    # Personalization from CustomerProfile
-                    if _profile:
-                        html = html.replace("{{last_viewed_product}}", _profile.last_viewed_product or "one of our popular items")
-                        html = html.replace("{{total_orders}}", str(_profile.total_orders or 0))
-                        html = html.replace("{{total_spent}}", "$%.2f" % (_profile.total_spent or 0))
-                    else:
-                        html = html.replace("{{last_viewed_product}}", "one of our popular items")
-                        html = html.replace("{{total_orders}}", "0")
-                        html = html.replace("{{total_spent}}", "$0")
+                        # Personalization from CustomerProfile
+                        if _profile:
+                            html = html.replace("{{last_viewed_product}}", _profile.last_viewed_product or "one of our popular items")
+                            html = html.replace("{{total_orders}}", str(_profile.total_orders or 0))
+                            html = html.replace("{{total_spent}}", "$%.2f" % (_profile.total_spent or 0))
+                        else:
+                            html = html.replace("{{last_viewed_product}}", "one of our popular items")
+                            html = html.replace("{{total_orders}}", "0")
+                            html = html.replace("{{total_spent}}", "$0")
 
-                    # Discount code — reuse existing or create new
-                    if "{{discount_code}}" in html:
-                        try:
-                            from discount_engine import get_or_create_discount
-                            _purpose_map = {
-                                "discount_offer": "cart_abandonment",
-                                "winback": "winback",
-                                "loyalty_reward": "loyalty_reward",
-                            }
-                            _dpurpose = _purpose_map.get(decision.action_type, "welcome")
-                            _result = get_or_create_discount(contact.email, _dpurpose)
-                            _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
-                            html = html.replace("{{discount_code}}", _dcode)
-                        except Exception:
-                            html = html.replace("{{discount_code}}", "")
-
-                    # Cart items — resolve from abandoned checkout or browse history
-                    if "{{cart_items}}" in html:
-                        _cart_html = ""
-                        try:
-                            from database import AbandonedCheckout
-                            import json as _cj
-                            _checkout = (AbandonedCheckout.select()
-                                         .where(AbandonedCheckout.contact == contact,
-                                                AbandonedCheckout.recovered == False)
-                                         .order_by(AbandonedCheckout.created_at.desc()).first())
-                            if _checkout and _checkout.line_items_json:
-                                _items = _cj.loads(_checkout.line_items_json)
-                                for _it in _items:
-                                    _cart_html += '<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; %s x%s — $%s</p>' % (
-                                        _it.get("title", ""), _it.get("quantity", 1), _it.get("price", "0.00"))
-                        except Exception:
-                            pass
-                        if not _cart_html:
-                            # Fallback: use recently viewed products
+                        # Discount code — reuse existing or create new
+                        if "{{discount_code}}" in html:
                             try:
-                                from database import CustomerActivity
-                                import json as _cj2
-                                _views = list(CustomerActivity.select()
-                                              .where(CustomerActivity.contact == contact,
-                                                     CustomerActivity.event_type == 'viewed_product')
-                                              .order_by(CustomerActivity.occurred_at.desc()).limit(3))
-                                _seen = set()
-                                for _v in _views:
-                                    _d = _cj2.loads(_v.event_data) if _v.event_data else {}
-                                    _t = _d.get("product_title", "")
-                                    if _t and _t not in _seen:
-                                        _seen.add(_t)
-                                        _cart_html += '<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; %s</p>' % _t
+                                from discount_engine import get_or_create_discount
+                                _purpose_map = {
+                                    "discount_offer": "cart_abandonment",
+                                    "winback": "winback",
+                                    "loyalty_reward": "loyalty_reward",
+                                }
+                                _dpurpose = _purpose_map.get(decision.action_type, "welcome")
+                                _result = get_or_create_discount(contact.email, _dpurpose)
+                                _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
+                                html = html.replace("{{discount_code}}", _dcode)
+                            except Exception:
+                                html = html.replace("{{discount_code}}", "")
+
+                        # Cart items — resolve from abandoned checkout or browse history
+                        if "{{cart_items}}" in html:
+                            _cart_html = ""
+                            try:
+                                from database import AbandonedCheckout
+                                import json as _cj
+                                _checkout = (AbandonedCheckout.select()
+                                             .where(AbandonedCheckout.contact == contact,
+                                                    AbandonedCheckout.recovered == False)
+                                             .order_by(AbandonedCheckout.created_at.desc()).first())
+                                if _checkout and _checkout.line_items_json:
+                                    _items = _cj.loads(_checkout.line_items_json)
+                                    for _it in _items:
+                                        _cart_html += '<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; %s x%s — $%s</p>' % (
+                                            _it.get("title", ""), _it.get("quantity", 1), _it.get("price", "0.00"))
                             except Exception:
                                 pass
-                        if not _cart_html:
-                            _cart_html = '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items from LDAS Electronics</p>'
-                        html = html.replace("{{cart_items}}", _cart_html)
+                            if not _cart_html:
+                                try:
+                                    from database import CustomerActivity
+                                    import json as _cj2
+                                    _views = list(CustomerActivity.select()
+                                                  .where(CustomerActivity.contact == contact,
+                                                         CustomerActivity.event_type == 'viewed_product')
+                                                  .order_by(CustomerActivity.occurred_at.desc()).limit(3))
+                                    _seen = set()
+                                    for _v in _views:
+                                        _d = _cj2.loads(_v.event_data) if _v.event_data else {}
+                                        _t = _d.get("product_title", "")
+                                        if _t and _t not in _seen:
+                                            _seen.add(_t)
+                                            _cart_html += '<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; %s</p>' % _t
+                                except Exception:
+                                    pass
+                            if not _cart_html:
+                                _cart_html = '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items from LDAS Electronics</p>'
+                            html = html.replace("{{cart_items}}", _cart_html)
 
-                    # Checkout URL fallback
-                    if "{{checkout_url}}" in html:
-                        _co_url = "https://ldas.ca/cart"
-                        try:
-                            from database import AbandonedCheckout
-                            _co = (AbandonedCheckout.select(AbandonedCheckout.checkout_url)
-                                   .where(AbandonedCheckout.contact == contact, AbandonedCheckout.recovered == False)
-                                   .order_by(AbandonedCheckout.created_at.desc()).first())
-                            if _co and _co.checkout_url:
-                                _co_url = _co.checkout_url
-                        except Exception:
-                            pass
-                        html = html.replace("{{checkout_url}}", _co_url)
+                        # Checkout URL fallback
+                        if "{{checkout_url}}" in html:
+                            _co_url = "https://ldas.ca/cart"
+                            try:
+                                from database import AbandonedCheckout
+                                _co = (AbandonedCheckout.select(AbandonedCheckout.checkout_url)
+                                       .where(AbandonedCheckout.contact == contact, AbandonedCheckout.recovered == False)
+                                       .order_by(AbandonedCheckout.created_at.desc()).first())
+                                if _co and _co.checkout_url:
+                                    _co_url = _co.checkout_url
+                            except Exception:
+                                pass
+                            html = html.replace("{{checkout_url}}", _co_url)
 
-                    # Wrap in email shell (header, footer, logo)
-                    from email_shell import wrap_email
-                    html = wrap_email(html, preview_text=template.preview_text or '', unsubscribe_url=_unsub)
+                        # Wrap in email shell (header, footer, logo)
+                        from email_shell import wrap_email
+                        html = wrap_email(html, preview_text=template.preview_text or '', unsubscribe_url=_unsub)
 
-                    subject = template.subject or "A message from LDAS Electronics"
-                    subject = subject.replace("{{first_name}}", contact.first_name or "Friend")
+                        subject = template.subject or "A message from LDAS Electronics"
+                        subject = subject.replace("{{first_name}}", contact.first_name or "Friend")
+                    else:
+                        skipped += 1; continue
 
                     from_email = os.getenv("DEFAULT_FROM_EMAIL", "news@news.ldaselectronics.com")
 
                     # Pre-create AutoEmail record so we have an ID for tracking tokens
                     ae = AutoEmail.create(
                         contact=contact,
-                        template=template_id,
+                        template=template_id or 0,
                         subject=subject,
                         status="queued",
                         auto_run_date=datetime.now().date(),
@@ -6700,13 +6733,15 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                     html = _re.sub(r'href="([^"]+)"', _wrap_auto_link, html)
 
                     # Log to ledger
+                    _tpl_name = "AI-personalized" if _used_ai else (template.name if template else "unknown")
+                    _tpl_id = template_id or 0
                     ledger = log_action(contact, "auto", 0, "rendered", "RC_AUTO_SCHEDULED",
                                         source_type="auto_scheduler",
-                                        template_id=template_id,
+                                        template_id=_tpl_id,
                                         subject=subject,
                                         html=html, priority=60,
-                                        reason_detail="NBM action: %s → template: %s, scheduled: %s"
-                                                      % (decision.action_type, template.name, _sched.strftime("%H:%M")))
+                                        reason_detail="NBM action: %s → %s, scheduled: %s"
+                                                      % (decision.action_type, _tpl_name, _sched.strftime("%H:%M")))
 
                     # Enqueue with scheduled_at, linking the pre-created AutoEmail
                     enqueue_email(
@@ -6715,7 +6750,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                         source_id=0,
                         enrollment_id=0,
                         step_id=0,
-                        template_id=template_id,
+                        template_id=_tpl_id,
                         from_name="LDAS Electronics",
                         from_email=from_email,
                         subject=subject,

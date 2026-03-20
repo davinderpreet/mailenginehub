@@ -47,6 +47,11 @@ EMAIL_PURPOSES = {
     "re_engagement": "The customer used to be active but has gone quiet. Remind them why they signed up. Reference their interests if known.",
     "loyalty_reward": "A loyal, high-value customer. Thank them, make them feel special. Mention their purchase history to show you know them.",
     "high_intent": "The customer has high engagement (many page views, product views, searches) but has not bought. They are clearly interested — help them decide.",
+    "reorder_reminder": "The customer previously bought specific products and may be approaching their reorder cycle. Reference what they bought and when. Be helpful about timing, not pushy.",
+    "cross_sell": "The customer has purchased in one category and would benefit from complementary products. Suggest items that pair well with what they already own.",
+    "education": "The customer recently purchased and is NOT ready to buy again. Send helpful content: product tips for what they bought, trucking industry info, maintenance advice, or care guides. NO selling, NO product pitches, NO discount codes. Build trust and stay top-of-mind.",
+    "new_product": "Share exciting new arrivals that match the customer's category interests. Create discovery and excitement.",
+    "discount_offer": "The customer is price-sensitive or at risk. Offer a targeted discount that feels personal, not generic.",
 }
 
 
@@ -129,6 +134,18 @@ def generate_personalized_email(email, purpose, extra_context=""):
             if profile.province:
                 loc += ", " + profile.province
             customer_info.append("Location: " + loc)
+        if profile.intelligence_summary:
+            customer_info.append("\nINTELLIGENCE BRIEF: " + profile.intelligence_summary)
+        if profile.category_affinity_json:
+            customer_info.append("Category affinities: " + profile.category_affinity_json)
+        if profile.next_purchase_category:
+            customer_info.append("Predicted next purchase: " + profile.next_purchase_category)
+        if profile.avg_days_between_orders and profile.avg_days_between_orders > 0:
+            customer_info.append("Reorder cycle: every %d days" % profile.avg_days_between_orders)
+        if profile.lifecycle_stage:
+            customer_info.append("Lifecycle: " + profile.lifecycle_stage)
+        if profile.reorder_likelihood is not None and profile.reorder_likelihood > 0:
+            customer_info.append("Reorder likelihood: %d/100" % profile.reorder_likelihood)
 
     customer_context = "\n".join(customer_info)
     purpose_desc = EMAIL_PURPOSES.get(purpose, "Send a relevant, helpful email to this customer.")
@@ -147,6 +164,8 @@ INSTRUCTIONS:
 - Keep it warm and conversational — like a helpful friend, not a corporation
 - The email should feel like it was written specifically for THIS person
 - Do NOT use generic filler phrases like "valued customer" or "exclusive offer"
+- Use the INTELLIGENCE BRIEF to understand this customer's exact situation — their reorder cycle, what they bought, when they're likely to buy again
+- If purpose is 'education', do NOT pitch products or push discounts. Share useful tips, care advice, trucking industry info, or maintenance guides relevant to their purchase category. The goal is to be helpful, not to sell.
 
 Return ONLY valid JSON (no markdown, no code blocks) with this structure:
 {

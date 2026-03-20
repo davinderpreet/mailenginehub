@@ -25,14 +25,14 @@ ACTION_TYPES = [
 
 # Map action types to ai_engine EMAIL_PURPOSES for downstream use
 ACTION_TO_PURPOSE = {
-    "reorder_reminder": "upsell",
-    "cross_sell":       "upsell",
+    "reorder_reminder": "reorder_reminder",
+    "cross_sell":       "cross_sell",
     "upsell":           "upsell",
-    "new_product":      "high_intent",
+    "new_product":      "new_product",
     "winback":          "winback",
-    "education":        "re_engagement",
+    "education":        "education",
     "loyalty_reward":   "loyalty_reward",
-    "discount_offer":   "cart_abandonment",
+    "discount_offer":   "discount_offer",
     "wait":             "",
     "switch_channel":   "",
 }
@@ -319,6 +319,8 @@ def _score_education(contact, profile, score, last_sent, last_email_date):
     total_orders = profile.total_orders if profile else 0
     web_engage = getattr(profile, "website_engagement_score", 0) or 0
     days_no_email = _days_since(last_email_date)
+    days_since_order = getattr(profile, "days_since_last_order", 999) or 999
+    avg_cycle = getattr(profile, "avg_days_between_orders", 0) or 0
 
     s = 25
     reason_parts = ["Content nurture"]
@@ -326,6 +328,15 @@ def _score_education(contact, profile, score, last_sent, last_email_date):
     if lifecycle == "prospect":
         s += 20
         reason_parts.append("prospect — nurture before selling")
+    if lifecycle == "new_customer":
+        s += 20
+        reason_parts.append("new customer — educate about their purchase")
+    if lifecycle == "active_buyer":
+        s += 15
+        reason_parts.append("active buyer — maintain relationship without overselling")
+    if total_orders >= 1 and avg_cycle > 0 and days_since_order < avg_cycle * 0.5:
+        s += 25
+        reason_parts.append(f"recently purchased ({days_since_order}d ago), in reorder cooldown (cycle ~{avg_cycle}d)")
     if total_orders == 0 and web_engage >= 20:
         s += 15
         reason_parts.append(f"browsing (web engagement {web_engage}) but no purchase")
@@ -334,7 +345,7 @@ def _score_education(contact, profile, score, last_sent, last_email_date):
         reason_parts.append(f"no email in {days_no_email}d — fill the gap")
 
     days_since_sent = _days_since(last_sent)
-    if days_since_sent < 10:
+    if days_since_sent < 7:
         s -= 10
         reason_parts.append(f"education sent {days_since_sent}d ago (−10)")
 
