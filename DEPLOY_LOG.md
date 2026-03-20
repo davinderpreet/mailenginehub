@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 13:17 -- `11f5c92`
+
+**Fix old domain in product URLs + add safety net for ldas.ca**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+email_templates.py
+```
+
+---
+
 ### 2026-03-20 13:13 -- `f60a5d0`
 
 **Auto-update CLAUDE.md before deploy**
