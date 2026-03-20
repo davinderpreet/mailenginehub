@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-20 10:35 -- `c8dbba4`
+
+**Fix: force-send Step 1 path also uses unique discount codes for block templates**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-19 16:03 -- `c455a17`
 
 **fix: remove invalid @requires_auth decorator — route already auth-protected by before_request**
