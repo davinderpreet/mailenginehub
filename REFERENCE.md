@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-20 13:12. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-20 13:15. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -222,7 +222,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (54 files, 31,797 lines)
+## Python Files — Detailed (54 files, 31,800 lines)
 
 ### `app.py` (6,908 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -465,7 +465,7 @@ Sources (/studio/sources) — ScrapeSource CRUD with run/toggle/fix actions.
 Scrape log (/studio/scrape-log) — historical log of scraping runs.
 API (/studio/api/intelligence-score) — JSON endpoint for dashboard polling.
 
-### `email_templates.py` (625 lines)
+### `email_templates.py` (628 lines)
 **Seed template library — pre-built templates for each journey type in blocks_json format**
 
 Defines seed templates for: welcome, browse_recovery, cart_recovery, checkout_recovery,

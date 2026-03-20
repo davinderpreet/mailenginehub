@@ -621,4 +621,7 @@ def render_email(purpose, content, products=None, discount=None, unsubscribe_url
         str: complete HTML email
     """
     renderer = TEMPLATE_RENDERERS.get(purpose, render_winback_email)
-    return renderer(content, products or [], discount, unsubscribe_url)
+    html = renderer(content, products or [], discount, unsubscribe_url)
+    # Safety net: ensure all links use correct domain
+    html = html.replace("ldas-electronics.com", "ldas.ca")
+    return html
