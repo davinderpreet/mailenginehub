@@ -2560,22 +2560,38 @@ def _pause_lower_priority_enrollments(contact, new_flow):
         if first_step and not step1_sent and contact.subscribed:
             try:
                 template = EmailTemplate.get_by_id(first_step.template_id)
-                html = template.html_body or ""
-                html = html.replace("{{first_name}}", contact.first_name or "Friend")
-                html = html.replace("{{last_name}}", contact.last_name or "")
-                html = html.replace("{{email}}", contact.email)
                 _unsub = _make_unsubscribe_url(contact)
-                html = html.replace("{{unsubscribe_url}}", _unsub)
 
-                # Discount code
-                if "{{discount_code}}" in html:
-                    try:
-                        from discount_engine import generate_discount_code
-                        _result = generate_discount_code(contact.email, "welcome")
-                        _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
-                        html = html.replace("{{discount_code}}", _dcode)
-                    except Exception:
-                        html = html.replace("{{discount_code}}", "LDAS10")
+                # Determine discount purpose from flow trigger
+                _TRIGGER_TO_PURPOSE = {
+                    "checkout_abandoned": "cart_abandonment",
+                    "browse_abandonment": "browse_abandonment",
+                    "no_purchase_days":   "winback",
+                    "contact_created":    "welcome",
+                    "order_placed":       "loyalty_reward",
+                }
+                _dpurpose = _TRIGGER_TO_PURPOSE.get(enrollment.flow.trigger_type, "welcome")
+
+                if getattr(template, 'template_format', 'html') == 'blocks':
+                    from block_registry import render_template_blocks
+                    from discount_engine import get_or_create_discount, get_discount_display
+                    _dinfo = get_or_create_discount(contact.email, _dpurpose)
+                    _ddisplay = get_discount_display(_dinfo) if _dinfo else None
+                    html = render_template_blocks(template, contact, products=[], discount=_ddisplay)
+                    html = html.replace("{{unsubscribe_url}}", _unsub)
+                else:
+                    html = template.html_body or ""
+                    html = html.replace("{{first_name}}", contact.first_name or "Friend")
+                    html = html.replace("{{last_name}}", contact.last_name or "")
+                    html = html.replace("{{email}}", contact.email)
+                    html = html.replace("{{unsubscribe_url}}", _unsub)
+                    if "{{discount_code}}" in html:
+                        try:
+                            _result = generate_discount_code(contact.email, _dpurpose)
+                            _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
+                            html = html.replace("{{discount_code}}", _dcode)
+                        except Exception:
+                            html = html.replace("{{discount_code}}", "")
 
                 subject = (first_step.subject_override or template.subject or "Welcome!").replace(
                     "{{first_name}}", contact.first_name or "Friend")
