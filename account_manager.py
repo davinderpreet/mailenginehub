@@ -500,30 +500,23 @@ FEEDBACK HISTORY (learn from this — do NOT repeat rejected approaches):
 
 Based on everything above, decide what to do TODAY for this contact.
 
-Respond with ONLY valid JSON:
+Respond with ONLY valid JSON (do NOT include email content — emails are generated separately):
 {{
   "action": "send_email" | "wait" | "update_strategy_only",
-  "strategy_update": {{...updated strategy object...}} or null,
-  "email": {{
-    "subject": "subject line (under 50 chars)",
-    "preheader": "preview text (under 80 chars)",
-    "body_paragraphs": ["paragraph 1", "paragraph 2"],
-    "cta_text": "button text",
-    "cta_url": "https://ldas.ca/...",
-    "hero_headline": "big headline (max 8 words)",
-    "hero_subheadline": "subheadline (max 15 words)"
-  }} or null,
+  "strategy_update": {{...updated strategy object with phases, goals, tactics...}} or null,
+  "email_purpose": "education" | "product_recommendation" | "reorder_reminder" | "cart_recovery" | "winback" | "cross_sell" | "loyalty" | null,
+  "email_brief": "1-sentence description of what the email should say" or null,
   "reasoning": "1-2 sentences explaining your decision",
   "phase_update": "phase name" or null,
   "next_action_date": "YYYY-MM-DD" or null,
   "next_action_type": "action type" or null
 }}"""
 
-            # Call Claude
+            # Call Claude — strategy decision only (no email content)
             client = _get_anthropic_client()
             response = client.messages.create(
                 model="claude-haiku-4-5-20251001",
-                max_tokens=4000,
+                max_tokens=2000,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}]
             )
@@ -559,10 +552,11 @@ Respond with ONLY valid JSON:
             cs.last_reviewed_at = datetime.now()
             cs.updated_at = datetime.now()
 
-            if action == "send_email" and decision.get("email"):
-                # Generate full HTML using existing ai_engine
-                purpose = cs.next_action_type or "education"
-                strategy_context = f"Phase: {cs.current_phase}. {decision.get('reasoning', '')}"
+            if action == "send_email":
+                # Generate full HTML using existing ai_engine — separate call
+                purpose = decision.get("email_purpose") or cs.next_action_type or "education"
+                email_brief = decision.get("email_brief", "")
+                strategy_context = f"Phase: {cs.current_phase}. {decision.get('reasoning', '')}. Brief: {email_brief}"
                 result = generate_personalized_email(
                     contact.email, purpose,
                     extra_context=strategy_context
