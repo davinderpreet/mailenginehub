@@ -1,6 +1,6 @@
 # MailEngineHub — Project Context
 > Email marketing platform for LDAS Electronics. Flask + SQLite (Peewee) + Amazon SES + Gunicorn.
-> 54 files, 31,876 lines. For full detail: read `REFERENCE.md`
+> 55 files, 32,688 lines. For full detail: read `REFERENCE.md`
 
 ## Deployment
 - **Repo**: `C:\Users\davin\Claude Work Folder\mailenginehub-repo\`
@@ -30,7 +30,6 @@ Studio: knowledge + performance -> studio_skills(6 AI skills) -> candidate -> ap
 | `knowledge_scraper.py` | 952 | Auto-enrichment pipeline — scrapes products, blogs, competitors, FAQs into knowledge base |
 | `ai_engine.py` | 819 | Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution |
 | `next_best_message.py` | 801 | Deterministic decision engine — 10 action types, per-contact scoring with cooldowns |
-| `campaign_planner.py` | 791 | Aggregate decisions into campaign opportunities — scoring, preflight simulation, ranking |
 
 ## Gotchas
 - `LearningConfig`: use `get_val(key, default)` / `set_val(key, value)` — NOT field access
