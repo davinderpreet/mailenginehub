@@ -5809,6 +5809,339 @@ def auto_pilot_preview(item_id):
         return jsonify(ok=False, error="Item not found"), 404
 
 
+# ═══════════════════════════════════════════════════════════════
+#  AI ACCOUNT MANAGER
+# ═══════════════════════════════════════════════════════════════
+
+@app.route("/account-manager")
+@requires_auth
+def account_manager_dashboard():
+    from database import (AMPendingReview, ContactStrategy, Contact,
+                          LearningConfig)
+    filter_type = request.args.get("filter", "all")
+    page = int(request.args.get("page", 1))
+    per_page = 20
+
+    # Stats
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    pending_count = AMPendingReview.select().where(AMPendingReview.status == "pending").count()
+    approved_today = AMPendingReview.select().where(
+        AMPendingReview.status == "approved",
+        AMPendingReview.reviewed_at >= today_start).count()
+    rejected_today = AMPendingReview.select().where(
+        AMPendingReview.status == "rejected",
+        AMPendingReview.reviewed_at >= today_start).count()
+
+    # Rolling approval rate
+    total_decided = AMPendingReview.select().where(AMPendingReview.status != "pending").count()
+    total_approved_all = AMPendingReview.select().where(AMPendingReview.status == "approved").count()
+    approval_rate = (total_approved_all / total_decided * 100) if total_decided > 0 else 0
+
+    # Pending emails
+    query = (AMPendingReview.select(AMPendingReview, Contact, ContactStrategy)
+             .join(Contact)
+             .switch(AMPendingReview)
+             .join(ContactStrategy)
+             .where(AMPendingReview.status == "pending")
+             .order_by(AMPendingReview.created_at.desc()))
+
+    total = query.count()
+    pending_emails = query.paginate(page, per_page)
+
+    # Enrollment stats
+    enrolled_count = ContactStrategy.select().where(ContactStrategy.enrolled == True).count()
+    autonomous_count = ContactStrategy.select().where(
+        ContactStrategy.autonomous == True, ContactStrategy.enrolled == True).count()
+
+    # Settings
+    am_enabled = LearningConfig.get_val("am_enabled", "false")
+
+    return render_template("account_manager.html",
+        pending_emails=pending_emails,
+        pending_count=pending_count,
+        approved_today=approved_today,
+        rejected_today=rejected_today,
+        approval_rate=approval_rate,
+        total_decided=total_decided,
+        enrolled_count=enrolled_count,
+        autonomous_count=autonomous_count,
+        am_enabled=am_enabled,
+        filter_type=filter_type,
+        page=page,
+        total_pages=(total + per_page - 1) // per_page,
+        total=total)
+
+
+@app.route("/account-manager/approve/<int:pending_id>", methods=["POST"])
+@requires_auth
+def am_approve(pending_id):
+    from account_manager import approve_email
+    approve_email(pending_id)
+    flash("Email approved and queued for delivery.", "success")
+    return redirect(url_for("account_manager_dashboard"))
+
+
+@app.route("/account-manager/reject/<int:pending_id>", methods=["POST"])
+@requires_auth
+def am_reject(pending_id):
+    from account_manager import reject_email
+    reason = request.form.get("reason", "")
+    reject_email(pending_id, reason)
+    flash("Email rejected. AI will learn from your feedback.", "info")
+    return redirect(url_for("account_manager_dashboard"))
+
+
+@app.route("/account-manager/edit/<int:pending_id>", methods=["POST"])
+@requires_auth
+def am_edit(pending_id):
+    from database import AMPendingReview
+    pe = AMPendingReview.get_or_none(AMPendingReview.id == pending_id)
+    if not pe:
+        flash("Email not found.", "error")
+        return redirect(url_for("account_manager_dashboard"))
+
+    edited_subject = request.form.get("edited_subject", "")
+    edited_html = request.form.get("edited_html", "")
+    if edited_subject:
+        pe.edited_subject = edited_subject
+    if edited_html:
+        pe.edited_html = edited_html
+    pe.save()
+
+    # If user wants to save and approve directly
+    if request.form.get("save_and_approve"):
+        from account_manager import approve_email
+        approve_email(pending_id)
+        flash("Email edited and approved.", "success")
+    else:
+        flash("Edits saved. Review and approve when ready.", "info")
+    return redirect(url_for("account_manager_dashboard"))
+
+
+@app.route("/account-manager/regenerate/<int:pending_id>", methods=["POST"])
+@requires_auth
+def am_regenerate(pending_id):
+    from account_manager import regenerate_email
+    feedback = request.form.get("feedback", "")
+    result = regenerate_email(pending_id, feedback)
+    if result:
+        flash("Email regenerated with your feedback.", "success")
+    else:
+        flash("Failed to regenerate email.", "error")
+    return redirect(url_for("account_manager_dashboard"))
+
+
+@app.route("/account-manager/bulk-approve", methods=["POST"])
+@requires_auth
+def am_bulk_approve():
+    from account_manager import approve_email
+    ids = request.form.getlist("pending_ids")
+    count = 0
+    for pid in ids:
+        if approve_email(int(pid)):
+            count += 1
+    flash(f"{count} emails approved and queued.", "success")
+    return redirect(url_for("account_manager_dashboard"))
+
+
+@app.route("/account-manager/contact/<int:contact_id>")
+@requires_auth
+def am_contact_detail(contact_id):
+    from database import (Contact, ContactStrategy, AMPendingReview,
+                          CustomerProfile, ContactScore)
+    import json as _json
+
+    contact = Contact.get_or_none(Contact.id == contact_id)
+    if not contact:
+        flash("Contact not found.", "error")
+        return redirect(url_for("account_manager_dashboard"))
+
+    cs = ContactStrategy.get_or_none(ContactStrategy.contact == contact)
+    profile = CustomerProfile.get_or_none(CustomerProfile.email == contact.email)
+    score = ContactScore.get_or_none(ContactScore.contact == contact)
+
+    # Parse strategy JSON
+    strategy_data = {}
+    if cs and cs.strategy_json and cs.strategy_json != "{}":
+        try:
+            strategy_data = _json.loads(cs.strategy_json)
+        except Exception:
+            pass
+
+    # Email history for this contact
+    email_history = (AMPendingReview.select()
+                     .where(AMPendingReview.contact == contact)
+                     .order_by(AMPendingReview.created_at.desc())
+                     .limit(20))
+
+    return render_template("account_manager.html",
+        view="contact_detail",
+        contact=contact,
+        strategy=cs,
+        strategy_data=strategy_data,
+        profile=profile,
+        score=score,
+        email_history=email_history)
+
+
+@app.route("/account-manager/enroll/<int:contact_id>", methods=["POST"])
+@requires_auth
+def am_enroll(contact_id):
+    from account_manager import enroll_contact
+    enroll_contact(contact_id)
+    flash("Contact enrolled in AI Account Manager.", "success")
+    return redirect(request.referrer or url_for("account_manager_dashboard"))
+
+
+@app.route("/account-manager/unenroll/<int:contact_id>", methods=["POST"])
+@requires_auth
+def am_unenroll(contact_id):
+    from account_manager import unenroll_contact
+    unenroll_contact(contact_id)
+    flash("Contact removed from AI Account Manager.", "info")
+    return redirect(request.referrer or url_for("account_manager_dashboard"))
+
+
+@app.route("/account-manager/settings", methods=["GET", "POST"])
+@requires_auth
+def am_settings():
+    from database import LearningConfig
+    if request.method == "POST":
+        LearningConfig.set_val("am_enabled", request.form.get("am_enabled", "false"))
+        LearningConfig.set_val("am_max_daily_contacts", request.form.get("am_max_daily_contacts", "200"))
+        LearningConfig.set_val("am_enrollment_mode", request.form.get("am_enrollment_mode", "manual"))
+        flash("Account Manager settings saved.", "success")
+        return redirect(url_for("am_settings"))
+
+    return render_template("account_manager.html",
+        view="settings",
+        am_enabled=LearningConfig.get_val("am_enabled", "false"),
+        am_max_daily_contacts=LearningConfig.get_val("am_max_daily_contacts", "200"),
+        am_enrollment_mode=LearningConfig.get_val("am_enrollment_mode", "manual"))
+
+
+@app.route("/account-manager/preview/<int:pending_id>")
+@requires_auth
+def am_preview_email(pending_id):
+    from database import AMPendingReview
+    pe = AMPendingReview.get_or_none(AMPendingReview.id == pending_id)
+    if not pe:
+        return "Not found", 404
+    html = pe.edited_html if pe.edited_html else pe.body_html
+    return html
+
+
+@app.route("/account-manager/prompts")
+@requires_auth
+def am_prompts():
+    from database import PromptVersion
+    from account_manager import DEFAULT_PROMPTS, seed_default_prompts
+    seed_default_prompts()
+
+    prompt_keys = list(DEFAULT_PROMPTS.keys())
+    active_prompts = {}
+    for key in prompt_keys:
+        pv = (PromptVersion.select()
+              .where(PromptVersion.prompt_key == key, PromptVersion.is_active == True)
+              .order_by(PromptVersion.version.desc())
+              .first())
+        if pv:
+            active_prompts[key] = pv
+
+    # Version history for each prompt
+    prompt_history = {}
+    for key in prompt_keys:
+        versions = (PromptVersion.select()
+                    .where(PromptVersion.prompt_key == key)
+                    .order_by(PromptVersion.version.desc())
+                    .limit(10))
+        prompt_history[key] = list(versions)
+
+    return render_template("prompt_editor.html",
+        prompt_keys=prompt_keys,
+        active_prompts=active_prompts,
+        prompt_history=prompt_history)
+
+
+@app.route("/account-manager/prompts/save", methods=["POST"])
+@requires_auth
+def am_save_prompt():
+    from database import PromptVersion
+    prompt_key = request.form.get("prompt_key")
+    content = request.form.get("content", "")
+    change_note = request.form.get("change_note", "")
+
+    # Get current max version
+    max_ver = (PromptVersion.select(fn.MAX(PromptVersion.version))
+               .where(PromptVersion.prompt_key == prompt_key)
+               .scalar() or 0)
+
+    # Deactivate old versions
+    (PromptVersion.update(is_active=False)
+     .where(PromptVersion.prompt_key == prompt_key)
+     .execute())
+
+    # Create new version
+    PromptVersion.create(
+        prompt_key=prompt_key,
+        version=max_ver + 1,
+        content=content,
+        change_note=change_note,
+        is_active=True,
+        created_at=datetime.now()
+    )
+
+    flash(f"Prompt '{prompt_key}' saved as v{max_ver + 1}.", "success")
+    return redirect(url_for("am_prompts"))
+
+
+@app.route("/account-manager/prompts/revert", methods=["POST"])
+@requires_auth
+def am_revert_prompt():
+    from database import PromptVersion
+    version_id = int(request.form.get("version_id"))
+
+    pv = PromptVersion.get_or_none(PromptVersion.id == version_id)
+    if pv:
+        (PromptVersion.update(is_active=False)
+         .where(PromptVersion.prompt_key == pv.prompt_key)
+         .execute())
+        pv.is_active = True
+        pv.save()
+        flash(f"Reverted to v{pv.version}.", "success")
+
+    return redirect(url_for("am_prompts"))
+
+
+@app.route("/account-manager/prompts/preview", methods=["POST"])
+@requires_auth
+def am_prompt_preview():
+    """Test a prompt against a specific contact — returns AI response as JSON."""
+    from database import Contact, ContactStrategy
+    from account_manager import (gather_contact_profile, gather_business_context,
+                                 _get_anthropic_client)
+
+    contact_email = request.form.get("contact_email", "")
+    prompt_content = request.form.get("prompt_content", "")
+
+    contact = Contact.get_or_none(Contact.email == contact_email)
+    if not contact:
+        return jsonify({"error": "Contact not found"}), 404
+
+    profile_text = gather_contact_profile(contact)
+    business_ctx = gather_business_context()
+
+    client = _get_anthropic_client()
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1500,
+        system=prompt_content,
+        messages=[{"role": "user", "content": f"CUSTOMER PROFILE:\n{profile_text}\n\n{business_ctx}\n\nWhat would you do for this customer today? Respond with your strategy."}]
+    )
+
+    return jsonify({"preview": response.content[0].text})
+
+
 # ─────────────────────────────────────────────────────────────
 #  CUSTOMER ACTIVITY FEED
 # ─────────────────────────────────────────────────────────────
@@ -6338,6 +6671,20 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
         except Exception as _e:
             app.logger.error(f"Nightly decision engine failed: {_e}")
 
+    # ── AI Account Manager: per-contact AI strategist ──
+    def _run_account_manager():
+        try:
+            import sys as _sam; _sam.path.insert(0, APP_DIR)
+            from account_manager import run_account_manager, seed_default_prompts
+            seed_default_prompts()  # Ensure defaults exist
+            app.logger.info("AI Account Manager starting...")
+            results = run_account_manager()
+            app.logger.info(f"AI Account Manager complete: {results}")
+        except Exception as _e:
+            app.logger.error(f"AI Account Manager failed: {_e}")
+
+    _scheduler.add_job(_run_account_manager, "cron", hour=3, minute=40,
+                       id="account_manager", replace_existing=True)
     _scheduler.add_job(_run_nightly_decisions, "cron", hour=4, minute=0,
                        id="nightly_decisions", replace_existing=True)
     def _run_nightly_opportunity_scan():
@@ -6460,6 +6807,14 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                     # Skip sunset contacts
                     _cs = ContactScore.get_or_none(ContactScore.contact == contact)
                     if _cs and _cs.sunset_score and _cs.sunset_score >= 85:
+                        skipped += 1; continue
+
+                    # Skip contacts managed by AI Account Manager
+                    from database import ContactStrategy
+                    _am_cs = ContactStrategy.get_or_none(
+                        ContactStrategy.contact == contact,
+                        ContactStrategy.enrolled == True)
+                    if _am_cs:
                         skipped += 1; continue
 
                     # Skip if already has a pending auto-scheduled email today
@@ -6900,6 +7255,12 @@ else:
 
 if __name__ == "__main__":
     init_db()
+    # Seed AI Account Manager default prompts
+    try:
+        from account_manager import seed_default_prompts
+        seed_default_prompts()
+    except Exception as e:
+        app.logger.warning(f"Could not seed AM prompts: {e}")
     print("\n" + "="*50)
     print("  Email Marketing Platform Running!")
     print("  Open: http://localhost:5000")

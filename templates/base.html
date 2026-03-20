@@ -450,6 +450,10 @@
       <i class="fas fa-plane"></i> Auto-Pilot
       <span class="nav-badge" style="background:var(--green);">NEW</span>
     </a>
+    <a href="/account-manager" class="nav-item {% if '/account-manager' in request.path %}active{% endif %}">
+      <i class="fas fa-user-tie"></i> Account Manager
+      <span class="nav-badge" style="background:var(--purple);">AI</span>
+    </a>
 
     <div class="nav-label" style="margin-top:12px;">System</div>
     <a href="/audit" class="nav-item {% if '/audit' in request.path %}active{% endif %}">
