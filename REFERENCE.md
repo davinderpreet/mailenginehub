@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-20 13:29. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-20 13:51. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -997,7 +997,7 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 - **`studio\pending.html`** (9.6KB, extends base.html)
 - **`studio\scrape_log.html`** (5.2KB, extends base.html)
 - **`studio\sources.html`** (11.3KB, extends base.html)
-- **`system_map.html`** (43.5KB, extends base.html) -- System map (43KB) — D3.js force graph, category filter pills, search, node detail panel, 65+ component nodes with live stats.
+- **`system_map.html`** (44.6KB, extends base.html) -- System map (43KB) — D3.js force graph, category filter pills, search, node detail panel, 65+ component nodes with live stats.
 - **`telemetry.html`** (6.6KB, extends base.html) -- Telemetry — 4 stat cards (total renders, success rate, fallback rate, avg latency), family performance table, field breakdown table. Auto-refreshes every 30s.
 - **`template_builder.html`** (35.4KB, extends base.html) -- Block template editor (35KB) — drag-and-drop block builder, live preview panel, block palette, property inspector, AI generate button.
 - **`template_editor.html`** (9.1KB, extends base.html) -- Legacy HTML template editor — code textarea, subject/preview_text fields, test send.
