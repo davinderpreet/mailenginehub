@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-21 15:56 -- `8258269`
+
+**Simplify AI Engine page — remove cruft, focus on segments and churn**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+templates/ai_engine.html
+```
+
+---
+
 ### 2026-03-21 15:50 -- `01274cf`
 
 **Redesign dashboard — replace BS metrics with actionable data**
