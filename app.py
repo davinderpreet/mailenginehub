@@ -470,52 +470,123 @@ def _update_warmup_log(phase, daily_limit):
 # ─────────────────────────────────
 @app.route("/")
 def dashboard():
-    total_contacts  = Contact.select().count()
-    total_campaigns = Campaign.select().count()
-    total_sent      = CampaignEmail.select().where(CampaignEmail.status == "sent").count()
-    total_sent     += FlowEmail.select().where(FlowEmail.status == "sent").count()
-    total_sent     += AutoEmail.select().where(AutoEmail.status == "sent").count()
-    total_opened    = CampaignEmail.select().where(CampaignEmail.opened == True).count()
-    total_opened   += FlowEmail.select().where(FlowEmail.opened == True).count()
-    total_opened   += AutoEmail.select().where(AutoEmail.opened == True).count()
-    open_rate = round((total_opened / total_sent * 100), 1) if total_sent > 0 else 0
+    from peewee import fn as _fn
+    import datetime as _dt
 
-    recent_campaigns = (Campaign.select()
-                        .order_by(Campaign.created_at.desc())
-                        .limit(5))
+    total_contacts = Contact.select().count()
+    subscribed_count = Contact.select().where(Contact.subscribed == True).count()
 
+    # --- Today's sends by source ---
+    today_start = _dt.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    flow_sent_today = FlowEmail.select().where(
+        FlowEmail.status == "sent", FlowEmail.sent_at >= today_start).count()
+    campaign_sent_today = CampaignEmail.select().where(
+        CampaignEmail.status == "sent", CampaignEmail.created_at >= today_start).count()
+    am_sent_today = AutoEmail.select().where(
+        AutoEmail.status == "sent", AutoEmail.sent_at >= today_start).count()
+    sent_today = flow_sent_today + campaign_sent_today + am_sent_today
+
+    # --- Warmup limit ---
     warmup_config = get_warmup_config()
     warmup_health = _compute_health_score(warmup_config)
     if warmup_health >= 90:   warmup_color = "#6366f1"
     elif warmup_health >= 75: warmup_color = "#22c55e"
     elif warmup_health >= 50: warmup_color = "#f97316"
     else:                     warmup_color = "#ef4444"
+    daily_limit = WARMUP_PHASES.get(warmup_config.current_phase, {}).get("daily_limit", 999999) if warmup_config.is_active else 0
 
-    # Trigger backlog stats
-    from peewee import fn as _fn
-    trigger_backlog = {"pending": 0, "processed": 0, "skipped_stale": 0,
-                       "skipped_duplicate": 0, "skipped_no_flow": 0, "skipped": 0, "failed": 0}
+    # --- Active flow enrollments ---
+    active_enrollments = FlowEnrollment.select().where(FlowEnrollment.status == "active").count()
+
+    # --- 7-day open rate with trend ---
+    seven_days_ago = _dt.datetime.now() - _dt.timedelta(days=7)
+    fourteen_days_ago = _dt.datetime.now() - _dt.timedelta(days=14)
+
+    sent_7d = FlowEmail.select().where(FlowEmail.status == "sent", FlowEmail.sent_at >= seven_days_ago).count()
+    sent_7d += CampaignEmail.select().where(CampaignEmail.status == "sent", CampaignEmail.created_at >= seven_days_ago).count()
+    sent_7d += AutoEmail.select().where(AutoEmail.status == "sent", AutoEmail.sent_at >= seven_days_ago).count()
+    opened_7d = FlowEmail.select().where(FlowEmail.opened == True, FlowEmail.sent_at >= seven_days_ago).count()
+    opened_7d += CampaignEmail.select().where(CampaignEmail.opened == True, CampaignEmail.created_at >= seven_days_ago).count()
+    opened_7d += AutoEmail.select().where(AutoEmail.opened == True, AutoEmail.sent_at >= seven_days_ago).count()
+    open_rate_7d = round((opened_7d / sent_7d * 100), 1) if sent_7d > 0 else 0
+
+    sent_prev_7d = FlowEmail.select().where(FlowEmail.status == "sent", FlowEmail.sent_at >= fourteen_days_ago, FlowEmail.sent_at < seven_days_ago).count()
+    sent_prev_7d += CampaignEmail.select().where(CampaignEmail.status == "sent", CampaignEmail.created_at >= fourteen_days_ago, CampaignEmail.created_at < seven_days_ago).count()
+    sent_prev_7d += AutoEmail.select().where(AutoEmail.status == "sent", AutoEmail.sent_at >= fourteen_days_ago, AutoEmail.sent_at < seven_days_ago).count()
+    opened_prev_7d = FlowEmail.select().where(FlowEmail.opened == True, FlowEmail.sent_at >= fourteen_days_ago, FlowEmail.sent_at < seven_days_ago).count()
+    opened_prev_7d += CampaignEmail.select().where(CampaignEmail.opened == True, CampaignEmail.created_at >= fourteen_days_ago, CampaignEmail.created_at < seven_days_ago).count()
+    opened_prev_7d += AutoEmail.select().where(AutoEmail.opened == True, AutoEmail.sent_at >= fourteen_days_ago, AutoEmail.sent_at < seven_days_ago).count()
+    open_rate_prev_7d = round((opened_prev_7d / sent_prev_7d * 100), 1) if sent_prev_7d > 0 else 0
+    open_rate_trend = round(open_rate_7d - open_rate_prev_7d, 1)
+
+    # --- Revenue attributed (last 30 days) ---
+    thirty_days_ago = _dt.datetime.now() - _dt.timedelta(days=30)
+    revenue_30d = 0
+    revenue_purchases = 0
     try:
-        rows = list(PendingTrigger
-                    .select(PendingTrigger.status, _fn.COUNT(PendingTrigger.id).alias("cnt"))
-                    .group_by(PendingTrigger.status)
-                    .dicts())
-        for r in rows:
-            trigger_backlog[r["status"]] = trigger_backlog.get(r["status"], 0) + r["cnt"]
+        rev_result = (OutcomeLog.select(_fn.SUM(OutcomeLog.revenue), _fn.COUNT(OutcomeLog.id))
+                      .where(OutcomeLog.purchased == True, OutcomeLog.created_at >= thirty_days_ago)
+                      .tuples().first())
+        if rev_result:
+            revenue_30d = round(rev_result[0] or 0, 2)
+            revenue_purchases = rev_result[1] or 0
+    except Exception:
+        pass
+
+    # --- Active flows summary ---
+    flow_summary = []
+    try:
+        active_flows = Flow.select().where(Flow.is_active == True)
+        for flow in active_flows:
+            enrolled = FlowEnrollment.select().where(
+                FlowEnrollment.flow == flow, FlowEnrollment.status == "active").count()
+            completed = FlowEnrollment.select().where(
+                FlowEnrollment.flow == flow, FlowEnrollment.status == "completed").count()
+            sent_count = 0
+            for step in FlowStep.select().where(FlowStep.flow == flow):
+                sent_count += FlowEmail.select().where(
+                    FlowEmail.step == step, FlowEmail.status == "sent").count()
+            flow_summary.append({
+                "name": flow.name,
+                "trigger": flow.trigger_type,
+                "enrolled": enrolled,
+                "completed": completed,
+                "sent": sent_count,
+                "id": flow.id,
+            })
+    except Exception:
+        pass
+
+    # --- AM status ---
+    am_enrolled = 0
+    am_pending = 0
+    try:
+        am_enrolled = ContactStrategy.select().where(ContactStrategy.enrolled == True).count()
+        am_pending = AMPendingReview.select().where(AMPendingReview.status == "pending").count()
     except Exception:
         pass
 
     return render_template("dashboard.html",
         total_contacts=total_contacts,
-        total_campaigns=total_campaigns,
-        total_sent=total_sent,
-        open_rate=open_rate,
-        recent_campaigns=recent_campaigns,
+        subscribed_count=subscribed_count,
+        sent_today=sent_today,
+        flow_sent_today=flow_sent_today,
+        campaign_sent_today=campaign_sent_today,
+        am_sent_today=am_sent_today,
+        daily_limit=daily_limit,
+        active_enrollments=active_enrollments,
+        open_rate_7d=open_rate_7d,
+        open_rate_trend=open_rate_trend,
+        sent_7d=sent_7d,
+        revenue_30d=revenue_30d,
+        revenue_purchases=revenue_purchases,
         warmup_config=warmup_config,
         warmup_health=warmup_health,
         warmup_color=warmup_color,
         warmup_phases=WARMUP_PHASES,
-        trigger_backlog=trigger_backlog,
+        flow_summary=flow_summary,
+        am_enrolled=am_enrolled,
+        am_pending=am_pending,
     )
 
 # ─────────────────────────────────
