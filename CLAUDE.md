@@ -1,6 +1,6 @@
 # MailEngineHub — Project Context
 > Email marketing platform for LDAS Electronics. Flask + SQLite (Peewee) + Amazon SES + Gunicorn.
-> 56 files, 33,879 lines. For full detail: read `REFERENCE.md`
+> 56 files, 33,919 lines. For full detail: read `REFERENCE.md`
 
 ## Deployment
 - **Repo**: `C:\Users\davin\Claude Work Folder\mailenginehub-repo\`
@@ -28,8 +28,8 @@ Studio: knowledge + performance -> studio_skills(6 AI skills) -> candidate -> ap
 | `identity_resolution.py` | 1,084 | Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching |
 | `customer_intelligence.py` | 1,004 | Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV |
 | `knowledge_scraper.py` | 952 | Auto-enrichment pipeline — scrapes products, blogs, competitors, FAQs into knowledge base |
-| `ai_engine.py` | 819 | Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution |
-| `next_best_message.py` | 801 | Deterministic decision engine — 10 action types, per-contact scoring with cooldowns |
+| `ai_engine.py` | 836 | Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution |
+| `next_best_message.py` | 824 | Deterministic decision engine — 10 action types, per-contact scoring with cooldowns |
 
 ## Gotchas
 - `LearningConfig`: use `get_val(key, default)` / `set_val(key, value)` — NOT field access

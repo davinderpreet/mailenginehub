@@ -641,6 +641,23 @@ def execute_plan(plan_id):
             CampaignEmail.status == "sent", CampaignEmail.created_at >= cutoff_3d):
         recently_emailed.add(r.contact_id)
 
+    # Skip contacts owned by AM or in active flows
+    from database import ContactStrategy, FlowEnrollment
+    am_owned_ids = set(
+        cs.contact_id for cs in
+        ContactStrategy.select(ContactStrategy.contact)
+        .where(ContactStrategy.enrolled == True)
+    )
+    flow_owned_ids = set(
+        fe.contact_id for fe in
+        FlowEnrollment.select(FlowEnrollment.contact)
+        .where(FlowEnrollment.status.in_(["active", "paused"]))
+    )
+    owned_ids = am_owned_ids | flow_owned_ids
+    recently_emailed |= owned_ids
+    logger.info("[AI Engine] Excluding %d AM-owned + %d flow-owned contacts from plan execution",
+                len(am_owned_ids), len(flow_owned_ids))
+
     for action in actions:
         if total_sent >= DAILY_CAP:
             break
