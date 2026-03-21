@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-21 12:57 -- `ddd4c5b`
+
+**feat: AM emails use block templates as guardrails with AI-personalized content**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+account_manager.py
+app.py
+```
+
+---
+
 ### 2026-03-21 12:35 -- `20aabd5`
 
 **feat: show AI Account Manager strategy on customer profile page**
