@@ -2805,6 +2805,46 @@ def _enroll_contact_in_flows(contact, trigger_type, trigger_value=""):
                 pass
             # ── Phase 3: Pause lower-priority enrollments ──
             _pause_lower_priority_enrollments(contact, flow)
+            # ── Pause AM if contact is AM-managed ──
+            try:
+                from database import ContactStrategy
+                import json as _json
+                _cs = ContactStrategy.get_or_none(
+                    ContactStrategy.contact == contact,
+                    ContactStrategy.enrolled == True
+                )
+                if _cs:
+                    _sd = {}
+                    try:
+                        _sd = _json.loads(_cs.strategy_json) if _cs.strategy_json and _cs.strategy_json != "{}" else {}
+                    except Exception:
+                        _sd = {}
+                    if "pause_context" not in _sd:
+                        _sd["pause_context"] = {
+                            "paused_at": datetime.now().isoformat(),
+                            "paused_by_flow": flow.name,
+                            "flow_trigger": trigger_type,
+                            "previous_next_action_date": _cs.next_action_date.isoformat() if _cs.next_action_date else None,
+                            "previous_next_action_type": _cs.next_action_type,
+                        }
+                        _cs.strategy_json = _json.dumps(_sd)
+                        _cs.next_action_type = "paused_for_flow"
+                        _cs.save()
+                        try:
+                            from action_ledger import log_action
+                            log_action(
+                                contact=contact,
+                                trigger_type="flow", source_id=flow.id,
+                                status="paused", reason_code="RC_AM_PAUSED",
+                                source_type="account_manager",
+                                reason_detail="AM paused — contact entered %s" % flow.name,
+                            )
+                        except Exception:
+                            pass
+                        app.logger.info("[FlowEnroll] AM paused for %s — entering flow '%s'",
+                                        contact.email, flow.name)
+            except Exception:
+                pass  # AM pause is best-effort, don't block flow enrollment
         except Exception:
             pass  # Unique constraint — already enrolled
 
