@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-21 16:34 -- `e54aab3`
+
+**Fix spam rate crisis: enrollment caps, subscription recheck, flow ceiling**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+delivery_engine.py
+```
+
+---
+
 ### 2026-03-21 16:02 -- `d748658`
 
 **UI fixes: hide Telemetry nav, add Campaign stats, Template filters, fix Unknown label**
