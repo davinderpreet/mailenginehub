@@ -1126,8 +1126,14 @@ def unsubscribe_oneclick():
 # ─────────────────────────────────
 @app.route("/templates")
 def templates():
-    templates = EmailTemplate.select().order_by(EmailTemplate.created_at.desc())
-    return render_template("templates.html", templates=templates)
+    family_filter = request.args.get("family", "")
+    query = EmailTemplate.select().order_by(EmailTemplate.created_at.desc())
+    if family_filter:
+        query = query.where(EmailTemplate.template_family == family_filter)
+    templates_list = query
+    # Get unique families for filter pills
+    families = sorted(set(t.template_family for t in EmailTemplate.select() if t.template_family))
+    return render_template("templates.html", templates=templates_list, families=families, current_family=family_filter)
 
 @app.route("/templates/new", methods=["GET", "POST"])
 def new_template():
@@ -1809,8 +1815,19 @@ def sent_email_preview(email_type, email_id):
 # ─────────────────────────────────
 @app.route("/campaigns")
 def campaigns():
-    campaigns = Campaign.select().order_by(Campaign.created_at.desc())
-    return render_template("campaigns.html", campaigns=campaigns)
+    from peewee import fn as _fn
+    campaigns_list = Campaign.select().order_by(Campaign.created_at.desc())
+    total_campaigns = campaigns_list.count()
+    sent_campaigns = Campaign.select().where(Campaign.status == "sent").count()
+    draft_campaigns = Campaign.select().where(Campaign.status == "draft").count()
+    # Total recipients and opens across all campaigns
+    total_recipients = CampaignEmail.select().where(CampaignEmail.status == "sent").count()
+    total_opens = CampaignEmail.select().where(CampaignEmail.opened == True).count()
+    avg_open_rate = round((total_opens / total_recipients * 100), 1) if total_recipients > 0 else 0
+    return render_template("campaigns.html",
+        campaigns=campaigns_list, total_campaigns=total_campaigns,
+        sent_campaigns=sent_campaigns, draft_campaigns=draft_campaigns,
+        total_recipients=total_recipients, avg_open_rate=avg_open_rate)
 
 @app.route("/campaigns/new", methods=["GET", "POST"])
 def new_campaign():
@@ -6265,7 +6282,7 @@ def activity_feed():
         feed.append({
             "id":          a.id,
             "email":       a.email,
-            "name":        email_to_name.get((a.email or "").lower(), a.email or "Unknown"),
+            "name":        email_to_name.get((a.email or "").lower(), a.email or "Anonymous Visitor"),
             "event_type":  a.event_type,
             "event_data":  data,
             "source":      a.source,

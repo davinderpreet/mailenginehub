@@ -13,6 +13,22 @@
 
 {% block content %}
 
+<!-- Family filter pills -->
+{% if families %}
+<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+  <a href="/templates" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;text-decoration:none;
+    {% if not current_family %}background:var(--purple);color:white;{% else %}background:var(--surface);color:var(--text2);border:1px solid var(--border);{% endif %}">
+    All
+  </a>
+  {% for f in families %}
+  <a href="/templates?family={{ f }}" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;text-decoration:none;
+    {% if current_family == f %}background:var(--purple);color:white;{% else %}background:var(--surface);color:var(--text2);border:1px solid var(--border);{% endif %}">
+    {{ f.replace("_", " ").title() }}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
 <div class="card">
   {% if templates %}
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:20px;">

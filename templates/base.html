@@ -439,9 +439,7 @@
     <a href="/warmup" class="nav-item {% if '/warmup' in request.path %}active{% endif %}">
       <i class="fas fa-fire"></i> Deliverability
     </a>
-    <a href="/telemetry" class="nav-item {% if '/telemetry' in request.path %}active{% endif %}">
-      <i class="fas fa-chart-line"></i> Telemetry
-    </a>
+    <!-- Telemetry hidden — no AI rendering data yet. Route still works at /telemetry -->
     <a href="/learning" class="nav-item {% if '/learning' in request.path %}active{% endif %}">
       <i class="fas fa-graduation-cap"></i> Self-Learning
       <span class="nav-badge" style="background:var(--purple);">NEW</span>
