@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-21 14:30 -- `32d34b9`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-03-21 13:28 -- `c4f16a2`
 
 **chore: add enriched contacts export to gitignore**
