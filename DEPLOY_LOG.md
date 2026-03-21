@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-21 16:46 -- `08e7721`
+
+**Fix SES webhook: allow SNS messages without SigningCertURL**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-21 16:34 -- `e54aab3`
 
 **Fix spam rate crisis: enrollment caps, subscription recheck, flow ceiling**
