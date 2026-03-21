@@ -4,6 +4,22 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-21 16:02 -- `d748658`
+
+**UI fixes: hide Telemetry nav, add Campaign stats, Template filters, fix Unknown label**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+templates/base.html
+templates/campaigns.html
+templates/templates.html
+```
+
+---
+
 ### 2026-03-21 15:56 -- `8258269`
 
 **Simplify AI Engine page — remove cruft, focus on segments and churn**
