@@ -5113,6 +5113,36 @@ def profile_detail(contact_id):
     except Exception:
         pass
 
+    # AI Account Manager strategy
+    _am_strategy = None
+    try:
+        from database import ContactStrategy
+        import json as _json_am
+        _cs = ContactStrategy.get_or_none(ContactStrategy.contact == contact_id)
+        if _cs and _cs.enrolled:
+            _strat_data = {}
+            if _cs.strategy_json and _cs.strategy_json != "{}":
+                try:
+                    _strat_data = _json_am.loads(_cs.strategy_json)
+                except Exception:
+                    pass
+            _am_strategy = {
+                "enrolled": _cs.enrolled,
+                "current_phase": _cs.current_phase or "Not set",
+                "next_action_date": _cs.next_action_date.strftime("%b %d, %Y") if _cs.next_action_date else "Not scheduled",
+                "next_action_type": _cs.next_action_type or "—",
+                "overall_goal": _strat_data.get("overall_goal", ""),
+                "phases": _strat_data.get("phases", []),
+                "strategy_version": _cs.strategy_version or 0,
+                "autonomous": _cs.autonomous,
+                "confidence": _cs.confidence_score or 0,
+                "total_approved": _cs.total_approved or 0,
+                "total_rejected": _cs.total_rejected or 0,
+                "last_reviewed": _cs.last_reviewed_at.strftime("%b %d, %Y %H:%M") if _cs.last_reviewed_at else "Never",
+            }
+    except Exception:
+        pass
+
     return render_template("profile_detail.html",
         contact=contact,
         profile=profile,
@@ -5133,6 +5163,7 @@ def profile_detail(contact_id):
         intelligence=_intelligence,
         decision=_decision,
         discount_codes=_discount_codes,
+        am_strategy=_am_strategy,
         now=datetime.now(),
     )
 
