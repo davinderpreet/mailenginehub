@@ -947,8 +947,23 @@ def webhook_shopify_order_create():
          .where(AbandonedCheckout.email == email, AbandonedCheckout.recovered == False)
          .execute())
 
+        # 2. Track discount code redemption
+        _order_discount_codes = data.get("discount_codes") or []
+        for _dc in _order_discount_codes:
+            _dc_code = (_dc.get("code") or "").strip().upper()
+            if _dc_code:
+                _matched = GeneratedDiscount.get_or_none(
+                    GeneratedDiscount.code == _dc_code,
+                    GeneratedDiscount.used == False,
+                )
+                if _matched:
+                    _matched.used = True
+                    _matched.used_at = datetime.now()
+                    _matched.save()
+                    app.logger.info(f"Discount redeemed: {_dc_code} by {email} on order #{data.get('order_number')}")
+
         if contact:
-            # 2. Smart exit: cancel ALL abandonment + winback + welcome flows on purchase
+            # 3. Smart exit: cancel ALL abandonment + winback + welcome flows on purchase
             # Welcome flow should stop once customer converts — no "5% off" after they bought
             _exit_flows_by_trigger_type(
                 contact,
@@ -956,7 +971,7 @@ def webhook_shopify_order_create():
                 reason_code="flow_exit_purchase",
             )
 
-            # 3. Enroll in order_placed flows
+            # 4. Enroll in order_placed flows
             _enroll_contact_in_flows(contact, "order_placed")
             app.logger.info(f"Order webhook: {email} — exited abandonment/winback flows, enrolled in post-purchase")
 

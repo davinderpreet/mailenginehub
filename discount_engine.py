@@ -13,7 +13,7 @@ import string
 import random
 import requests
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from database import GeneratedDiscount, Contact, init_db
 
 logger = logging.getLogger("discount_engine")
@@ -98,7 +98,7 @@ def generate_discount_code(email, purpose, override_value=None):
 
     discount_type = strategy["type"]
     value = override_value or strategy["value"]
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     expires_at = now + timedelta(hours=strategy["expires_hours"])
 
     # Create Shopify Price Rule
@@ -114,8 +114,8 @@ def generate_discount_code(email, purpose, override_value=None):
                 "customer_selection": "all",
                 "usage_limit": 1,
                 "once_per_customer": True,
-                "starts_at": now.strftime("%Y-%m-%dT%H:%M:%S-05:00"),
-                "ends_at": expires_at.strftime("%Y-%m-%dT%H:%M:%S-05:00"),
+                "starts_at": now.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+                "ends_at": expires_at.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
             }
         }
     else:
@@ -130,12 +130,12 @@ def generate_discount_code(email, purpose, override_value=None):
                 "customer_selection": "all",
                 "usage_limit": 1,
                 "once_per_customer": True,
-                "starts_at": now.strftime("%Y-%m-%dT%H:%M:%S-05:00"),
-                "ends_at": expires_at.strftime("%Y-%m-%dT%H:%M:%S-05:00"),
+                "starts_at": now.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+                "ends_at": expires_at.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
             }
         }
 
-    # Try to create in Shopify (requires write_price_rules scope)
+    # Create in Shopify (requires write_price_rules scope)
     price_rule_id = ""
     shopify_discount_id = ""
     shopify_synced = False
@@ -159,16 +159,22 @@ def generate_discount_code(email, purpose, override_value=None):
             else:
                 logger.warning("Price rule created but discount code failed: %s", resp2.text[:200])
         elif resp.status_code == 403:
-            # API token lacks write_price_rules scope — create locally only
-            logger.info("Shopify write_price_rules not available — code %s created locally only", code)
+            logger.error("Shopify write_price_rules scope missing — cannot create discount code %s", code)
+            return None
         else:
-            logger.warning("Shopify price rule creation failed (%d) — code %s created locally only",
-                          resp.status_code, code)
+            logger.error("Shopify price rule creation failed (%d) for code %s: %s",
+                          resp.status_code, code, resp.text[:200])
+            return None
     except Exception as e:
-        logger.warning("Shopify API error (code %s created locally): %s", code, e)
+        logger.error("Shopify API error creating code %s: %s", code, e)
+        return None
+
+    if not shopify_synced:
+        logger.error("Discount code %s not fully synced to Shopify — not saving", code)
+        return None
 
     try:
-        # Store in our database (always, even without Shopify sync)
+        # Store in our database only after successful Shopify sync
         contact = Contact.get_or_none(Contact.email == email)
         GeneratedDiscount.create(
             contact=contact,
@@ -183,9 +189,8 @@ def generate_discount_code(email, purpose, override_value=None):
             created_at=now,
         )
 
-        status = "Shopify + local" if shopify_synced else "local only"
-        logger.info("Discount created (%s): %s for %s (%s, %s%% off, expires %s)",
-                     status, code, email, purpose, value, expires_at.strftime("%b %d"))
+        logger.info("Discount created (Shopify synced): %s for %s (%s, %s%% off, expires %s)",
+                     code, email, purpose, value, expires_at.strftime("%b %d"))
 
         return {
             "code": code,
@@ -193,11 +198,11 @@ def generate_discount_code(email, purpose, override_value=None):
             "discount_type": discount_type,
             "expires_at": expires_at,
             "shopify_price_rule_id": price_rule_id,
-            "shopify_synced": shopify_synced,
+            "shopify_synced": True,
         }
 
     except Exception as e:
-        logger.error("Discount creation failed for %s: %s", email, e)
+        logger.error("Discount DB save failed for %s: %s", email, e)
         return None
 
 
@@ -205,19 +210,21 @@ def get_or_create_discount(email, purpose):
     """
     Get an existing active discount code, or create a new one.
     Prevents duplicate codes for the same customer + purpose.
+    Only returns codes that were successfully synced to Shopify.
 
     Returns:
         dict: {code, value, discount_type, expires_at} or None
     """
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
 
-    # Check for existing unexpired, unused discount
+    # Check for existing unexpired, unused discount (must be synced to Shopify)
     existing = (GeneratedDiscount.select()
         .where(
             GeneratedDiscount.email == email,
             GeneratedDiscount.purpose == purpose,
             GeneratedDiscount.used == False,
             GeneratedDiscount.expires_at > now,
+            GeneratedDiscount.shopify_price_rule_id != "",
         )
         .order_by(GeneratedDiscount.created_at.desc())
         .first())
@@ -238,16 +245,18 @@ def get_active_discount(email, purpose=None):
     """
     Look up the customer's most recent active (unexpired, unused) discount code.
     If purpose is given, filter by purpose. Otherwise return any active code.
+    Only returns codes that were successfully synced to Shopify.
 
     Returns:
         dict: {code, value, discount_type, expires_at} or None
     """
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     query = (GeneratedDiscount.select()
         .where(
             GeneratedDiscount.email == email,
             GeneratedDiscount.used == False,
             GeneratedDiscount.expires_at > now,
+            GeneratedDiscount.shopify_price_rule_id != "",
         )
         .order_by(GeneratedDiscount.created_at.desc()))
 
@@ -292,7 +301,7 @@ def get_discount_display(discount_info):
 
     # Format expiry
     if expires:
-        days_left = (expires - datetime.now()).days
+        days_left = (expires - datetime.now(timezone.utc)).days
         if days_left <= 0:
             expires_text = "Expires today"
         elif days_left == 1:
@@ -317,7 +326,7 @@ def cleanup_expired_discounts(days_old=30):
     Delete expired, unused discount codes from Shopify and our database.
     Run nightly to prevent Shopify price rule accumulation.
     """
-    cutoff = datetime.now() - timedelta(days=days_old)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days_old)
 
     expired = list(GeneratedDiscount.select().where(
         GeneratedDiscount.used == False,
@@ -384,7 +393,7 @@ if __name__ == "__main__":
         count = GeneratedDiscount.select().count()
         print("Total discount codes: %d" % count)
         for d in GeneratedDiscount.select().order_by(GeneratedDiscount.created_at.desc()).limit(10):
-            status = "USED" if d.used else ("EXPIRED" if d.expires_at and d.expires_at < datetime.now() else "ACTIVE")
+            status = "USED" if d.used else ("EXPIRED" if d.expires_at and d.expires_at < datetime.now(timezone.utc) else "ACTIVE")
             print("  %s | %s | %s | %s | %s" % (
                 d.code, d.email[:30], d.purpose, d.value + "%", status
             ))
