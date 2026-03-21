@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-21 15:50 -- `01274cf`
+
+**Redesign dashboard — replace BS metrics with actionable data**
+
+Files changed:
+```
+REFERENCE.md
+app.py
+templates/dashboard.html
+```
+
+---
+
 ### 2026-03-21 14:30 -- `32d34b9`
 
 **Auto-update CLAUDE.md before deploy**
