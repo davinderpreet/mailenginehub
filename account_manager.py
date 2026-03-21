@@ -150,7 +150,8 @@ def _get_active_prompt(prompt_key, default=""):
 
 
 def gather_contact_profile(contact):
-    """Build a comprehensive text profile for a contact — used by the AI strategist."""
+    """Build a comprehensive text profile for a contact — used by the AI strategist.
+    Includes ALL available intelligence for deep personalization."""
     from database import (CustomerProfile, ContactScore, CustomerActivity,
                           AutoEmail, CampaignEmail, AbandonedCheckout,
                           ProductImageCache, ProductCommercial,
@@ -162,8 +163,10 @@ def gather_contact_profile(contact):
     lines.append(f"Email: {contact.email}")
     if contact.tags:
         lines.append(f"Tags: {contact.tags}")
+    lines.append(f"Source: {contact.source or 'unknown'}")
+    lines.append(f"Subscribed since: {contact.created_at.strftime('%B %d, %Y') if contact.created_at else 'unknown'}")
 
-    # Customer profile (also used for location since Contact has no province field)
+    # Customer profile
     profile = CustomerProfile.get_or_none(CustomerProfile.email == contact.email)
     if profile and profile.city:
         loc = profile.city
@@ -173,30 +176,67 @@ def gather_contact_profile(contact):
     elif contact.city:
         lines.append(f"Location: {contact.city}")
     if profile:
+        # ── Core classification ──
         if profile.lifecycle_stage:
             lines.append(f"Lifecycle: {profile.lifecycle_stage}")
+        if profile.customer_type:
+            lines.append(f"Customer type: {profile.customer_type}")
+
+        # ── Purchase history ──
         if profile.total_orders > 0:
             lines.append(f"Orders: {profile.total_orders}, Total spent: ${profile.total_spent:.2f}, AOV: ${profile.avg_order_value:.2f}")
+            if profile.first_order_at:
+                lines.append(f"First order: {profile.first_order_at.strftime('%B %d, %Y')}")
         if profile.last_order_at:
             lines.append(f"Last order: {profile.last_order_at.strftime('%B %d, %Y')}")
         if profile.days_since_last_order and profile.days_since_last_order < 999:
             lines.append(f"Days since last order: {profile.days_since_last_order}")
+
+        # ── Predictive scores ──
+        if profile.intent_score and profile.intent_score > 0:
+            lines.append(f"Purchase intent: {profile.intent_score}/100 (confidence: {profile.confidence_intent or 0}/100)")
         if profile.churn_risk and profile.churn_risk > 0:
             risk = "low" if profile.churn_risk < 1.0 else "medium" if profile.churn_risk < 1.5 else "high" if profile.churn_risk < 2.0 else "critical"
-            lines.append(f"Churn risk: {risk} ({profile.churn_risk:.1f})")
+            lines.append(f"Churn risk: {risk} ({profile.churn_risk:.1f}, confidence: {profile.confidence_churn or 0}/100)")
+        if profile.reorder_likelihood and profile.reorder_likelihood > 0:
+            lines.append(f"Reorder likelihood: {profile.reorder_likelihood}/100 (confidence: {profile.confidence_reorder or 0}/100)")
         if profile.predicted_ltv and profile.predicted_ltv > 0:
             lines.append(f"Predicted LTV: ${profile.predicted_ltv:.0f}")
+
+        # ── Engagement ──
         if profile.website_engagement_score and profile.website_engagement_score > 0:
             lines.append(f"Website engagement: {profile.website_engagement_score}/100")
         if profile.total_product_views and profile.total_product_views > 0:
             lines.append(f"Product views: {profile.total_product_views}")
+        if profile.last_active_at:
+            days_since_active = (datetime.now() - profile.last_active_at).days
+            lines.append(f"Last website visit: {days_since_active} days ago ({profile.last_active_at.strftime('%b %d')})")
+        if profile.last_viewed_product:
+            lines.append(f"Last viewed product: {profile.last_viewed_product}")
+
+        # ── Price & discount behavior ──
         if profile.price_tier and profile.price_tier != "unknown":
             lines.append(f"Price preference: {profile.price_tier}")
+        if profile.has_used_discount:
+            sensitivity = int((profile.discount_sensitivity or 0) * 100)
+            lines.append(f"Discount sensitive: YES ({sensitivity}% of orders used codes, confidence: {profile.confidence_discount or 0}/100)")
+        elif profile.total_orders > 0:
+            lines.append(f"Discount sensitive: NO (never used a discount code)")
+
+        # ── Product preferences ──
         if profile.top_products and profile.top_products != "[]":
             try:
                 prods = json.loads(profile.top_products)
                 if prods:
                     lines.append(f"Previously bought: {', '.join(prods[:5])}")
+            except Exception:
+                pass
+        if profile.all_products_bought and profile.all_products_bought != "[]":
+            try:
+                all_prods = json.loads(profile.all_products_bought)
+                if all_prods and len(all_prods) > 0:
+                    total_items = sum(p.get("qty", 1) for p in all_prods) if isinstance(all_prods[0], dict) else len(all_prods)
+                    lines.append(f"Total items purchased: {total_items}")
             except Exception:
                 pass
         if profile.product_recommendations and profile.product_recommendations != "[]":
@@ -209,15 +249,41 @@ def gather_contact_profile(contact):
         if profile.category_affinity_json:
             lines.append(f"Category affinities: {profile.category_affinity_json}")
         if profile.next_purchase_category:
-            lines.append(f"Predicted next purchase: {profile.next_purchase_category}")
+            lines.append(f"Predicted next purchase: {profile.next_purchase_category} (confidence: {profile.confidence_category or 0}/100)")
         if profile.avg_days_between_orders and profile.avg_days_between_orders > 0:
             lines.append(f"Reorder cycle: every {profile.avg_days_between_orders} days")
-        if profile.reorder_likelihood and profile.reorder_likelihood > 0:
-            lines.append(f"Reorder likelihood: {profile.reorder_likelihood}/100")
+            if profile.days_since_last_order and profile.days_since_last_order < 999:
+                days_until_due = max(0, profile.avg_days_between_orders - profile.days_since_last_order)
+                if days_until_due == 0:
+                    lines.append(f"Reorder status: OVERDUE by {profile.days_since_last_order - profile.avg_days_between_orders} days")
+                else:
+                    lines.append(f"Reorder status: {days_until_due} days until due")
+
+        # ── Send preferences ──
+        if profile.preferred_send_hour and profile.preferred_send_hour >= 0:
+            dow_names = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
+            dow = dow_names.get(profile.preferred_send_dow, "any day") if profile.preferred_send_dow >= 0 else "any day"
+            lines.append(f"Best send time: {profile.preferred_send_hour}:00 on {dow} (confidence: {profile.confidence_send_window or 0}/100)")
+        if profile.channel_preference:
+            lines.append(f"Channel: {profile.channel_preference}")
+
+        # ── Abandoned checkouts ──
+        if profile.checkout_abandonment_count and profile.checkout_abandonment_count > 0:
+            lines.append(f"Abandoned checkouts: {profile.checkout_abandonment_count}")
+
+        # ── Intelligence summary (the rich narrative from customer_intelligence.py) ──
         if profile.intelligence_summary:
             lines.append(f"\nINTELLIGENCE BRIEF: {profile.intelligence_summary}")
-        if profile.profile_summary:
-            lines.append(f"Profile summary: {profile.profile_summary}")
+
+    # ── Email engagement ──
+    if contact.last_open_at:
+        days_since_open = (datetime.now() - contact.last_open_at).days
+        lines.append(f"\nLast email opened: {days_since_open} days ago")
+    if contact.last_click_at:
+        days_since_click = (datetime.now() - contact.last_click_at).days
+        lines.append(f"Last email clicked: {days_since_click} days ago")
+    lines.append(f"Emails received (7d): {contact.emails_received_7d or 0}, (30d): {contact.emails_received_30d or 0}")
+    lines.append(f"Fatigue score: {contact.fatigue_score or 0}/100, Spam risk: {contact.spam_risk_score or 0}/100")
 
     # Contact score (RFM)
     score = ContactScore.get_or_none(ContactScore.contact == contact)

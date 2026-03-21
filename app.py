@@ -973,6 +973,38 @@ def webhook_shopify_order_create():
 
             # 4. Enroll in order_placed flows
             _enroll_contact_in_flows(contact, "order_placed")
+
+            # 5. Refresh AM strategy — lifecycle just changed (prospect→customer, or repeat purchase)
+            try:
+                from database import ContactStrategy
+                _cs = ContactStrategy.get_or_none(ContactStrategy.contact == contact, ContactStrategy.enrolled == True)
+                if _cs:
+                    order_total = float(data.get("total_price") or 0)
+                    _cs.next_action_date = datetime.now() + timedelta(days=5)  # Follow up 5 days post-purchase
+                    _cs.next_action_type = "education"  # Post-purchase tips
+                    _cs.current_phase = "Phase 1: Post-Purchase Value"
+                    # Update strategy goal
+                    import json as _json_wh
+                    try:
+                        _strat = _json_wh.loads(_cs.strategy_json) if _cs.strategy_json and _cs.strategy_json != "{}" else {}
+                    except Exception:
+                        _strat = {}
+                    _strat["overall_goal"] = "Post-purchase: build loyalty and drive second order"
+                    _strat["phases"] = [
+                        {"name": "Phase 1: Post-Purchase Value", "months": "1", "goal": "Ensure great experience with their purchase", "tactic": "Product tips and setup guide for what they bought"},
+                        {"name": "Phase 2: Cross-Sell", "months": "2-3", "goal": "Introduce complementary products", "tactic": "Product recommendation based on what goes with their purchase"},
+                        {"name": "Phase 3: Reorder & Loyalty", "months": "4-6", "goal": "Drive repeat purchase", "tactic": "Reorder reminder + loyalty recognition"},
+                    ]
+                    _strat["engagement_level"] = "warm"
+                    _strat["product_focus"] = "complementary products"
+                    _cs.strategy_json = _json_wh.dumps(_strat)
+                    _cs.strategy_version = (_cs.strategy_version or 0) + 1
+                    _cs.updated_at = datetime.now()
+                    _cs.save()
+                    app.logger.info(f"AM strategy refreshed for {email} — post-purchase mode (${order_total:.0f} order)")
+            except Exception as _e:
+                app.logger.warning(f"AM strategy refresh failed for {email}: {_e}")
+
             app.logger.info(f"Order webhook: {email} — exited abandonment/winback flows, enrolled in post-purchase")
 
         return jsonify({"success": True}), 200
