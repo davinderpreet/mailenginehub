@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-21 11:29 -- `54bdb30`
+
+**fix: discount codes — UTC timezone, Shopify sync gating, redemption tracking**
+
+Files changed:
+```
+app.py
+discount_engine.py
+```
+
+---
+
 ### 2026-03-20 17:13 -- `54670e4`
 
 **Remove Auto-Scheduler + Auto-Pilot dashboard (replaced by AM)**
