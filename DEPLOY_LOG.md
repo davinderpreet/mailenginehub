@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-21 12:35 -- `20aabd5`
+
+**feat: show AI Account Manager strategy on customer profile page**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+templates/profile_detail.html
+```
+
+---
+
 ### 2026-03-21 12:30 -- `62be158`
 
 **feat: Account Manager overhaul — lightweight nightly mode + reliability fixes**
