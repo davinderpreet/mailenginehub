@@ -755,14 +755,34 @@ def decide_all_contacts():
     from database import Contact, CustomerProfile, init_db
     init_db()
 
+    # Skip contacts owned by AM or in active flows — they have their own messaging
+    from database import ContactStrategy, FlowEnrollment
+    am_owned_ids = set(
+        cs.contact_id for cs in
+        ContactStrategy.select(ContactStrategy.contact)
+        .where(ContactStrategy.enrolled == True)
+    )
+    flow_owned_ids = set(
+        fe.contact_id for fe in
+        FlowEnrollment.select(FlowEnrollment.contact)
+        .where(FlowEnrollment.status.in_(["active", "paused"]))
+    )
+    owned_ids = am_owned_ids | flow_owned_ids
+    logger.info("NBM: skipping %d AM-owned + %d flow-owned contacts",
+                len(am_owned_ids), len(flow_owned_ids))
+
     contacts = (Contact.select(Contact.id)
                 .join(CustomerProfile, on=(CustomerProfile.contact == Contact.id))
                 .where(Contact.subscribed == True))
 
     count = 0
     errors = 0
+    skipped_owned = 0
     for c in contacts:
         try:
+            if c.id in owned_ids:
+                skipped_owned += 1
+                continue
             decide_next_action(c.id)
             count += 1
         except Exception as e:
@@ -776,12 +796,15 @@ def decide_all_contacts():
              .where(Contact.subscribed == False))
     for c in unsub:
         try:
+            if c.id in owned_ids:
+                skipped_owned += 1
+                continue
             decide_next_action(c.id)
             count += 1
         except Exception:
             errors += 1
 
-    logger.info(f"Decided for {count} contacts ({errors} errors)")
+    logger.info(f"Decided for {count} contacts ({errors} errors, {skipped_owned} owned-skipped)")
     return count
 
 
