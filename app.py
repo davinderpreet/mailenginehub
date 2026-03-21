@@ -5552,7 +5552,7 @@ def ai_email_preview(contact_id):
 
 @app.route("/ai-engine")
 def ai_engine_dashboard():
-    from database import ContactScore, AIMarketingPlan, AIDecisionLog, CustomerProfile, PendingTrigger, AIGeneratedEmail, WarmupConfig
+    from database import ContactScore, AIMarketingPlan, AIDecisionLog, CustomerProfile
     from peewee import fn
 
     segments = {}
@@ -5580,68 +5580,10 @@ def ai_engine_dashboard():
     except:
         pass
 
-    # Phase G: Revenue at risk
-    revenue_at_risk = 0.0
-    revenue_on_track = 0.0
-    try:
-        rev_risk = CustomerProfile.select(fn.SUM(CustomerProfile.predicted_ltv)).where(
-            CustomerProfile.churn_risk >= 1.5, CustomerProfile.total_orders > 0).scalar()
-        revenue_at_risk = rev_risk or 0.0
-        rev_ok = CustomerProfile.select(fn.SUM(CustomerProfile.predicted_ltv)).where(
-            CustomerProfile.churn_risk < 1.0, CustomerProfile.total_orders > 0).scalar()
-        revenue_on_track = rev_ok or 0.0
-    except:
-        pass
-
-    # Phase G: Pending triggers
-    trigger_counts = {"browse_abandonment": 0, "cart_abandonment": 0, "churn_risk_high": 0, "high_engagement_no_purchase": 0}
-    total_triggers = 0
-    try:
-        for tt in trigger_counts:
-            c = PendingTrigger.select().where(PendingTrigger.trigger_type == tt, PendingTrigger.status == "pending").count()
-            trigger_counts[tt] = c
-            total_triggers += c
-    except:
-        pass
-
-    # Phase G: Recent AI emails
-    recent_ai_emails = []
-    total_ai_emails = 0
-    try:
-        recent_ai_emails = list(AIGeneratedEmail.select().order_by(AIGeneratedEmail.generated_at.desc()).limit(10))
-        total_ai_emails = AIGeneratedEmail.select().count()
-    except:
-        pass
-
-    # Phase G: Top recommended products across all customers
-    top_recs = {}
-    try:
-        import json as _json6
-        profiles_with_recs = CustomerProfile.select().where(
-            CustomerProfile.product_recommendations != "[]",
-            CustomerProfile.product_recommendations != "")
-        for p in profiles_with_recs:
-            try:
-                recs = _json6.loads(p.product_recommendations or "[]")
-                for r in recs:
-                    top_recs[r] = top_recs.get(r, 0) + 1
-            except:
-                pass
-        top_recs = sorted(top_recs.items(), key=lambda x: -x[1])[:10]
-    except:
-        top_recs = []
-
-    # Warmup / SES status for banner
-    warmup_config = WarmupConfig.get_or_none()
-
     return render_template("ai_engine.html",
         segments=segments, plan=plan, recent_plans=recent_plans,
         recent_decisions=recent_decisions, total_scored=total_scored,
-        churn_dist=churn_dist, revenue_at_risk=revenue_at_risk,
-        revenue_on_track=revenue_on_track,
-        trigger_counts=trigger_counts, total_triggers=total_triggers,
-        recent_ai_emails=recent_ai_emails, total_ai_emails=total_ai_emails,
-        top_recs=top_recs, warmup_config=warmup_config)
+        churn_dist=churn_dist)
 
 
 
