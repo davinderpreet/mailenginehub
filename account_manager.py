@@ -1225,6 +1225,191 @@ def unenroll_contact(contact_id):
     return cs
 
 
+def _resharpen_strategy(contact, cs, strategy_data):
+    """Resharpen an AM contact's strategy after they return from flows.
+
+    Called when all flows complete for a contact that was previously AM-managed.
+    Gathers flow outcome, updated profile, and old strategy performance,
+    then calls Claude to generate a fresh strategy.
+    """
+    from database import (FlowEnrollment, FlowEmail, ShopifyOrder,
+                          CustomerProfile, LearningConfig)
+    from ai_provider import get_provider
+
+    pause_ctx = strategy_data.get("pause_context", {})
+    paused_at_str = pause_ctx.get("paused_at", "")
+    try:
+        paused_at = datetime.fromisoformat(paused_at_str)
+    except Exception:
+        paused_at = datetime.now() - timedelta(days=30)
+
+    # ── Gather flow outcome ──
+    completed_flows = (FlowEnrollment.select()
+                       .where(FlowEnrollment.contact == contact,
+                              FlowEnrollment.status.in_(["completed", "cancelled"]),
+                              FlowEnrollment.enrolled_at >= paused_at)
+                       .order_by(FlowEnrollment.enrolled_at.desc()))
+    flow_outcomes = []
+    for fe in completed_flows:
+        try:
+            flow_name = fe.flow.name
+        except Exception:
+            flow_name = "Unknown"
+        sent = FlowEmail.select().where(FlowEmail.enrollment == fe, FlowEmail.status == "sent").count()
+        opened = FlowEmail.select().where(FlowEmail.enrollment == fe, FlowEmail.opened == True).count()
+        clicked = FlowEmail.select().where(FlowEmail.enrollment == fe, FlowEmail.clicked == True).count()
+        flow_outcomes.append({
+            "flow": flow_name,
+            "status": fe.status,
+            "emails_sent": sent,
+            "emails_opened": opened,
+            "emails_clicked": clicked,
+        })
+
+    # Did they convert during flows?
+    purchases_during_flow = (ShopifyOrder.select()
+                             .where(ShopifyOrder.contact == contact,
+                                    ShopifyOrder.ordered_at >= paused_at)
+                             .count())
+    purchase_revenue = 0
+    if purchases_during_flow > 0:
+        for o in ShopifyOrder.select().where(ShopifyOrder.contact == contact,
+                                              ShopifyOrder.ordered_at >= paused_at):
+            try:
+                purchase_revenue += float(o.order_total or 0)
+            except Exception:
+                pass
+
+    # ── Gather updated profile ──
+    profile = CustomerProfile.get_or_none(CustomerProfile.contact == contact)
+    profile_snapshot = {}
+    if profile:
+        profile_snapshot = {
+            "lifecycle_stage": profile.lifecycle_stage or "unknown",
+            "customer_type": profile.customer_type or "unknown",
+            "intent_score": profile.intent_score or 0,
+            "churn_risk": profile.churn_risk_score or 0,
+            "reorder_likelihood": profile.reorder_likelihood or 0,
+            "total_orders": contact.total_orders or 0,
+            "total_spent": float(contact.total_spent or 0),
+            "days_since_last_order": profile.days_since_last_order or 999,
+        }
+
+    # ── Old strategy performance ──
+    old_strategy_summary = {
+        "phase_when_paused": pause_ctx.get("previous_next_action_type", "unknown"),
+        "total_approved": cs.total_approved or 0,
+        "total_rejected": cs.total_rejected or 0,
+        "confidence_score": cs.confidence_score or 0,
+        "current_phase": cs.current_phase or "unknown",
+    }
+
+    # ── Call Claude to resharpen ──
+    flow_outcome_text = "No flows completed." if not flow_outcomes else ""
+    for fo in flow_outcomes:
+        flow_outcome_text += "%s (%s): %d emails sent, %d opened, %d clicked. " % (
+            fo["flow"], fo["status"], fo["emails_sent"], fo["emails_opened"], fo["emails_clicked"])
+    if purchases_during_flow > 0:
+        flow_outcome_text += "Customer CONVERTED during flows: %d order(s), $%.2f revenue." % (
+            purchases_during_flow, purchase_revenue)
+    else:
+        flow_outcome_text += "Customer did NOT convert during flows."
+
+    system_prompt = (
+        "You are a senior email marketing strategist for LDAS Electronics (ldas.ca), "
+        "a Shopify store selling trucker electronics (headsets, dash cams, accessories). "
+        "You are resharpening a per-contact email marketing strategy. "
+        "The customer was previously managed by your strategy, left for behavioral flows, "
+        "and has now returned. The fact that they returned means the previous strategy worked.\n\n"
+        "Output ONLY valid JSON matching this schema:\n"
+        '{"overall_goal": "string", "phases": [{"name": "string", "months": "string", '
+        '"goal": "string", "tactic": "string"}], "product_focus": "string", '
+        '"discount_approach": "string", "first_action_type": "string", "first_action_days": int}'
+    )
+
+    user_prompt = (
+        "PREVIOUS STRATEGY PERFORMANCE:\n"
+        "Phase when paused: %s\n"
+        "Emails approved: %d, rejected: %d, confidence: %d%%\n\n"
+        "WHAT JUST HAPPENED (FLOW OUTCOMES):\n%s\n\n"
+        "UPDATED CUSTOMER PROFILE:\n%s\n\n"
+        "Generate an updated strategy that:\n"
+        "- Builds on what was working before (they came back!)\n"
+        "- Accounts for the flow outcome above\n"
+        "- Adjusts timing and approach based on whether they converted\n"
+        "- Has 2-4 phases over 3-6 months\n"
+    ) % (
+        old_strategy_summary["phase_when_paused"],
+        old_strategy_summary["total_approved"],
+        old_strategy_summary["total_rejected"],
+        old_strategy_summary["confidence_score"],
+        flow_outcome_text,
+        json.dumps(profile_snapshot, indent=2),
+    )
+
+    try:
+        provider = get_provider()
+        response = provider.complete(system_prompt, user_prompt, max_tokens=1500)
+        # Parse JSON from response
+        import re
+        json_match = re.search(r'\{[\s\S]*\}', response)
+        if json_match:
+            new_strategy = json.loads(json_match.group())
+        else:
+            raise ValueError("No JSON found in Claude response")
+    except Exception as e:
+        # Fallback: restore previous strategy, just reset timing
+        logger.warning("[AccountManager] Resharpen failed for contact #%s: %s — restoring old strategy",
+                       contact.id, str(e))
+        del strategy_data["pause_context"]
+        cs.strategy_json = json.dumps(strategy_data)
+        resume_delay = int(LearningConfig.get_val("am_resume_delay_days", "3"))
+        cs.next_action_date = datetime.now() + timedelta(days=resume_delay)
+        cs.next_action_type = pause_ctx.get("previous_next_action_type", "education")
+        cs.updated_at = datetime.now()
+        cs.save()
+        return cs
+
+    # ── Update ContactStrategy with new strategy ──
+    resume_delay = int(LearningConfig.get_val("am_resume_delay_days", "3"))
+
+    # Preserve approval/rejection history, replace strategy content
+    new_strategy["flow_graduation"] = {
+        "resharpened_at": datetime.now().strftime("%Y-%m-%d"),
+        "flow_outcomes": flow_outcomes,
+        "converted_during_flow": purchases_during_flow > 0,
+        "previous_confidence": old_strategy_summary["confidence_score"],
+    }
+    # pause_context is NOT carried forward — it's cleared by omission
+
+    cs.strategy_json = json.dumps(new_strategy)
+    cs.current_phase = new_strategy.get("phases", [{}])[0].get("name", "Phase 1") if new_strategy.get("phases") else "Phase 1"
+    cs.current_phase_num = 1
+    cs.next_action_date = datetime.now() + timedelta(days=resume_delay)
+    cs.next_action_type = new_strategy.get("first_action_type", "education")
+    cs.strategy_version = (cs.strategy_version or 0) + 1
+    cs.updated_at = datetime.now()
+    cs.save()
+
+    # Log the resharpen
+    try:
+        from action_ledger import log_action
+        log_action(
+            contact=contact,
+            trigger_type="flow", source_id=0,
+            status="resharpened", reason_code="RC_AM_RESUMED",
+            source_type="account_manager",
+            reason_detail="AM resharpened after flows — converted=%s, flows=%d" % (
+                purchases_during_flow > 0, len(flow_outcomes)),
+        )
+    except Exception:
+        pass
+
+    logger.info("[AccountManager] Strategy resharpened for contact #%s — %d flows completed, converted=%s",
+                contact.id, len(flow_outcomes), purchases_during_flow > 0)
+    return cs
+
+
 def maybe_handover_from_flow(contact):
     """Auto-enroll a contact in Account Manager if they have no more active flows.
 
@@ -1248,7 +1433,15 @@ def maybe_handover_from_flow(contact):
     # Check if already enrolled
     existing = ContactStrategy.get_or_none(ContactStrategy.contact == contact)
     if existing and existing.enrolled:
-        return None  # Already managed by AM
+        # Path B/C: already AM-managed — check if returning from flow pause
+        try:
+            strategy_data = json.loads(existing.strategy_json) if existing.strategy_json and existing.strategy_json != "{}" else {}
+        except Exception:
+            strategy_data = {}
+        if "pause_context" not in strategy_data:
+            return None  # Path B: was never paused, no-op
+        # Path C: returning AM contact — resharpen strategy
+        return _resharpen_strategy(contact, existing, strategy_data)
 
     # Build flow graduation summary for the AI strategist
     flow_history = []
