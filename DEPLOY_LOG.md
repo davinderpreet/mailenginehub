@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-21 13:28 -- `c4f16a2`
+
+**chore: add enriched contacts export to gitignore**
+
+Files changed:
+```
+.gitignore
+```
+
+---
+
 ### 2026-03-21 12:57 -- `ddd4c5b`
 
 **feat: AM emails use block templates as guardrails with AI-personalized content**
