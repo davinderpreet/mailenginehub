@@ -4,6 +4,22 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-21 12:30 -- `62be158`
+
+**feat: Account Manager overhaul — lightweight nightly mode + reliability fixes**
+
+Files changed:
+```
+.gitignore
+CLAUDE.md
+REFERENCE.md
+account_manager.py
+app.py
+database.py
+```
+
+---
+
 ### 2026-03-21 11:29 -- `54bdb30`
 
 **fix: discount codes — UTC timezone, Shopify sync gating, redemption tracking**
