@@ -765,7 +765,8 @@ def init_db():
     # Enable WAL mode for concurrent reads/writes (real-time pipeline)
     try:
         db.execute_sql('PRAGMA journal_mode=WAL')
-        db.execute_sql('PRAGMA busy_timeout=10000')
+        db.execute_sql('PRAGMA busy_timeout=30000')
+        db.execute_sql('PRAGMA synchronous=NORMAL')
     except Exception:
         pass
     db.create_tables(

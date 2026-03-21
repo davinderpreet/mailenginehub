@@ -6451,15 +6451,17 @@ def activity_sync_trigger():
 
 
 def _recalculate_deliverability_scores():
-    """Nightly: recalculate fatigue_score, spam_risk_score, and reset rolling counters."""
+    """Nightly: recalculate fatigue_score, spam_risk_score, and reset rolling counters.
+    Writes in batches of 50 to reduce SQLite lock contention."""
     try:
+        from database import db as _db
         now = datetime.now()
         seven_days_ago = now - timedelta(days=7)
         thirty_days_ago = now - timedelta(days=30)
         ninety_days_ago = now - timedelta(days=90)
 
+        batch = []
         for contact in Contact.select():
-            # Recount from CampaignEmail + FlowEmail
             ce_7d = CampaignEmail.select().where(
                 CampaignEmail.contact == contact, CampaignEmail.status == "sent",
                 CampaignEmail.created_at >= seven_days_ago).count()
@@ -6476,7 +6478,6 @@ def _recalculate_deliverability_scores():
                 FlowEmail.sent_at >= thirty_days_ago).count()
             emails_30d = ce_30d + fe_30d
 
-            # Fatigue score (0-100)
             fatigue = 0
             if emails_7d >= 5: fatigue += 40
             elif emails_7d >= 3: fatigue += 20
@@ -6489,7 +6490,6 @@ def _recalculate_deliverability_scores():
                 fatigue += 30
             fatigue = min(fatigue, 100)
 
-            # Spam risk score (0-100)
             spam_risk = 0
             if fatigue >= 60: spam_risk += 30
             if contact.last_open_at and contact.last_open_at < ninety_days_ago:
@@ -6499,19 +6499,33 @@ def _recalculate_deliverability_scores():
             if emails_7d >= 4: spam_risk += 20
             spam_risk = min(spam_risk, 100)
 
-            # Clear expired temporary suppressions
             supp_reason = contact.suppression_reason
             if supp_reason and contact.suppression_until:
                 if contact.suppression_until < now:
                     supp_reason = ""
 
-            Contact.update(
-                emails_received_7d=emails_7d,
-                emails_received_30d=emails_30d,
-                fatigue_score=fatigue,
-                spam_risk_score=spam_risk,
-                suppression_reason=supp_reason,
-            ).where(Contact.id == contact.id).execute()
+            batch.append((contact.id, emails_7d, emails_30d, fatigue, spam_risk, supp_reason))
+
+            # Flush batch every 50 contacts
+            if len(batch) >= 50:
+                with _db.atomic():
+                    for cid, e7, e30, fat, spam, sr in batch:
+                        Contact.update(
+                            emails_received_7d=e7, emails_received_30d=e30,
+                            fatigue_score=fat, spam_risk_score=spam,
+                            suppression_reason=sr,
+                        ).where(Contact.id == cid).execute()
+                batch = []
+
+        # Flush remaining
+        if batch:
+            with _db.atomic():
+                for cid, e7, e30, fat, spam, sr in batch:
+                    Contact.update(
+                        emails_received_7d=e7, emails_received_30d=e30,
+                        fatigue_score=fat, spam_risk_score=spam,
+                        suppression_reason=sr,
+                    ).where(Contact.id == cid).execute()
 
         print("[OK] Deliverability scores recalculated")
     except Exception as e:
@@ -6625,11 +6639,19 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
         try:
             import sys as _si; _si.path.insert(0, APP_DIR)
             from customer_intelligence import compute_all_intelligence
+            from database import LearningConfig
+            LearningConfig.set_val("intelligence_running", "true")
             app.logger.info("Nightly intelligence computation starting...")
             count = compute_all_intelligence()
             app.logger.info(f"Nightly intelligence complete: {count} contacts scored")
         except Exception as _e:
             app.logger.error(f"Nightly intelligence failed: {_e}")
+        finally:
+            try:
+                from database import LearningConfig
+                LearningConfig.set_val("intelligence_running", "false")
+            except Exception:
+                pass
 
     _scheduler.add_job(_run_nightly_intelligence, "cron", hour=3, minute=30,
                        id="nightly_intelligence", replace_existing=True)
@@ -6647,17 +6669,25 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
     def _run_account_manager():
         try:
             import sys as _sam; _sam.path.insert(0, APP_DIR)
+            import time as _time_am
+            from database import LearningConfig
             from account_manager import run_account_manager, seed_default_prompts
-            seed_default_prompts()  # Ensure defaults exist
+            # Wait for intelligence to finish (up to 20 minutes)
+            for _wait in range(40):
+                if LearningConfig.get_val("intelligence_running", "false") != "true":
+                    break
+                app.logger.info("AI Account Manager waiting for intelligence to finish... (%d/40)", _wait + 1)
+                _time_am.sleep(30)
+            seed_default_prompts()
             app.logger.info("AI Account Manager starting...")
             results = run_account_manager()
             app.logger.info(f"AI Account Manager complete: {results}")
         except Exception as _e:
             app.logger.error(f"AI Account Manager failed: {_e}")
 
-    _scheduler.add_job(_run_account_manager, "cron", hour=3, minute=40,
+    _scheduler.add_job(_run_account_manager, "cron", hour=4, minute=10,
                        id="account_manager", replace_existing=True)
-    _scheduler.add_job(_run_nightly_decisions, "cron", hour=4, minute=0,
+    _scheduler.add_job(_run_nightly_decisions, "cron", hour=4, minute=40,
                        id="nightly_decisions", replace_existing=True)
     def _run_nightly_opportunity_scan():
         try:
@@ -6681,11 +6711,11 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
         except Exception as _e:
             app.logger.error(f"Nightly profit scoring failed: {_e}")
 
-    _scheduler.add_job(_run_nightly_opportunity_scan, "cron", hour=4, minute=15,
+    _scheduler.add_job(_run_nightly_opportunity_scan, "cron", hour=5, minute=10,
                        id="opportunity_scan", replace_existing=True)
 
 
-    _scheduler.add_job(_recalculate_deliverability_scores, "cron", hour=3, minute=45,
+    _scheduler.add_job(_recalculate_deliverability_scores, "cron", hour=2, minute=45,
                        id="deliverability_scores", replace_existing=True)
     _scheduler.add_job(_run_nightly_profit_scoring, "cron", hour=4, minute=45,
                        id="profit_scoring", replace_existing=True)

@@ -5,9 +5,9 @@ learns from human feedback, graduates to autonomous sending.
 Runs nightly at 3:40 AM before NBM (4:00 AM).
 """
 
-import os, json, time, logging
+import os, json, time, logging, random, re
 from datetime import datetime, timedelta
-from peewee import fn
+from peewee import fn, OperationalError
 
 load_dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 try:
@@ -17,6 +17,69 @@ except ImportError:
     pass
 
 logger = logging.getLogger(__name__)
+
+
+def _retry_db_op(fn_call, max_retries=5, base_delay=0.5):
+    """Retry a DB operation with exponential backoff on SQLite lock errors."""
+    for attempt in range(max_retries + 1):
+        try:
+            return fn_call()
+        except OperationalError as e:
+            if ("locked" in str(e).lower() or "busy" in str(e).lower()) and attempt < max_retries:
+                delay = base_delay * (2 ** attempt) + random.uniform(0, base_delay)
+                logger.debug("[AccountManager] DB locked, retry %d/%d in %.1fs", attempt + 1, max_retries, delay)
+                time.sleep(delay)
+            else:
+                raise
+
+
+def _parse_claude_json(raw_text):
+    """Robustly extract JSON from Claude responses, handling markdown fences and trailing text."""
+    text = raw_text.strip()
+
+    # Strip markdown code fences
+    fence_match = re.search(r'```(?:json)?\s*\n?(.*?)```', text, re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    # Try direct parse (happy path)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Find first { and its matching } using brace-depth counting
+    brace_start = text.find('{')
+    if brace_start >= 0:
+        depth = 0
+        in_string = False
+        escape = False
+        for i, ch in enumerate(text[brace_start:], brace_start):
+            if escape:
+                escape = False
+                continue
+            if ch == '\\' and in_string:
+                escape = True
+                continue
+            if ch == '"' and not escape:
+                in_string = not in_string
+                continue
+            if not in_string:
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads(text[brace_start:i + 1])
+                        except json.JSONDecodeError:
+                            pass
+                        break
+
+    raise json.JSONDecodeError(
+        "Could not extract JSON from Claude response (%d chars)" % len(raw_text),
+        raw_text, 0
+    )
 
 
 def _get_anthropic_client():
@@ -463,8 +526,10 @@ def seed_default_prompts():
 
 def run_account_manager():
     """
-    Nightly AI Account Manager run.
-    For each enrolled contact: review profile, update strategy, generate email if needed.
+    Lightweight nightly AI Account Manager.
+    Only processes contacts whose next_action_date <= today.
+    Generates email via Claude, queues for review, advances to next action date.
+    Strategies are pre-populated by bootstrap — no per-contact re-strategizing.
     """
     from database import (ContactStrategy, AMPendingReview, Contact,
                           SuppressionEntry, LearningConfig, DeliveryQueue,
@@ -479,28 +544,29 @@ def run_account_manager():
         logger.info("[AccountManager] Disabled — am_enabled is not true")
         return {"status": "disabled"}
 
-    max_daily = int(LearningConfig.get_val("am_max_daily_contacts", "200"))
+    max_daily = int(LearningConfig.get_val("am_max_daily_contacts", "500"))
 
-    # Pre-compute shared context ONCE
-    business_context = gather_business_context()
-    business_brief = _get_active_prompt("am_business_brief", DEFAULT_PROMPTS["am_business_brief"])
-    cross_learnings = gather_cross_account_learnings()
-    system_prompt = _get_active_prompt("am_system_prompt", DEFAULT_PROMPTS["am_system_prompt"])
-    strategy_prompt = _get_active_prompt("am_strategy_prompt", DEFAULT_PROMPTS["am_strategy_prompt"])
-    evaluation_prompt = _get_active_prompt("am_evaluation_prompt", DEFAULT_PROMPTS["am_evaluation_prompt"])
-    email_gen_prompt = _get_active_prompt("am_email_generation_prompt", DEFAULT_PROMPTS["am_email_generation_prompt"])
-
-    # Get enrolled contacts
-    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # Get only contacts due today or overdue
+    today_end = datetime.now().replace(hour=23, minute=59, second=59)
     strategies = (ContactStrategy.select(ContactStrategy, Contact)
                   .join(Contact)
-                  .where(ContactStrategy.enrolled == True)
+                  .where(
+                      ContactStrategy.enrolled == True,
+                      ContactStrategy.next_action_date.is_null(False),
+                      ContactStrategy.next_action_date <= today_end,
+                  )
+                  .order_by(ContactStrategy.next_action_date.asc())
                   .limit(max_daily))
 
+    total_due = strategies.count()
+    logger.info("[AccountManager] %d contacts due today (limit %d)", total_due, max_daily)
+
     processed = 0
-    errors = 0
+    db_errors = 0
+    api_errors = 0
+    fatal_errors = 0
     emails_generated = 0
-    waits = 0
+    skipped = 0
 
     for cs in strategies:
         try:
@@ -508,214 +574,144 @@ def run_account_manager():
 
             # Skip checks
             if not contact.subscribed:
+                skipped += 1
                 continue
             sup = SuppressionEntry.get_or_none(SuppressionEntry.email == contact.email)
             if sup:
+                skipped += 1
                 continue
-            # Skip contacts with high sunset score (disengaged)
             cscore = ContactScore.get_or_none(ContactScore.contact == contact)
             if cscore and cscore.sunset_score and cscore.sunset_score >= 85:
+                skipped += 1
                 continue
-            # Already reviewed today
-            if cs.last_reviewed_at and cs.last_reviewed_at >= today_start:
-                continue
-            # Skip contacts still in active flows — flows handle them first
+            # Skip contacts still in active flows
             active_flows = (FlowEnrollment.select()
                             .where(FlowEnrollment.contact == contact,
                                    FlowEnrollment.status.in_(["active", "paused"]))
                             .count())
             if active_flows > 0:
-                logger.debug("[AccountManager] Skipping contact #%s — still in %d active flow(s)",
-                             contact.id, active_flows)
+                skipped += 1
                 continue
 
             processed += 1
 
-            # Gather full profile
-            profile_text = gather_contact_profile(contact)
-
-            # Build current strategy context
+            # Use the pre-populated strategy to determine email purpose
+            purpose = cs.next_action_type or "education"
             strategy_data = {}
             try:
                 strategy_data = json.loads(cs.strategy_json) if cs.strategy_json and cs.strategy_json != "{}" else {}
             except Exception:
                 pass
 
-            # Build rejection history
-            rejection_history = []
-            try:
-                rejection_history = json.loads(cs.rejection_reasons) if cs.rejection_reasons and cs.rejection_reasons != "[]" else []
-            except Exception:
-                pass
-
-            # Build the Claude prompt
-            user_prompt = f"""CUSTOMER PROFILE:
-{profile_text}
-
-{business_context}
-
-{business_brief}
-
-{cross_learnings}
-
-CURRENT STRATEGY (version {cs.strategy_version}):
-{json.dumps(strategy_data, indent=2) if strategy_data else "No strategy yet — create an initial 6-month plan."}
-
-Current phase: {cs.current_phase or "Not set"}
-Phase number: {cs.current_phase_num}
-Last reviewed: {cs.last_reviewed_at.strftime('%Y-%m-%d') if cs.last_reviewed_at else "Never"}
-
-FEEDBACK HISTORY (learn from ALL of this — do NOT repeat mistakes):
-- "type": "edit_feedback" = reviewer asked for specific changes (apply these corrections to ALL future emails)
-- "type": absent or "rejection" = email was rejected entirely (avoid this approach)
-{json.dumps(rejection_history[-10:], indent=2) if rejection_history else "No feedback yet."}
-
-{strategy_prompt}
-
-{evaluation_prompt}
-
-Based on everything above, decide what to do TODAY for this contact.
-
-Respond with ONLY valid JSON (do NOT include email content — emails are generated separately).
-Keep strategy_update COMPACT — max 3-4 phases, each with name + goal + 1 tactic line. No verbose descriptions.
-
-{{
-  "action": "send_email" | "wait" | "update_strategy_only",
-  "strategy_update": {{
-    "phases": [
-      {{"name": "Phase Name", "months": "1-2", "goal": "short goal", "tactic": "one-line tactic"}}
-    ],
-    "overall_goal": "one sentence"
-  }} or null,
-  "email_purpose": "education" | "product_recommendation" | "reorder_reminder" | "cart_recovery" | "winback" | "cross_sell" | "loyalty" | null,
-  "email_brief": "1-sentence description of what the email should say" or null,
-  "reasoning": "1-2 sentences explaining your decision",
-  "phase_update": "phase name" or null,
-  "next_action_date": "YYYY-MM-DD" or null,
-  "next_action_type": "action type" or null
-}}"""
-
-            # Call Claude — strategy decision only (no email content)
-            client = _get_anthropic_client()
-            response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=2000,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}]
+            strategy_context = "Phase: %s. Strategy: %s" % (
+                cs.current_phase or "unknown",
+                strategy_data.get("overall_goal", "")
             )
 
-            raw = response.content[0].text.strip()
-            # Clean markdown code blocks if present
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-                if raw.endswith("```"):
-                    raw = raw[:-3]
-                raw = raw.strip()
+            # Generate email via Claude (one API call per contact)
+            api_start = time.time()
+            result = generate_personalized_email(
+                contact.email, purpose,
+                extra_context=strategy_context
+            )
+            api_elapsed = time.time() - api_start
 
-            decision = json.loads(raw)
-            action = decision.get("action", "wait")
+            if result:
+                if cs.autonomous:
+                    send_at = _get_optimal_send_time(contact)
+                    _unsub = "https://mailenginehub.com/unsubscribe?email=%s" % contact.email
+                    ledger = _retry_db_op(lambda: log_action(
+                        contact, "auto", 0, "rendered", "RC_ACCOUNT_MANAGER",
+                        source_type="account_manager",
+                        subject=result["subject"],
+                        html=result["body_html"], priority=60,
+                        reason_detail="AM auto: %s, scheduled %s" % (purpose, send_at.strftime('%H:%M'))
+                    ))
+                    _retry_db_op(lambda: enqueue_email(
+                        contact=contact,
+                        email_type="auto",
+                        source_id=0, enrollment_id=0, step_id=0, template_id=0,
+                        from_name="LDAS Electronics",
+                        from_email="hello@news.ldaselectronics.com",
+                        subject=result["subject"],
+                        html=result["body_html"],
+                        unsubscribe_url=_unsub,
+                        priority=60,
+                        ledger_id=ledger.id if ledger else 0,
+                        scheduled_at=send_at,
+                    ))
+                    emails_generated += 1
+                else:
+                    _retry_db_op(lambda: AMPendingReview.create(
+                        contact=contact,
+                        strategy=cs,
+                        subject=result["subject"],
+                        preheader=result.get("preheader", ""),
+                        body_html=result["body_html"],
+                        reasoning=strategy_context,
+                        strategy_context=strategy_context,
+                        status="pending",
+                        action_type=purpose,
+                        created_at=datetime.now()
+                    ))
+                    emails_generated += 1
 
-            # Update strategy if provided
-            if decision.get("strategy_update"):
-                cs.strategy_json = json.dumps(decision["strategy_update"])
-                cs.strategy_version += 1
+            # Advance next_action_date (7-14 days based on strategy phase)
+            next_gap = 10  # default
+            phases = strategy_data.get("phases", [])
+            for i, ph in enumerate(phases):
+                if ph.get("name") == cs.current_phase and i + 1 < len(phases):
+                    # Move to next phase
+                    cs.current_phase = phases[i + 1]["name"]
+                    cs.current_phase_num = i + 2
+                    next_gap = 14
+                    break
+            else:
+                next_gap = random.randint(7, 14)
 
-            if decision.get("phase_update"):
-                cs.current_phase = decision["phase_update"]
-
-            if decision.get("next_action_date"):
-                try:
-                    cs.next_action_date = datetime.strptime(decision["next_action_date"], "%Y-%m-%d")
-                except Exception:
-                    pass
-
-            if decision.get("next_action_type"):
-                cs.next_action_type = decision["next_action_type"]
-
+            cs.next_action_date = datetime.now() + timedelta(days=next_gap)
             cs.last_reviewed_at = datetime.now()
             cs.updated_at = datetime.now()
+            _retry_db_op(lambda: cs.save())
 
-            if action == "send_email":
-                # Generate full HTML using existing ai_engine — separate call
-                purpose = decision.get("email_purpose") or cs.next_action_type or "education"
-                email_brief = decision.get("email_brief", "")
-                strategy_context = f"Phase: {cs.current_phase}. {decision.get('reasoning', '')}. Brief: {email_brief}"
-                result = generate_personalized_email(
-                    contact.email, purpose,
-                    extra_context=strategy_context
-                )
+            # Adaptive pacing
+            sleep_time = max(0.2, 1.0 - api_elapsed)
+            time.sleep(sleep_time)
 
-                if result:
-                    if cs.autonomous:
-                        # Autonomous — straight to delivery queue at optimal time
-                        send_at = _get_optimal_send_time(contact)
-                        _unsub = f"https://mailenginehub.com/unsubscribe?email={contact.email}"
-                        ledger = log_action(contact, "auto", 0, "rendered", "RC_ACCOUNT_MANAGER",
-                                            source_type="account_manager",
-                                            subject=result["subject"],
-                                            html=result["body_html"], priority=60,
-                                            reason_detail=f"AM auto: {purpose}, scheduled {send_at.strftime('%H:%M')}")
-                        enqueue_email(
-                            contact=contact,
-                            email_type="auto",
-                            source_id=0,
-                            enrollment_id=0,
-                            step_id=0,
-                            template_id=0,
-                            from_name="LDAS Electronics",
-                            from_email="hello@news.ldaselectronics.com",
-                            subject=result["subject"],
-                            html=result["body_html"],
-                            unsubscribe_url=_unsub,
-                            priority=60,
-                            ledger_id=ledger.id if ledger else 0,
-                            scheduled_at=send_at,
-                        )
-                        emails_generated += 1
-                    else:
-                        # Manual review — create pending review
-                        AMPendingReview.create(
-                            contact=contact,
-                            strategy=cs,
-                            subject=result["subject"],
-                            preheader=result.get("preheader", ""),
-                            body_html=result["body_html"],
-                            reasoning=decision.get("reasoning", ""),
-                            strategy_context=strategy_context,
-                            status="pending",
-                            action_type=purpose,
-                            created_at=datetime.now()
-                        )
-                        emails_generated += 1
-            else:
-                waits += 1
-
-            cs.save()
-
-            # Rate limit
-            time.sleep(0.5)
-
-        except json.JSONDecodeError as e:
-            logger.warning(f"[AccountManager] JSON parse error for contact {cs.contact.email}: {e}")
-            errors += 1
         except Exception as e:
-            logger.error(f"[AccountManager] Error processing contact {cs.contact.email}: {e}")
-            errors += 1
+            err_str = str(e).lower()
+            if "locked" in err_str or "busy" in err_str:
+                db_errors += 1
+                logger.warning("[AccountManager] DB lock for %s (after retries)", cs.contact.email)
+            elif "overloaded" in err_str or "rate" in err_str or "529" in err_str:
+                api_errors += 1
+                logger.warning("[AccountManager] API error for %s: %s", cs.contact.email, e)
+                time.sleep(5)
+            else:
+                fatal_errors += 1
+                logger.error("[AccountManager] Error for %s: %s", cs.contact.email, e)
 
-            # Circuit breaker: if error rate > 20%, halt
-            if processed > 10 and errors / processed > 0.2:
-                logger.error("[AccountManager] Circuit breaker triggered — error rate > 20%. Halting.")
+            # Circuit breaker: only fatal errors trigger halt
+            if processed > 10 and fatal_errors / processed > 0.2:
+                logger.error("[AccountManager] Circuit breaker: fatal error rate > 20%%. Halting.")
                 break
+            if api_errors >= 5:
+                logger.warning("[AccountManager] API cooldown — sleeping 60s")
+                time.sleep(60)
+                api_errors = 0
 
     results = {
         "status": "completed",
+        "total_due": total_due,
         "processed": processed,
+        "skipped": skipped,
         "emails": emails_generated,
-        "waits": waits,
-        "errors": errors,
+        "db_errors": db_errors,
+        "api_errors": api_errors,
+        "fatal_errors": fatal_errors,
         "timestamp": datetime.now().isoformat()
     }
-    logger.info(f"[AccountManager] Run complete: {results}")
+    logger.info("[AccountManager] Run complete: %s", results)
     return results
 
 

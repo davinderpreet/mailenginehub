@@ -68,3 +68,6 @@ docs/
 deploy_test.txt
 postmaster_credentials.json
 postmaster_token.pickle
+contacts_export.json
+strategies_bootstrap.json
+bootstrap_strategies.py
