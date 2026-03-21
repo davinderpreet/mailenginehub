@@ -6702,7 +6702,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
             import sys as _sam; _sam.path.insert(0, APP_DIR)
             import time as _time_am
             from database import LearningConfig
-            from account_manager import run_account_manager, seed_default_prompts
+            from account_manager import run_account_manager, seed_default_prompts, seed_am_templates
             # Wait for intelligence to finish (up to 20 minutes)
             for _wait in range(40):
                 if LearningConfig.get_val("intelligence_running", "false") != "true":
@@ -6710,6 +6710,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                 app.logger.info("AI Account Manager waiting for intelligence to finish... (%d/40)", _wait + 1)
                 _time_am.sleep(30)
             seed_default_prompts()
+            seed_am_templates()
             app.logger.info("AI Account Manager starting...")
             results = run_account_manager()
             app.logger.info(f"AI Account Manager complete: {results}")

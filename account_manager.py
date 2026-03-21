@@ -521,6 +521,228 @@ def seed_default_prompts():
 
 
 # ─────────────────────────────────
+#  AM BLOCK TEMPLATES (guardrails)
+# ─────────────────────────────────
+
+# Template structures per email purpose — blocks define layout, AI fills content
+AM_TEMPLATES = {
+    "education": {
+        "name": "AM: Education",
+        "family": "post_purchase",
+        "subject": "{{ai_subject}}",
+        "blocks": [
+            {"block_type": "hero", "content": {"headline": "", "subheadline": ""}},
+            {"block_type": "text", "content": {"paragraphs": []}},
+            {"block_type": "cta", "content": {"text": "Learn More", "url": "https://ldas.ca"}},
+        ]
+    },
+    "product_recommendation": {
+        "name": "AM: Product Recommendation",
+        "family": "promo",
+        "subject": "{{ai_subject}}",
+        "blocks": [
+            {"block_type": "hero", "content": {"headline": "", "subheadline": ""}},
+            {"block_type": "text", "content": {"paragraphs": []}},
+            {"block_type": "product_grid", "content": {"section_title": "Picked for You", "columns": 2}},
+            {"block_type": "cta", "content": {"text": "Shop Now", "url": "https://ldas.ca"}},
+        ]
+    },
+    "winback": {
+        "name": "AM: Win-Back",
+        "family": "winback",
+        "subject": "{{ai_subject}}",
+        "blocks": [
+            {"block_type": "hero", "content": {"headline": "", "subheadline": ""}},
+            {"block_type": "text", "content": {"paragraphs": []}},
+            {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
+            {"block_type": "cta", "content": {"text": "Come Back & Save", "url": "https://ldas.ca"}},
+        ]
+    },
+    "reorder_reminder": {
+        "name": "AM: Reorder Reminder",
+        "family": "post_purchase",
+        "subject": "{{ai_subject}}",
+        "blocks": [
+            {"block_type": "hero", "content": {"headline": "", "subheadline": ""}},
+            {"block_type": "text", "content": {"paragraphs": []}},
+            {"block_type": "product_hero", "content": {"section_title": "Time to Restock", "cta_text": "Reorder Now"}},
+            {"block_type": "cta", "content": {"text": "Shop Now", "url": "https://ldas.ca"}},
+        ]
+    },
+    "loyalty": {
+        "name": "AM: Loyalty",
+        "family": "post_purchase",
+        "subject": "{{ai_subject}}",
+        "blocks": [
+            {"block_type": "hero", "content": {"headline": "", "subheadline": ""}},
+            {"block_type": "text", "content": {"paragraphs": []}},
+            {"block_type": "cta", "content": {"text": "See What's New", "url": "https://ldas.ca/collections/new"}},
+        ]
+    },
+    "cross_sell": {
+        "name": "AM: Cross-Sell",
+        "family": "promo",
+        "subject": "{{ai_subject}}",
+        "blocks": [
+            {"block_type": "hero", "content": {"headline": "", "subheadline": ""}},
+            {"block_type": "text", "content": {"paragraphs": []}},
+            {"block_type": "product_grid", "content": {"section_title": "Goes Great With Your Gear", "columns": 2}},
+            {"block_type": "cta", "content": {"text": "Browse Accessories", "url": "https://ldas.ca"}},
+        ]
+    },
+}
+
+
+def seed_am_templates():
+    """Create AM block templates if they don't exist."""
+    from database import EmailTemplate, init_db
+    init_db()
+
+    for purpose, tpl in AM_TEMPLATES.items():
+        existing = EmailTemplate.get_or_none(EmailTemplate.name == tpl["name"])
+        if not existing:
+            EmailTemplate.create(
+                name=tpl["name"],
+                subject=tpl["subject"],
+                preview_text="",
+                html_body="",
+                template_format="blocks",
+                blocks_json=json.dumps(tpl["blocks"]),
+                template_family=tpl["family"],
+                ai_enabled=True,
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+            )
+            logger.info("Seeded AM template: %s", tpl["name"])
+
+
+def generate_am_email_from_template(contact, purpose, strategy_context=""):
+    """
+    Generate a personalized email using AM block templates as guardrails.
+    AI generates only the text content; template defines the structure.
+
+    Returns: {subject, preheader, body_html, template_id} or None
+    """
+    from database import EmailTemplate, init_db
+    from block_registry import render_template_blocks
+    from discount_engine import get_or_create_discount, get_discount_display
+    init_db()
+
+    # Map purpose to template name
+    tpl_info = AM_TEMPLATES.get(purpose)
+    if not tpl_info:
+        # Fallback to education for unknown purposes
+        tpl_info = AM_TEMPLATES["education"]
+        purpose = "education"
+
+    template = EmailTemplate.get_or_none(EmailTemplate.name == tpl_info["name"])
+    if not template:
+        logger.warning("[AM] Template '%s' not found, seeding...", tpl_info["name"])
+        seed_am_templates()
+        template = EmailTemplate.get_or_none(EmailTemplate.name == tpl_info["name"])
+        if not template:
+            logger.error("[AM] Could not create template '%s'", tpl_info["name"])
+            return None
+
+    # Gather contact profile for AI prompt
+    profile_text = gather_contact_profile(contact)
+
+    # Build AI prompt — ask Claude ONLY for text content, not structure
+    email_gen_prompt = _get_active_prompt("am_email_generation_prompt",
+                                          DEFAULT_PROMPTS["am_email_generation_prompt"])
+
+    # Describe what blocks the template has so AI knows what to fill
+    block_types = [b["block_type"] for b in json.loads(template.blocks_json)]
+    has_products = "product_grid" in block_types or "product_hero" in block_types
+    has_discount = "discount" in block_types
+
+    prompt = """CUSTOMER PROFILE:
+%s
+
+STRATEGY CONTEXT: %s
+
+%s
+
+Generate the EMAIL CONTENT for this %s email. The template has these blocks: %s
+
+Respond with ONLY valid JSON:
+{
+  "subject": "email subject line (under 50 chars, personal, no generic filler)",
+  "preheader": "inbox preview text (max 80 chars)",
+  "hero_headline": "big headline (max 8 words, punchy, personal)",
+  "hero_subheadline": "smaller text below headline (max 15 words)",
+  "paragraphs": ["short paragraph 1 (1-2 sentences, under 30 words)", "short paragraph 2 (1-2 sentences, under 30 words)"],
+  "cta_text": "button text (2-4 words)",
+  "cta_url": "https://ldas.ca or https://ldas.ca/collections/... or https://ldas.ca/products/..."
+}
+
+ALL URLs must use ldas.ca domain. Use the customer's first name if available.""" % (
+        profile_text, strategy_context, email_gen_prompt, purpose,
+        " → ".join(block_types)
+    )
+
+    # Call Claude
+    client = _get_anthropic_client()
+    system_prompt = _get_active_prompt("am_system_prompt", DEFAULT_PROMPTS["am_system_prompt"])
+
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1000,
+        system=system_prompt,
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    raw = response.content[0].text.strip()
+    content = _parse_claude_json(raw)
+
+    # Deep-copy template blocks and inject AI content
+    import copy
+    blocks = copy.deepcopy(json.loads(template.blocks_json))
+
+    for block in blocks:
+        bt = block["block_type"]
+        if bt == "hero":
+            block["content"]["headline"] = content.get("hero_headline", "")
+            block["content"]["subheadline"] = content.get("hero_subheadline", "")
+        elif bt == "text":
+            block["content"]["paragraphs"] = content.get("paragraphs", [])
+        elif bt == "cta":
+            block["content"]["text"] = content.get("cta_text", block["content"].get("text", "Shop Now"))
+            block["content"]["url"] = content.get("cta_url", block["content"].get("url", "https://ldas.ca"))
+        # product_grid and discount blocks are filled by render_template_blocks() automatically
+
+    # Create a temporary template-like object for rendering
+    class _TempTemplate:
+        pass
+    render_tpl = _TempTemplate()
+    render_tpl.blocks_json = json.dumps(blocks)
+    render_tpl.template_format = "blocks"
+    render_tpl.preview_text = content.get("preheader", "")
+    render_tpl.subject = content.get("subject", "")
+
+    # Resolve discount if template has a discount block
+    discount_display = None
+    if has_discount:
+        discount_info = get_or_create_discount(contact.email, purpose)
+        if discount_info:
+            discount_display = get_discount_display(discount_info)
+
+    # Render to full HTML via the block registry
+    html = render_template_blocks(render_tpl, contact, products=[], discount=discount_display)
+
+    # Replace unsubscribe placeholder
+    _unsub = "https://mailenginehub.com/unsubscribe?email=%s" % contact.email
+    html = html.replace("{{unsubscribe_url}}", _unsub)
+
+    return {
+        "subject": content.get("subject", ""),
+        "preheader": content.get("preheader", ""),
+        "body_html": html,
+        "template_id": template.id,
+    }
+
+
+# ─────────────────────────────────
 #  MAIN NIGHTLY ENGINE
 # ─────────────────────────────────
 
@@ -535,7 +757,6 @@ def run_account_manager():
                           SuppressionEntry, LearningConfig, DeliveryQueue,
                           ContactScore, FlowEnrollment, init_db)
     from delivery_engine import enqueue_email
-    from ai_engine import generate_personalized_email
     from action_ledger import log_action
     init_db()
 
@@ -608,12 +829,9 @@ def run_account_manager():
                 strategy_data.get("overall_goal", "")
             )
 
-            # Generate email via Claude (one API call per contact)
+            # Generate email via block template + Claude (one API call per contact)
             api_start = time.time()
-            result = generate_personalized_email(
-                contact.email, purpose,
-                extra_context=strategy_context
-            )
+            result = generate_am_email_from_template(contact, purpose, strategy_context)
             api_elapsed = time.time() - api_start
 
             if result:
@@ -627,10 +845,11 @@ def run_account_manager():
                         html=result["body_html"], priority=60,
                         reason_detail="AM auto: %s, scheduled %s" % (purpose, send_at.strftime('%H:%M'))
                     ))
+                    _tpl_id = result.get("template_id", 0)
                     _retry_db_op(lambda: enqueue_email(
                         contact=contact,
                         email_type="auto",
-                        source_id=0, enrollment_id=0, step_id=0, template_id=0,
+                        source_id=0, enrollment_id=0, step_id=0, template_id=_tpl_id,
                         from_name="LDAS Electronics",
                         from_email="hello@news.ldaselectronics.com",
                         subject=result["subject"],

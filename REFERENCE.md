@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-21 12:33. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-21 12:56. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -234,9 +234,9 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (56 files, 33,176 lines)
+## Python Files — Detailed (56 files, 33,396 lines)
 
-### `app.py` (6,877 lines)
+### `app.py` (6,878 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
 
 Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,
@@ -284,6 +284,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 (5) AI/Studio: KnowledgeEntry, StudioJob, TemplateCandidate, AIModelConfig
 (6) Learning: OutcomeLog, ActionPerformance, TemplatePerformance, ModelWeights, LearningConfig
 
+### `account_manager.py` (1,247 lines)
 ### `generate-context.py` (1,243 lines)
 **Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
 
@@ -303,7 +304,6 @@ Key functions:
 - `process_identity_jobs() — Drain IdentityJob queue`
 - `replay_triggers(contact) — Re-evaluate pending triggers after stitching`
 
-### `account_manager.py` (1,028 lines)
 ### `customer_intelligence.py` (1,004 lines)
 **Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV**
 
