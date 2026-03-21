@@ -3470,23 +3470,53 @@ def _check_passive_triggers():
 
         app.logger.info("Passive triggers: %d candidates for winback flow %s" % (len(contact_ids), flow.id))
 
+        # ── Safety: dedup against ALL active enrollments ──
+        already_enrolled = set(
+            fe.contact_id for fe in FlowEnrollment.select(FlowEnrollment.contact_id)
+            .where(FlowEnrollment.status.in_(["active", "paused"]))
+        )
+
+        # ── Safety: daily enrollment cap per flow (200/day) ──
+        today_start_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_enrolled = FlowEnrollment.select().where(
+            FlowEnrollment.flow == flow,
+            FlowEnrollment.enrolled_at >= today_start_dt
+        ).count()
+        DAILY_ENROLL_CAP = 200
+        remaining_cap = max(0, DAILY_ENROLL_CAP - today_enrolled)
+
+        if remaining_cap == 0:
+            app.logger.info("Passive triggers: daily cap reached for flow %s (%d already today)" % (flow.id, today_enrolled))
+            continue
+
+        enrolled_count = 0
         for offset in range(0, len(contact_ids), BATCH_SIZE):
-            if _timed_out():
-                app.logger.warning("Passive triggers: timed out during winback enrollment at offset %d" % offset)
+            if _timed_out() or enrolled_count >= remaining_cap:
                 break
             batch = contact_ids[offset:offset + BATCH_SIZE]
             for cid in batch:
+                if enrolled_count >= remaining_cap:
+                    break
+                if cid in already_enrolled:
+                    continue
                 try:
+                    # Stagger sends over 24 hours instead of all at once
+                    delay_minutes = (enrolled_count * 1440) // max(1, remaining_cap)
+                    send_at = datetime.now() + timedelta(minutes=delay_minutes)
                     FlowEnrollment.create(
                         flow=flow,
                         contact=cid,
                         current_step=1,
-                        next_send_at=datetime.now(),
+                        next_send_at=send_at,
                         status="active",
                     )
+                    already_enrolled.add(cid)
+                    enrolled_count += 1
                 except Exception:
-                    pass  # Already enrolled
+                    pass  # Already enrolled (unique constraint)
             _time.sleep(BATCH_SLEEP)
+
+        app.logger.info("Passive triggers: enrolled %d/%d for flow %s (cap %d)" % (enrolled_count, len(contact_ids), flow.id, DAILY_ENROLL_CAP))
 
     if _timed_out():
         app.logger.warning("Passive triggers: timed out after winback phase, skipping behavioural triggers")

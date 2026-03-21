@@ -248,10 +248,31 @@ def _process_live(queued):
     if _sunset_suppressed:
         print("[DeliveryQueue] Sunset-suppressed %d contacts (score >= 85)" % _sunset_suppressed, file=sys.stderr)
 
-    # ── Send ALL flow emails first (no warmup cap) ──
+    # ── Send flow emails with daily safety ceiling ──
+    # Flows bypass warmup but still need a ceiling to prevent runaway enrollment blasts
+    DAILY_FLOW_CEILING = 500
+    _today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        _flow_sent_today = DeliveryQueue.select().where(
+            DeliveryQueue.email_type == "flow",
+            DeliveryQueue.status == "sent",
+            DeliveryQueue.sent_at >= _today_start
+        ).count()
+    except Exception:
+        _flow_sent_today = 0
+    _flow_remaining = max(0, DAILY_FLOW_CEILING - _flow_sent_today)
+
     processed = 0
+    _flow_sent_this_run = 0
     for item in _flow_queue:
-        processed += _send_one(item, send_campaign_email)
+        if _flow_sent_this_run >= _flow_remaining:
+            print("[DeliveryQueue] Flow daily ceiling reached (%d/%d). Deferring remaining %d flow emails." % (
+                _flow_sent_today + _flow_sent_this_run, DAILY_FLOW_CEILING, len(_flow_queue) - _flow_sent_this_run), file=sys.stderr)
+            break
+        result = _send_one(item, send_campaign_email)
+        if result:
+            _flow_sent_this_run += 1
+        processed += 1
 
     # ── Send bulk emails up to warmup remaining ──
     bulk_sent = 0
@@ -271,6 +292,21 @@ def _process_live(queued):
 def _send_one(item, send_fn):
     """Send a single queue item via SES. Returns 1 on success, 0 on failure."""
     try:
+        # ── Last-moment subscription check (closes race condition) ──
+        try:
+            _contact_check = Contact.get_or_none(Contact.email == item.email)
+            if _contact_check and not _contact_check.subscribed:
+                item.status = "suppressed"
+                item.error_msg = "unsubscribed_at_send_time"
+                item.sent_at = datetime.now()
+                item.save()
+                update_ledger_status(item.ledger_id, "suppressed",
+                                     reason_code="unsubscribed_at_send",
+                                     reason_detail="Contact unsubscribed between queue and send")
+                return 0
+        except Exception:
+            pass  # If check fails, proceed with send (suppression list in email_sender is backup)
+
         item.status = "sending"
         item.save()
 
