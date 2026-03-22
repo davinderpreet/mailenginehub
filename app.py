@@ -5745,6 +5745,30 @@ def profit_dashboard():
     )
 
 
+@app.route("/api/profits/update-cost", methods=["POST"])
+def api_update_product_cost():
+    """Update cost for a product and recalculate margins."""
+    data = request.get_json(silent=True) or {}
+    product_id = data.get("product_id")
+    cost = data.get("cost_per_unit")
+    if not product_id or cost is None:
+        return jsonify({"error": "product_id and cost_per_unit required"}), 400
+    try:
+        cost = float(cost)
+        if cost < 0:
+            return jsonify({"error": "Cost cannot be negative"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid cost value"}), 400
+    try:
+        from profit_engine import recalc_product_margins
+        result = recalc_product_margins(product_id, cost)
+        if "error" in result:
+            return jsonify(result), 404
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/profiles/<int:contact_id>/intelligence", methods=["POST"])
 def recompute_intelligence(contact_id):
     """Recompute intelligence for a single contact on-demand."""

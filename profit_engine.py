@@ -126,6 +126,11 @@ def sync_product_commercial_data():
 
     stats = {"synced": 0, "with_cost": 0, "estimated": 0, "errors": 0}
 
+    # Load existing manual costs so we don't overwrite them
+    manual_costs = {}
+    for pc in ProductCommercial.select().where(ProductCommercial.margin_source == "manual"):
+        manual_costs[pc.product_id] = pc.cost_per_unit
+
     for pid in product_ids:
         info = product_info.get(pid, {})
         title = info.get("title", "")
@@ -137,6 +142,11 @@ def sync_product_commercial_data():
         inventory_location = ""
         margin_source = "estimated"
         compare_price = 0.0
+
+        # Preserve manual costs — never overwrite with estimates
+        if pid in manual_costs:
+            cost_per_unit = manual_costs[pid]
+            margin_source = "manual"
 
         # Try Shopify API for cost + inventory
         if store_url and access_token:
@@ -152,8 +162,8 @@ def sync_product_commercial_data():
                     variants = prod_data.get("variants", [])
                     if variants:
                         v = variants[0]
-                        # Cost
-                        if v.get("cost"):
+                        # Cost (only if not manually set)
+                        if v.get("cost") and margin_source != "manual":
                             try:
                                 cost_per_unit = float(v["cost"])
                                 margin_source = "shopify"
@@ -191,8 +201,8 @@ def sync_product_commercial_data():
                 logger.warning(f"Shopify API error for product {pid}: {e}")
                 stats["errors"] += 1
 
-        # Estimate cost if not from Shopify
-        if cost_per_unit is None and current_price > 0:
+        # Estimate cost if not from Shopify and not manually set
+        if cost_per_unit is None and current_price > 0 and margin_source != "manual":
             margin_est = MARGIN_ESTIMATES.get(product_type, DEFAULT_MARGIN)
             cost_per_unit = round(current_price * (1 - margin_est), 2)
             margin_source = "estimated"
@@ -450,6 +460,208 @@ def compute_product_scores():
 
     print(f"[OK] Scored {count} products")
     return count
+
+
+# ═══════════════════════════════════════════════════════════════
+# Single-Product Margin Recalc (for manual cost entry)
+# ═══════════════════════════════════════════════════════════════
+
+def recalc_product_margins(product_id, new_cost):
+    """Recalculate margin and scores for a single product after manual cost edit.
+
+    Args:
+        product_id: str product ID
+        new_cost: float cost per unit
+
+    Returns:
+        dict with updated fields or {"error": str}
+    """
+    from database import (ProductCommercial, ShopifyOrderItem, ShopifyOrder,
+                          init_db)
+    from peewee import fn
+    init_db()
+
+    try:
+        pc = ProductCommercial.get(ProductCommercial.product_id == str(product_id))
+    except ProductCommercial.DoesNotExist:
+        return {"error": "Product not found"}
+
+    price = pc.current_price or 0
+    if price <= 0:
+        return {"error": "Product has no price"}
+
+    # Update cost and margin
+    pc.cost_per_unit = round(new_cost, 2)
+    pc.margin_source = "manual"
+    pc.margin_pct = round((price - new_cost) / price * 100, 1)
+
+    # Recalc profit
+    pc.profit_30d = round((pc.revenue_30d or 0) * pc.margin_pct / 100, 2)
+    pc.profit_90d = round((pc.revenue_90d or 0) * pc.margin_pct / 100, 2)
+
+    # Recompute promotion eligibility
+    margin_pct = pc.margin_pct
+    stock_pressure = pc.stock_pressure or "unknown"
+    return_rate = pc.return_rate or 0
+
+    promo_eligible = True
+    promo_reason = "Standard eligibility"
+
+    if stock_pressure == "out_of_stock":
+        promo_eligible = False
+        promo_reason = "Out of stock -- do not promote"
+    elif stock_pressure == "critical" and margin_pct < 30:
+        promo_eligible = False
+        promo_reason = "Low stock, low margin -- preserve inventory"
+    elif return_rate > 15:
+        promo_eligible = False
+        promo_reason = "High return rate -- fix product issues first"
+    elif stock_pressure == "overstocked":
+        promo_reason = "Overstocked -- push aggressively"
+    elif margin_pct > 50:
+        promo_reason = "High margin -- prioritize"
+    elif margin_pct < 20:
+        promo_reason = "Low margin -- discount-averse"
+
+    pc.promotion_eligible = promo_eligible
+    pc.promotion_reason = promo_reason
+
+    # Recompute profitability score
+    units_30d = pc.units_sold_30d or 0
+    avg_discount = pc.avg_discount_given or 0
+    prof_score = 40
+    if margin_pct >= 40:
+        prof_score += 20
+    elif margin_pct < 20:
+        prof_score -= 20
+    if units_30d >= 10:
+        prof_score += 15
+    if stock_pressure in ("healthy", "overstocked"):
+        prof_score += 10
+    if return_rate < 5:
+        prof_score += 10
+    if stock_pressure in ("out_of_stock", "critical"):
+        prof_score -= 15
+    if return_rate > 10:
+        prof_score -= 10
+    if avg_discount > 15:
+        prof_score -= 10
+    pc.profitability_score = max(0, min(100, prof_score))
+
+    pc.last_computed = datetime.now()
+    pc.save()
+
+    return {
+        "ok": True,
+        "margin_pct": pc.margin_pct,
+        "profit_30d": pc.profit_30d,
+        "profit_90d": pc.profit_90d,
+        "profitability_score": pc.profitability_score,
+        "promotion_eligible": pc.promotion_eligible,
+        "promotion_reason": pc.promotion_reason,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# Smart Discount Escalation (profit-aware)
+# ═══════════════════════════════════════════════════════════════
+
+ESCALATION_PURPOSES = {"winback", "browse_recovery", "cart_recovery",
+                       "checkout_recovery", "browse_abandon"}
+
+def compute_smart_discount(contact_id, purpose):
+    """Determine the maximum profit-safe discount for a contact.
+
+    Checks the margins on products the contact has bought, then returns
+    the highest discount that still preserves at least 10% margin.
+
+    Args:
+        contact_id: int Contact FK
+        purpose: str email purpose
+
+    Returns:
+        dict: {should_offer, discount_pct, reason, margin_headroom, products_checked}
+    """
+    from database import (CustomerProfile, ProductCommercial, init_db)
+    init_db()
+
+    default = {"should_offer": False, "discount_pct": 0,
+               "reason": "Not eligible for escalation",
+               "margin_headroom": 0, "products_checked": 0}
+
+    if purpose not in ESCALATION_PURPOSES:
+        return default
+
+    # Load customer product history
+    try:
+        cp = CustomerProfile.get(CustomerProfile.contact == contact_id)
+    except CustomerProfile.DoesNotExist:
+        default["reason"] = "No customer profile"
+        return default
+
+    # Collect product IDs from their purchase history
+    product_ids = set()
+    try:
+        import json as _json
+        all_prods = _json.loads(cp.all_products_bought or "[]")
+        for p in all_prods:
+            if isinstance(p, dict) and p.get("product_id"):
+                product_ids.add(str(p["product_id"]))
+    except Exception:
+        pass
+
+    if not product_ids:
+        # No product history — use catalog average
+        from peewee import fn
+        avg = (ProductCommercial.select(fn.AVG(ProductCommercial.margin_pct))
+               .where(ProductCommercial.margin_pct.is_null(False))
+               .scalar()) or 0
+        if avg > 25:
+            return {"should_offer": True, "discount_pct": 15,
+                    "reason": "No purchase history, catalog avg margin %.0f%% supports max discount" % avg,
+                    "margin_headroom": round(avg - 10, 1), "products_checked": 0}
+        elif avg > 20:
+            return {"should_offer": True, "discount_pct": 10,
+                    "reason": "No purchase history, catalog avg margin %.0f%%" % avg,
+                    "margin_headroom": round(avg - 10, 1), "products_checked": 0}
+        elif avg > 15:
+            return {"should_offer": True, "discount_pct": 5,
+                    "reason": "No purchase history, thin catalog margin %.0f%%" % avg,
+                    "margin_headroom": round(avg - 10, 1), "products_checked": 0}
+        default["reason"] = "Catalog margin too thin (%.0f%%)" % avg
+        return default
+
+    # Look up margins for their products
+    margins = []
+    for pc in ProductCommercial.select().where(
+        ProductCommercial.product_id.in_(list(product_ids)[:50])
+    ):
+        if pc.margin_pct is not None and pc.promotion_eligible:
+            margins.append(pc.margin_pct)
+
+    if not margins:
+        default["reason"] = "No margin data for customer's products"
+        return default
+
+    avg_margin = sum(margins) / len(margins)
+    headroom = round(avg_margin - 10, 1)
+
+    if avg_margin > 25:
+        return {"should_offer": True, "discount_pct": 15,
+                "reason": "High margin (%.0f%%) on customer's products — safe for max discount" % avg_margin,
+                "margin_headroom": headroom, "products_checked": len(margins)}
+    elif avg_margin > 20:
+        return {"should_offer": True, "discount_pct": 10,
+                "reason": "Moderate margin (%.0f%%) — standard discount" % avg_margin,
+                "margin_headroom": headroom, "products_checked": len(margins)}
+    elif avg_margin > 15:
+        return {"should_offer": True, "discount_pct": 5,
+                "reason": "Thin margin (%.0f%%) — minimal discount only" % avg_margin,
+                "margin_headroom": headroom, "products_checked": len(margins)}
+    else:
+        return {"should_offer": False, "discount_pct": 0,
+                "reason": "Margin too thin (%.0f%%) for any discount" % avg_margin,
+                "margin_headroom": headroom, "products_checked": len(margins)}
 
 
 # ═══════════════════════════════════════════════════════════════

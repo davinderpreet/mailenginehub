@@ -783,10 +783,48 @@ def generate_am_email_from_template(contact, purpose, strategy_context=""):
     except Exception:
         pass
 
+    # ── Profit-aware discount escalation ──
+    # Check margins BEFORE Claude generates — so AI can write persuasive discount copy
+    _discount_context = ""
+    _smart_discount_display = None
+    if has_discount and purpose in ("winback", "browse_recovery", "cart_recovery",
+                                     "checkout_recovery", "browse_abandon"):
+        try:
+            from profit_engine import compute_smart_discount
+            _smart = compute_smart_discount(contact.id, purpose)
+            if _smart["should_offer"]:
+                _disc_info = get_or_create_discount(contact.email, "smart_escalation")
+                if _disc_info:
+                    # Override value with profit-safe amount
+                    from discount_engine import generate_discount_code
+                    _disc_info = generate_discount_code(
+                        contact.email, "smart_escalation",
+                        override_value=str(_smart["discount_pct"]))
+                    if _disc_info:
+                        _smart_discount_display = get_discount_display(_disc_info)
+                        _discount_context = (
+                            "\n[DISCOUNT OFFER]\n"
+                            "You are authorized to offer this customer %d%% off.\n"
+                            "Discount code: %s\n"
+                            "Expires: %s\n"
+                            "Reason: %s\n"
+                            "Weave this discount naturally into your email copy. "
+                            "Make it feel exclusive and urgent.\n"
+                        ) % (_smart["discount_pct"], _disc_info["code"],
+                             _smart_discount_display.get("expires_text", "7 days"),
+                             _smart["reason"])
+                        logger.info("[AM-SmartDisc] %s: %d%% off (margin headroom: %.0f%%, products: %d)",
+                                    contact.email, _smart["discount_pct"],
+                                    _smart["margin_headroom"], _smart["products_checked"])
+        except Exception as e:
+            logger.debug("[AM-SmartDisc] Error: %s", e)
+
     prompt = """CUSTOMER PROFILE:
 %s
 
 STRATEGY CONTEXT: %s
+
+%s
 
 %s
 
@@ -809,7 +847,7 @@ Respond with ONLY valid JSON:
 
 ALL URLs must use ldas.ca domain. Use the customer's first name if available.""" % (
         profile_text, strategy_context, email_gen_prompt,
-        _learning_section, _cross_learnings, purpose,
+        _learning_section, _cross_learnings, _discount_context, purpose,
         " → ".join(block_types)
     )
 
@@ -853,8 +891,9 @@ ALL URLs must use ldas.ca domain. Use the customer's first name if available."""
     render_tpl.subject = content.get("subject", "")
 
     # Resolve discount if template has a discount block
-    discount_display = None
-    if has_discount:
+    # Use smart escalation discount if already created, otherwise fall back to default
+    discount_display = _smart_discount_display
+    if has_discount and not discount_display:
         discount_info = get_or_create_discount(contact.email, purpose)
         if discount_info:
             discount_display = get_discount_display(discount_info)

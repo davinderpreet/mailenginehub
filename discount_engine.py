@@ -32,6 +32,7 @@ DISCOUNT_STRATEGIES = {
     "upsell":             {"type": "percentage",    "value": "5",   "expires_hours": 120,  "prefix": "UP"},
     "re_engagement":      {"type": "percentage",    "value": "5",   "expires_hours": 168,  "prefix": "RE"},
     "high_intent":        {"type": "free_shipping", "value": "100", "expires_hours": 72,   "prefix": "HI"},
+    "smart_escalation":   {"type": "percentage",    "value": "10",  "expires_hours": 168,  "prefix": "SAVE"},
 }
 
 
