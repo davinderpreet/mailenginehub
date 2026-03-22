@@ -4,6 +4,21 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-22 12:52 -- `31d8da4`
+
+**Strip Profit Brain to essentials — full editability, no bloat**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+profit_engine.py
+templates/profit_dashboard.html
+```
+
+---
+
 ### 2026-03-22 12:31 -- `c3e3b3c`
 
 **Redesign /profits table — full names, always-visible save, full-width layout**
