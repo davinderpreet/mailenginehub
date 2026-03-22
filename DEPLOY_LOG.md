@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-22 10:24 -- `8e6042c`
+
+**Fix warmup/deliverability page — all cards now wired to real data**
+
+Files changed:
+```
+app.py
+templates/warmup.html
+```
+
+---
+
 ### 2026-03-21 16:46 -- `08e7721`
 
 **Fix SES webhook: allow SNS messages without SigningCertURL**
