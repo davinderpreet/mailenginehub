@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-22 11:41 -- `a5a8e2e`
+
+**Fix AM templates — add real default content + update seed to refresh existing**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+account_manager.py
+```
+
+---
+
 ### 2026-03-22 11:33 -- `9188724`
 
 **Add /journey-preview page — render every email across all flows + AM**
