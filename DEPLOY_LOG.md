@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-22 13:10 -- `cee724d`
+
+**Fix product mismatch in emails — real-time activity lookup**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+block_registry.py
+```
+
+---
+
 ### 2026-03-22 12:52 -- `31d8da4`
 
 **Strip Profit Brain to essentials — full editability, no bloat**
