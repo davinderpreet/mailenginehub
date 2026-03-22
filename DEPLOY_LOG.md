@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-22 13:39 -- `25a7bce`
+
+**Close 4 tracking gaps — add-to-cart, email engagement, UTM, time-on-page**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+templates/activity.html
+```
+
+---
+
 ### 2026-03-22 13:24 -- `95c8e7e`
 
 **Add real-time profile rebuild — debounced, session-aware**
