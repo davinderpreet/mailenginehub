@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-22 11:31. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-22 11:39. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -234,7 +234,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (57 files, 34,508 lines)
+## Python Files — Detailed (57 files, 34,536 lines)
 
 ### `app.py` (7,193 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -284,7 +284,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 (5) AI/Studio: KnowledgeEntry, StudioJob, TemplateCandidate, AIModelConfig
 (6) Learning: OutcomeLog, ActionPerformance, TemplatePerformance, ModelWeights, LearningConfig
 
-### `account_manager.py` (1,544 lines)
+### `account_manager.py` (1,572 lines)
 ### `generate-context.py` (1,243 lines)
 **Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
 

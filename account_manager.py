@@ -595,31 +595,40 @@ AM_TEMPLATES = {
     "education": {
         "name": "AM: Education",
         "family": "post_purchase",
-        "subject": "{{ai_subject}}",
+        "subject": "Quick tip for your setup, {{first_name}}",
         "blocks": [
-            {"block_type": "hero", "content": {"headline": "", "subheadline": ""}},
-            {"block_type": "text", "content": {"paragraphs": []}},
-            {"block_type": "cta", "content": {"text": "Learn More", "url": "https://ldas.ca"}},
+            {"block_type": "hero", "content": {"headline": "Get More From Your Gear", "subheadline": "Tips and tricks from the LDAS team"}},
+            {"block_type": "text", "content": {"paragraphs": [
+                "Whether you just upgraded your headset or you've been rocking the same dash cam for years \u2014 there's always a way to get more out of your equipment.",
+                "Here are a few quick wins our customers swear by."
+            ]}},
+            {"block_type": "cta", "content": {"text": "Learn More", "url": "https://ldas.ca/blogs/news"}},
         ]
     },
     "product_recommendation": {
         "name": "AM: Product Recommendation",
         "family": "promo",
-        "subject": "{{ai_subject}}",
+        "subject": "Picked for you, {{first_name}}",
         "blocks": [
-            {"block_type": "hero", "content": {"headline": "", "subheadline": ""}},
-            {"block_type": "text", "content": {"paragraphs": []}},
+            {"block_type": "hero", "content": {"headline": "Gear That Fits Your Rig", "subheadline": "Hand-picked based on what you drive"}},
+            {"block_type": "text", "content": {"paragraphs": [
+                "We took a look at what's popular with drivers like you and picked a few items we think you'll love.",
+                "All built tough for Canadian roads. Free shipping on orders over $99."
+            ]}},
             {"block_type": "product_grid", "content": {"section_title": "Picked for You", "columns": 2}},
-            {"block_type": "cta", "content": {"text": "Shop Now", "url": "https://ldas.ca"}},
+            {"block_type": "cta", "content": {"text": "Shop Now", "url": "https://ldas.ca/collections/all"}},
         ]
     },
     "winback": {
         "name": "AM: Win-Back",
         "family": "winback",
-        "subject": "{{ai_subject}}",
+        "subject": "We miss you, {{first_name}}",
         "blocks": [
-            {"block_type": "hero", "content": {"headline": "", "subheadline": ""}},
-            {"block_type": "text", "content": {"paragraphs": []}},
+            {"block_type": "hero", "content": {"headline": "It's Been a While", "subheadline": "We've got new gear since your last visit"}},
+            {"block_type": "text", "content": {"paragraphs": [
+                "We noticed you haven't been by in a while. No hard feelings \u2014 but we've added a bunch of new products since your last order.",
+                "Use your personal discount below to save on your next order. It's our way of saying we'd love to have you back."
+            ]}},
             {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
             {"block_type": "cta", "content": {"text": "Come Back & Save", "url": "https://ldas.ca"}},
         ]
@@ -627,46 +636,65 @@ AM_TEMPLATES = {
     "reorder_reminder": {
         "name": "AM: Reorder Reminder",
         "family": "post_purchase",
-        "subject": "{{ai_subject}}",
+        "subject": "Time to restock, {{first_name}}?",
         "blocks": [
-            {"block_type": "hero", "content": {"headline": "", "subheadline": ""}},
-            {"block_type": "text", "content": {"paragraphs": []}},
+            {"block_type": "hero", "content": {"headline": "Ready for a Refresh?", "subheadline": "Your go-to gear might need restocking"}},
+            {"block_type": "text", "content": {"paragraphs": [
+                "Based on when you last ordered, it might be time to grab a replacement or top up on accessories.",
+                "Same great gear, ready to ship. Most orders arrive within 3-5 business days across Canada."
+            ]}},
             {"block_type": "product_hero", "content": {"section_title": "Time to Restock", "cta_text": "Reorder Now"}},
-            {"block_type": "cta", "content": {"text": "Shop Now", "url": "https://ldas.ca"}},
+            {"block_type": "cta", "content": {"text": "Reorder Now", "url": "https://ldas.ca"}},
         ]
     },
     "loyalty": {
         "name": "AM: Loyalty",
         "family": "post_purchase",
-        "subject": "{{ai_subject}}",
+        "subject": "Thanks for being loyal, {{first_name}}",
         "blocks": [
-            {"block_type": "hero", "content": {"headline": "", "subheadline": ""}},
-            {"block_type": "text", "content": {"paragraphs": []}},
+            {"block_type": "hero", "content": {"headline": "You're One of Our Best", "subheadline": "A thank-you from the LDAS crew"}},
+            {"block_type": "text", "content": {"paragraphs": [
+                "You've been with us through multiple orders and we don't take that lightly. Customers like you are the reason we keep building better products.",
+                "Here's a sneak peek at what's new \u2014 and a little something extra just for you."
+            ]}},
             {"block_type": "cta", "content": {"text": "See What's New", "url": "https://ldas.ca/collections/new"}},
         ]
     },
     "cross_sell": {
         "name": "AM: Cross-Sell",
         "family": "promo",
-        "subject": "{{ai_subject}}",
+        "subject": "Goes great with your gear, {{first_name}}",
         "blocks": [
-            {"block_type": "hero", "content": {"headline": "", "subheadline": ""}},
-            {"block_type": "text", "content": {"paragraphs": []}},
+            {"block_type": "hero", "content": {"headline": "Complete Your Setup", "subheadline": "Accessories that pair perfectly with what you already own"}},
+            {"block_type": "text", "content": {"paragraphs": [
+                "Great gear deserves great accessories. Based on your past orders, here are a few items that'll round out your setup.",
+                "Mounts, chargers, cables \u2014 the small stuff that makes a big difference on the road."
+            ]}},
             {"block_type": "product_grid", "content": {"section_title": "Goes Great With Your Gear", "columns": 2}},
-            {"block_type": "cta", "content": {"text": "Browse Accessories", "url": "https://ldas.ca"}},
+            {"block_type": "cta", "content": {"text": "Browse Accessories", "url": "https://ldas.ca/collections/accessories"}},
         ]
     },
 }
 
 
 def seed_am_templates():
-    """Create AM block templates if they don't exist."""
+    """Create or update AM block templates with default content."""
     from database import EmailTemplate, init_db
     init_db()
 
     for purpose, tpl in AM_TEMPLATES.items():
         existing = EmailTemplate.get_or_none(EmailTemplate.name == tpl["name"])
-        if not existing:
+        if existing:
+            # Update existing template with latest defaults
+            existing.subject = tpl["subject"]
+            existing.blocks_json = json.dumps(tpl["blocks"])
+            existing.template_format = "blocks"
+            existing.template_family = tpl["family"]
+            existing.ai_enabled = True
+            existing.updated_at = datetime.now()
+            existing.save()
+            logger.info("Updated AM template: %s", tpl["name"])
+        else:
             EmailTemplate.create(
                 name=tpl["name"],
                 subject=tpl["subject"],
