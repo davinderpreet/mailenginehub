@@ -4,6 +4,22 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-22 11:01 -- `51a8970`
+
+**Remove NBM system — Flows + AM + Campaigns are the only email senders**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+campaign_planner.py
+cascade.py
+outcome_tracker.py
+```
+
+---
+
 ### 2026-03-22 10:24 -- `8e6042c`
 
 **Fix warmup/deliverability page — all cards now wired to real data**
