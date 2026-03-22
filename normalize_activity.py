@@ -134,4 +134,31 @@ def normalize_event_data(event_type, raw_data):
         if ot is not None and ot != "":
             out["order_total"] = ot
 
+    # ── Shopify Custom Pixel checkout funnel events ───────────────
+    elif event_type in (
+        "checkout_started", "checkout_contact_info", "checkout_address_info",
+        "checkout_shipping_info", "payment_info_submitted", "checkout_completed",
+    ):
+        # Canonicalize checkout_token
+        ct = _first(raw_data, ["checkout_token", "token", "checkout_id"])
+        if ct:
+            out["checkout_token"] = str(ct)
+
+        # total_price
+        tp = _first(raw_data, ["total_price", "total", "amount"])
+        if tp is not None and tp != "":
+            out["total_price"] = tp
+
+        # line_items — keep as-is (already structured from pixel)
+        # email — keep as-is
+
+    # ── added_to_cart / removed_from_cart ──────────────────────────
+    elif event_type in ("added_to_cart", "removed_from_cart"):
+        pid = _first(raw_data, ["product_id", "variant_id", "id"])
+        if pid:
+            out["product_id"] = str(pid)
+        title = _first(raw_data, ["product_title", "product_name", "title", "name"])
+        if title:
+            out["product_title"] = title
+
     return out

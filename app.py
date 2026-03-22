@@ -6651,18 +6651,32 @@ def track_event():
         from normalize_activity import normalize_event_data
         event_data = normalize_event_data(event_type, event_data)
 
+        # Checkout events from Shopify Custom Pixel carry email inside event_data
+        # (the visitor may be anonymous at the top level but typed their email at checkout)
+        CHECKOUT_EVENTS = {
+            "checkout_started", "checkout_contact_info", "checkout_address_info",
+            "checkout_shipping_info", "payment_info_submitted", "checkout_completed",
+        }
+        if not email and event_type in CHECKOUT_EVENTS:
+            checkout_email = (event_data.get("email") or "").lower().strip()
+            if checkout_email and "@" in checkout_email:
+                email = checkout_email
+
         contact_id = None
         if email:
             c = Contact.get_or_none(Contact.email == email)
             if c:
                 contact_id = c.id
 
+        # Determine source label — distinguish Shopify Custom Pixel from theme.liquid pixel
+        source_label = "shopify_pixel" if event_data.get("source") == "shopify_pixel" else "pixel"
+
         CustomerActivity.create(
             contact_id  = contact_id,
             email       = email,
             event_type  = event_type,
             event_data  = _json.dumps(event_data),
-            source      = "pixel",
+            source      = source_label,
             source_ref  = "",
             session_id  = session_id,
             occurred_at = datetime.now(),
@@ -6674,14 +6688,24 @@ def track_event():
         if email:
             try:
                 from database import CustomerProfile
-                CustomerProfile.update(last_active_at=datetime.now())                     .where(CustomerProfile.email == email)                     .execute()
+                CustomerProfile.update(last_active_at=datetime.now()) \
+                    .where(CustomerProfile.email == email) \
+                    .execute()
             except Exception:
                 pass
 
         # Identity resolution: stitch session when email is discovered via pixel
+        # For checkout events, create_if_missing=True — a checkout email is high-confidence
         if email and session_id:
             from identity_resolution import resolve_identity
-            resolve_identity(email=email, session_id=session_id, source="api_track", create_if_missing=False)
+            create_new = event_type in CHECKOUT_EVENTS
+            resolve_identity(
+                email=email,
+                session_id=session_id,
+                source="shopify_pixel" if event_type in CHECKOUT_EVENTS else "api_track",
+                create_if_missing=create_new,
+                checkout_token=str(event_data.get("checkout_token", "") or ""),
+            )
 
         return jsonify({"ok": True}), 200, cors_headers
     except Exception as e:

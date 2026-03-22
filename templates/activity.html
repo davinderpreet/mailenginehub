@@ -112,8 +112,16 @@
   .feed-icon.pixel_event       { background: rgba(124,58,237,0.12);  color: var(--purple2); }
   .feed-icon.viewed_blog       { background: rgba(6,182,212,0.12);   color: var(--cyan); }
   .feed-icon.viewed_collection { background: rgba(124,58,237,0.12);  color: var(--purple2); }
-  .feed-icon.searched          { background: rgba(245,158,11,0.12);  color: var(--amber); }
-  .feed-icon.viewed_cart       { background: rgba(245,158,11,0.12);  color: var(--amber); }
+  .feed-icon.searched              { background: rgba(245,158,11,0.12);  color: var(--amber); }
+  .feed-icon.viewed_cart           { background: rgba(245,158,11,0.12);  color: var(--amber); }
+  .feed-icon.checkout_started      { background: rgba(124,58,237,0.12);  color: var(--purple2); }
+  .feed-icon.checkout_contact_info { background: rgba(124,58,237,0.12);  color: var(--purple2); }
+  .feed-icon.checkout_address_info { background: rgba(124,58,237,0.12);  color: var(--purple2); }
+  .feed-icon.checkout_shipping_info{ background: rgba(124,58,237,0.12);  color: var(--purple2); }
+  .feed-icon.payment_info_submitted{ background: rgba(16,185,129,0.12);  color: var(--green); }
+  .feed-icon.checkout_completed    { background: rgba(16,185,129,0.12);  color: var(--green); }
+  .feed-icon.added_to_cart         { background: rgba(6,182,212,0.12);   color: var(--cyan); }
+  .feed-icon.removed_from_cart     { background: rgba(245,158,11,0.12);  color: var(--amber); }
 
   .feed-body { flex: 1; min-width: 0; }
   .feed-main {
@@ -520,6 +528,143 @@
     Tracks: product views, <strong>add to cart</strong>, blog reads, searches, cart visits, page views, <strong>UTM/referrer attribution</strong>, and <strong>time-on-page engagement</strong>. Customers are auto-identified when logged in (via Liquid) or when clicking from an email link (via <code style="color:var(--cyan);">?meh_e=EMAIL</code>). Anonymous browsing is automatically stitched to the contact when identity is discovered.
   </p>
 </div>
+<!-- ── Shopify Custom Pixel (Checkout Tracking) ─────────── -->
+<div class="pixel-box" style="margin-top:24px; border-color: var(--purple);">
+  <div class="px-title">
+    <i class="fas fa-shopping-bag" style="color:var(--purple);"></i> Shopify Custom Pixel — Checkout & Cart Tracking
+    <span style="background:var(--purple); color:#fff; font-size:10px; padding:2px 8px; border-radius:8px; margin-left:8px;">NEW</span>
+  </div>
+  <div class="px-desc">
+    Tracks the <strong style="color:var(--purple);">entire checkout funnel</strong> — checkout start, email capture, address, shipping, payment, and purchase. The theme.liquid pixel cannot see checkout pages (Shopify sandboxes them). This Custom Pixel closes that gap.
+  </div>
+  <div class="px-desc" style="margin-top:8px;">
+    <strong>Install:</strong> Go to <code style="color:var(--cyan);">Shopify Admin → Settings → Customer events → Add custom pixel</code>. Name it <code style="color:var(--cyan);">MailEngineHub</code>, set permissions to <strong>Not required</strong>, paste the code below, then click <strong>Save</strong> and <strong>Connect</strong>.
+  </div>
+  <div style="position:relative;">
+    <div class="code-block" id="shopify-pixel-code" style="max-height:300px; overflow-y:auto;">// MailEngineHub — Shopify Custom Pixel v1
+// Tracks: checkout start, email capture, address, shipping, payment, purchase
+// Also: page views, product views, add/remove cart, collections, search
+
+(async function () {
+  var ENDPOINT = '{{ site_url }}/api/track';
+  var ID_ENDPOINT = '{{ site_url }}/api/identify';
+
+  var sid = '';
+  try { sid = await browser.localStorage.getItem('meh_sid'); } catch(e) {}
+  if (!sid) {
+    sid = 'sp_' + Math.random().toString(36).substr(2,9) + Date.now().toString(36);
+    try { await browser.localStorage.setItem('meh_sid', sid); } catch(e) {}
+  }
+
+  var email = '';
+  try { email = (await browser.localStorage.getItem('meh_email')) || ''; } catch(e) {}
+
+  function track(type, data) {
+    var payload = { event_type: type, event_data: data, session_id: sid };
+    if (email) payload.email = email;
+    fetch(ENDPOINT, { method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload), keepalive:true }).catch(function(){});
+  }
+
+  function identify(newEmail) {
+    if (!newEmail || newEmail === email) return;
+    email = newEmail;
+    try { browser.localStorage.setItem('meh_email', email); } catch(e) {}
+    fetch(ID_ENDPOINT, { method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({session_id:sid, email:email}), keepalive:true }).catch(function(){});
+  }
+
+  function extractLineItems(co) {
+    if (!co || !co.lineItems) return [];
+    return co.lineItems.map(function(li) {
+      var v = li.variant || li.merchandise || {};
+      var p = v.product || {};
+      return { product_id:String(p.id||v.id||''), product_title:p.title||v.title||li.title||'',
+        variant_id:String(v.id||''), sku:v.sku||'', quantity:li.quantity||1,
+        price:v.price ? String(v.price.amount||'0') : '0' };
+    });
+  }
+  function money(m) { return m ? String(m.amount||'0') : '0'; }
+
+  // ── Storefront Events ──
+  analytics.subscribe('page_viewed', function(e) {
+    var loc = (e.context&amp;&amp;e.context.document&amp;&amp;e.context.document.location) || {};
+    track('viewed_page', { url:loc.pathname||'', page_title:(e.context&amp;&amp;e.context.document&amp;&amp;e.context.document.title)||'', source:'shopify_pixel' });
+  });
+  analytics.subscribe('product_viewed', function(e) {
+    var pv = (e.data&amp;&amp;e.data.productVariant) || {}; var p = pv.product || {};
+    track('viewed_product', { product_id:String(p.id||pv.id||''), product_title:p.title||pv.title||'',
+      price:pv.price?String(pv.price.amount||'0'):'0', source:'shopify_pixel' });
+  });
+  analytics.subscribe('product_added_to_cart', function(e) {
+    var cl = (e.data&amp;&amp;e.data.cartLine) || {}; var m = cl.merchandise || {}; var p = m.product || {};
+    track('added_to_cart', { product_id:String(p.id||m.id||''), product_title:p.title||m.title||'',
+      variant_id:String(m.id||''), sku:m.sku||'', quantity:cl.quantity||1,
+      price:m.price?String(m.price.amount||'0'):'0', source:'shopify_pixel' });
+  });
+  analytics.subscribe('product_removed_from_cart', function(e) {
+    var cl = (e.data&amp;&amp;e.data.cartLine) || {}; var m = cl.merchandise || {}; var p = m.product || {};
+    track('removed_from_cart', { product_id:String(p.id||m.id||''), product_title:p.title||m.title||'',
+      quantity:cl.quantity||1, source:'shopify_pixel' });
+  });
+  analytics.subscribe('collection_viewed', function(e) {
+    var col = (e.data&amp;&amp;e.data.collection) || {};
+    track('viewed_collection', { collection_id:String(col.id||''), collection_title:col.title||'', source:'shopify_pixel' });
+  });
+  analytics.subscribe('search_submitted', function(e) {
+    var sq = (e.data&amp;&amp;e.data.searchResult) || {};
+    track('searched', { query:sq.query||'', source:'shopify_pixel' });
+  });
+
+  // ── Checkout Events (INVISIBLE to theme.liquid pixel) ──
+  analytics.subscribe('checkout_started', function(e) {
+    var co = (e.data&amp;&amp;e.data.checkout) || {};
+    if (co.email) identify(co.email);
+    track('checkout_started', { checkout_token:co.token||'', total_price:money(co.totalPrice),
+      currency:co.currencyCode||'', line_items:extractLineItems(co), email:co.email||'', source:'shopify_pixel' });
+  });
+  analytics.subscribe('checkout_contact_info_submitted', function(e) {
+    var co = (e.data&amp;&amp;e.data.checkout) || {};
+    if (co.email) identify(co.email);
+    track('checkout_contact_info', { checkout_token:co.token||'', email:co.email||'',
+      phone:co.phone||'', accepts_marketing:co.buyerAcceptsEmailMarketing||false, source:'shopify_pixel' });
+  });
+  analytics.subscribe('checkout_address_info_submitted', function(e) {
+    var co = (e.data&amp;&amp;e.data.checkout) || {};
+    if (co.email) identify(co.email);
+    var addr = co.shippingAddress || {};
+    track('checkout_address_info', { checkout_token:co.token||'', city:addr.city||'',
+      province:addr.provinceCode||'', country:addr.countryCode||'', source:'shopify_pixel' });
+  });
+  analytics.subscribe('checkout_shipping_info_submitted', function(e) {
+    var co = (e.data&amp;&amp;e.data.checkout) || {};
+    if (co.email) identify(co.email);
+    var ship = co.shippingLine || {};
+    track('checkout_shipping_info', { checkout_token:co.token||'', shipping_title:ship.title||'', source:'shopify_pixel' });
+  });
+  analytics.subscribe('payment_info_submitted', function(e) {
+    var co = (e.data&amp;&amp;e.data.checkout) || {};
+    if (co.email) identify(co.email);
+    track('payment_info_submitted', { checkout_token:co.token||'', total_price:money(co.totalPrice),
+      currency:co.currencyCode||'', source:'shopify_pixel' });
+  });
+  analytics.subscribe('checkout_completed', function(e) {
+    var co = (e.data&amp;&amp;e.data.checkout) || {};
+    if (co.email) identify(co.email);
+    var order = co.order || {};
+    track('checkout_completed', { checkout_token:co.token||'', order_id:String(order.id||''),
+      total_price:money(co.totalPrice), total_discounts:money(co.discountsAmount),
+      currency:co.currencyCode||'', email:co.email||'', line_items:extractLineItems(co),
+      accepts_marketing:co.buyerAcceptsEmailMarketing||false, source:'shopify_pixel' });
+  });
+})();</div>
+    <button class="copy-btn" onclick="copyShopifyPixel()">Copy</button>
+  </div>
+  <p style="font-size:11.5px; color:var(--text3); margin-top:10px;">
+    <i class="fas fa-info-circle" style="color:var(--purple);"></i>
+    <strong>Why both pixels?</strong> The theme.liquid pixel handles UTM attribution, time-on-page, referrer capture, and the subscription popup — things that need DOM access. The Custom Pixel handles checkout funnel events that Shopify blocks from theme scripts. <strong>Use both together.</strong>
+  </p>
+</div>
 <!-- ── Popup Subscription Widget Setup ───────────────────── -->
 <div class="pixel-box" style="margin-top:24px;">
   <div class="px-title">
@@ -562,9 +707,15 @@ function triggerSync(btn) {
 function copyPixel() {
   const code = document.getElementById('pixel-code').innerText;
   navigator.clipboard.writeText(code).then(() => {
-    const btn = document.querySelector('.copy-btn');
-    btn.textContent = '✓ Copied!';
-    setTimeout(() => btn.textContent = 'Copy', 2000);
+    event.target.textContent = '✓ Copied!';
+    setTimeout(() => event.target.textContent = 'Copy', 2000);
+  });
+}
+function copyShopifyPixel() {
+  const code = document.getElementById('shopify-pixel-code').innerText;
+  navigator.clipboard.writeText(code).then(() => {
+    event.target.textContent = '✓ Copied!';
+    setTimeout(() => event.target.textContent = 'Copy', 2000);
   });
 }
 
@@ -594,17 +745,25 @@ setInterval(function() {
 
 function buildFeedItem(item) {
   const icons = {
-    placed_order:        'fa-bag-shopping',
-    abandoned_checkout:  'fa-cart-arrow-down',
-    completed_checkout:  'fa-check-circle',
-    viewed_product:      'fa-eye',
-    viewed_blog:         'fa-book-open',
-    viewed_collection:   'fa-layer-group',
-    searched:            'fa-magnifying-glass',
-    viewed_cart:         'fa-cart-shopping',
-    viewed_page:         'fa-globe',
-    email_activity:      'fa-envelope',
-    started_checkout:    'fa-cart-plus',
+    placed_order:             'fa-bag-shopping',
+    abandoned_checkout:       'fa-cart-arrow-down',
+    completed_checkout:       'fa-check-circle',
+    viewed_product:           'fa-eye',
+    viewed_blog:              'fa-book-open',
+    viewed_collection:        'fa-layer-group',
+    searched:                 'fa-magnifying-glass',
+    viewed_cart:              'fa-cart-shopping',
+    viewed_page:              'fa-globe',
+    email_activity:           'fa-envelope',
+    started_checkout:         'fa-cart-plus',
+    checkout_started:         'fa-cart-plus',
+    checkout_contact_info:    'fa-user-check',
+    checkout_address_info:    'fa-map-marker-alt',
+    checkout_shipping_info:   'fa-truck',
+    payment_info_submitted:   'fa-credit-card',
+    checkout_completed:       'fa-check-double',
+    added_to_cart:            'fa-cart-plus',
+    removed_from_cart:        'fa-cart-arrow-down',
   };
   const icon = icons[item.event_type] || 'fa-bolt';
   const dt = item.occurred_at ? new Date(item.occurred_at) : new Date();
@@ -627,6 +786,22 @@ function buildFeedItem(item) {
     actionHtml = ` <span style="color:var(--amber)">viewed cart</span>`;
   } else if (item.event_type === 'viewed_page') {
     actionHtml = ` viewed page: ${(item.event_data.page_title||item.event_data.url||'').substring(0,50)}`;
+  } else if (item.event_type === 'checkout_started') {
+    actionHtml = ` <span style="color:var(--purple2)">started checkout</span>` + (item.event_data.total_price > 0 ? ` <span style="color:var(--green)">$${parseFloat(item.event_data.total_price).toFixed(2)}</span>` : '');
+  } else if (item.event_type === 'checkout_contact_info') {
+    actionHtml = ` <span style="color:var(--purple2)">entered email at checkout</span>`;
+  } else if (item.event_type === 'checkout_address_info') {
+    actionHtml = ` <span style="color:var(--purple2)">entered address</span>` + (item.event_data.city ? ` (${item.event_data.city})` : '');
+  } else if (item.event_type === 'checkout_shipping_info') {
+    actionHtml = ` <span style="color:var(--purple2)">selected shipping</span>` + (item.event_data.shipping_title ? ` (${item.event_data.shipping_title})` : '');
+  } else if (item.event_type === 'payment_info_submitted') {
+    actionHtml = ` <span style="color:var(--green);font-weight:700">entered payment info</span>` + (item.event_data.total_price > 0 ? ` $${parseFloat(item.event_data.total_price).toFixed(2)}` : '');
+  } else if (item.event_type === 'checkout_completed') {
+    actionHtml = ` <span style="color:var(--green);font-weight:700">completed purchase</span> $${parseFloat(item.event_data.total_price||0).toFixed(2)}`;
+  } else if (item.event_type === 'added_to_cart') {
+    actionHtml = ` added <span style="color:var(--cyan)">${item.event_data.product_title||'item'}</span> to cart`;
+  } else if (item.event_type === 'removed_from_cart') {
+    actionHtml = ` <span style="color:var(--amber)">removed</span> <span style="color:var(--cyan)">${item.event_data.product_title||'item'}</span> from cart`;
   } else {
     actionHtml = ` · ${item.event_type.replace(/_/g,' ')}`;
   }
