@@ -4,6 +4,21 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-22 12:18 -- `02ba91b`
+
+**Add manual cost editing + profit-aware discount escalation**
+
+Files changed:
+```
+account_manager.py
+app.py
+discount_engine.py
+profit_engine.py
+templates/profit_dashboard.html
+```
+
+---
+
 ### 2026-03-22 11:41 -- `a5a8e2e`
 
 **Fix AM templates — add real default content + update seed to refresh existing**
