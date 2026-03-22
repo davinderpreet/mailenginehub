@@ -2376,7 +2376,7 @@ def warmup_dashboard():
     if config.warmup_started_at:
         days_warming = max(0, (datetime.now() - config.warmup_started_at).days)
 
-    # Overall sending performance (last 14 days)
+    # Overall sending performance (last 14 days) — ALL email types
     cutoff = (date.today() - timedelta(days=14)).isoformat()
     recent      = CampaignEmail.select().where(CampaignEmail.created_at >= cutoff)
     total_sent  = recent.where(CampaignEmail.status == "sent").count()
@@ -2387,21 +2387,43 @@ def warmup_dashboard():
     total_sent  += flow_recent.where(FlowEmail.status == "sent").count()
     total_open  += flow_recent.where(FlowEmail.opened == True).count()
     total_bnc   += flow_recent.where(FlowEmail.status == "bounced").count()
+    # Include AutoEmail data
+    auto_recent = AutoEmail.select().where(AutoEmail.sent_at >= cutoff)
+    total_sent  += auto_recent.where(AutoEmail.status == "sent").count()
+    total_open  += auto_recent.where(AutoEmail.opened == True).count()
+    total_bnc   += auto_recent.where(AutoEmail.status == "bounced").count()
     open_rate   = round(total_open / total_sent * 100, 1) if total_sent > 0 else 0
     bounce_rate = round(total_bnc  / total_sent * 100, 1) if total_sent > 0 else 0
 
-    # Last 14 days chart data
+    # Last 14 days chart data — query actual email tables (not just WarmupLog)
     chart_labels, chart_sent, chart_open_rate, chart_bounce_rate = [], [], [], []
     for i in range(13, -1, -1):
         day = (date.today() - timedelta(days=i)).isoformat()
+        next_day = (date.today() - timedelta(days=i-1)).isoformat()
         chart_labels.append(day[5:])  # MM-DD
-        log = WarmupLog.get_or_none(WarmupLog.log_date == day)
-        if log and log.emails_sent > 0:
-            chart_sent.append(log.emails_sent)
-            chart_open_rate.append(round(log.emails_opened / log.emails_sent * 100, 1))
-            chart_bounce_rate.append(round(log.emails_bounced / log.emails_sent * 100, 1))
+
+        # Count from all 3 email tables for this day
+        day_sent = (
+            CampaignEmail.select().where(CampaignEmail.status == "sent", CampaignEmail.created_at >= day, CampaignEmail.created_at < next_day).count()
+            + FlowEmail.select().where(FlowEmail.status == "sent", FlowEmail.sent_at >= day, FlowEmail.sent_at < next_day).count()
+            + AutoEmail.select().where(AutoEmail.status == "sent", AutoEmail.sent_at >= day, AutoEmail.sent_at < next_day).count()
+        )
+        day_opened = (
+            CampaignEmail.select().where(CampaignEmail.opened == True, CampaignEmail.created_at >= day, CampaignEmail.created_at < next_day).count()
+            + FlowEmail.select().where(FlowEmail.opened == True, FlowEmail.sent_at >= day, FlowEmail.sent_at < next_day).count()
+            + AutoEmail.select().where(AutoEmail.opened == True, AutoEmail.sent_at >= day, AutoEmail.sent_at < next_day).count()
+        )
+        day_bounced = (
+            CampaignEmail.select().where(CampaignEmail.status == "bounced", CampaignEmail.created_at >= day, CampaignEmail.created_at < next_day).count()
+            + FlowEmail.select().where(FlowEmail.status == "bounced", FlowEmail.sent_at >= day, FlowEmail.sent_at < next_day).count()
+            + AutoEmail.select().where(AutoEmail.status == "bounced", AutoEmail.sent_at >= day, AutoEmail.sent_at < next_day).count()
+        )
+
+        chart_sent.append(day_sent)
+        if day_sent > 0:
+            chart_open_rate.append(round(day_opened / day_sent * 100, 1))
+            chart_bounce_rate.append(round(day_bounced / day_sent * 100, 1))
         else:
-            chart_sent.append(0)
             chart_open_rate.append(0)
             chart_bounce_rate.append(0)
 
@@ -2489,6 +2511,27 @@ def warmup_dashboard():
             else:
                 domain_map[d] = {"sent": row.get("sent", 0), "opens": row.get("opens", 0) or 0}
 
+        # AutoEmail domain stats — merge in
+        auto_rows = (AutoEmail
+            .select(
+                fn.SUBSTR(Contact.email, fn.INSTR(Contact.email, '@') + 1).alias('domain'),
+                fn.COUNT(AutoEmail.id).alias('sent'),
+                fn.SUM(AutoEmail.opened.cast('int')).alias('opens'),
+            )
+            .join(Contact, on=(AutoEmail.contact == Contact.id))
+            .where(AutoEmail.status == "sent", AutoEmail.sent_at >= cutoff)
+            .group_by(fn.SUBSTR(Contact.email, fn.INSTR(Contact.email, '@') + 1))
+            .order_by(fn.COUNT(AutoEmail.id).desc())
+            .limit(20)
+            .dicts())
+        for row in auto_rows:
+            d = row.get("domain", "unknown")
+            if d in domain_map:
+                domain_map[d]["sent"] += row.get("sent", 0)
+                domain_map[d]["opens"] += row.get("opens", 0) or 0
+            else:
+                domain_map[d] = {"sent": row.get("sent", 0), "opens": row.get("opens", 0) or 0}
+
         # Sort by sent count, take top 10
         domain_stats = []
         for d, v in sorted(domain_map.items(), key=lambda x: x[1]["sent"], reverse=True)[:10]:
@@ -2527,7 +2570,14 @@ def warmup_dashboard():
     except Exception:
         pass  # Module or credentials not available yet
 
-    sent_today = config.emails_sent_today if config.is_active else 0
+    # Count ALL emails sent today across all types
+    today_cutoff = date.today().isoformat() + " 00:00:00"
+    sent_today_all = (
+        CampaignEmail.select().where(CampaignEmail.status == "sent", CampaignEmail.created_at >= today_cutoff).count()
+        + FlowEmail.select().where(FlowEmail.status == "sent", FlowEmail.sent_at >= today_cutoff).count()
+        + AutoEmail.select().where(AutoEmail.status == "sent", AutoEmail.sent_at >= today_cutoff).count()
+    )
+    sent_today = sent_today_all
     safe_send_volume = max(0, daily_limit - sent_today) if config.is_active else daily_limit
 
     blocked_count = Contact.select().where(
@@ -2535,7 +2585,7 @@ def warmup_dashboard():
     ).count()
 
     suppression_breakdown = {}
-    for reason in ["hard_bounce", "complaint", "invalid", "manual", "fatigue"]:
+    for reason in ["hard_bounce", "complaint", "invalid_email", "invalid_email_typo", "invalid", "manual", "fatigue", "unsubscribed"]:
         cnt = Contact.select().where(Contact.suppression_reason == reason).count()
         if cnt > 0:
             suppression_breakdown[reason] = cnt
@@ -2581,6 +2631,7 @@ def warmup_dashboard():
         # Phase I completion — decision layer
         preflight_result=preflight_result,
         safe_send_volume=safe_send_volume,
+        sent_today=sent_today,
         blocked_count=blocked_count,
         suppression_breakdown=suppression_breakdown,
         risky_domains=risky_domains,
@@ -6892,6 +6943,20 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                        id="profit_scoring", replace_existing=True)
     _scheduler.add_job(_run_nightly_activity_sync, "cron", hour=3, minute=0,
                        id="activity_sync_nightly", replace_existing=True)
+
+    # Update WarmupLog daily at 11:55 PM with all email stats
+    def _run_warmup_log_update():
+        with app.app_context():
+            try:
+                wc = get_warmup_config()
+                phase_info = WARMUP_PHASES[wc.current_phase]
+                log = _update_warmup_log(wc.current_phase, phase_info["daily_limit"])
+                app.logger.info(f"WarmupLog updated: sent={log.emails_sent}, opened={log.emails_opened}, bounced={log.emails_bounced}")
+            except Exception as _e:
+                app.logger.error(f"WarmupLog update failed: {_e}")
+
+    _scheduler.add_job(_run_warmup_log_update, "cron", hour=23, minute=55,
+                       id="warmup_log_update", replace_existing=True)
 
     # Incremental Shopify order sync every 2 hours
     def _run_incremental_shopify_sync():

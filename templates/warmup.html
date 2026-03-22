@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Deliverability & Warmup — MailEngine{% endblock %}
-{% block page_title %}Deliverability & Warmup{% endblock %}
+{% block page_title %}{% if config.current_phase >= 8 %}Deliverability Monitor{% else %}Deliverability & Warmup{% endif %}{% endblock %}
 
 {% block topbar_actions %}
   <form method="POST" action="/warmup/toggle" style="display:inline;">
@@ -163,7 +163,16 @@
 {% block content %}
 
 <!-- Status banner -->
-{% if config.is_active %}
+{% if config.current_phase >= 8 %}
+<div class="warmup-banner active">
+  <i class="fas fa-shield-check" style="color:#22c55e;font-size:18px;"></i>
+  <div>
+    <strong>Warmup Complete — Deliverability Monitor</strong>
+    Domain has been warming for <strong>{{ days_warming }} days</strong>.
+    Sending at full volume. Monitor open rates, bounce rates, and complaints below.
+  </div>
+</div>
+{% elif config.is_active %}
 <div class="warmup-banner active">
   <i class="fas fa-fire" style="color:#22c55e;font-size:18px;"></i>
   <div>
@@ -231,21 +240,19 @@
   <!-- Today's Sends -->
   <div class="stat-card pink">
     <div class="stat-icon"><i class="fas fa-bolt"></i></div>
-    <div class="stat-value" id="sentToday">
-      {% if config.is_active %}{{ config.emails_sent_today }}{% else %}—{% endif %}
-    </div>
+    <div class="stat-value" id="sentToday">{{ sent_today }}</div>
     <div class="stat-label">Sent Today</div>
     <div style="margin-top:8px;">
-      {% if config.is_active %}
+      {% if config.is_active and daily_limit < 999999 %}
         <div style="background:var(--surface2);border-radius:99px;height:6px;overflow:hidden;">
-          {% set pct = [((config.emails_sent_today / warmup_phases[config.current_phase]['daily_limit']) * 100)|int, 100]|min %}
+          {% set pct = [((sent_today / daily_limit) * 100)|int, 100]|min %}
           <div style="background:#f97316;height:100%;width:{{ pct }}%;border-radius:99px;transition:width .5s;"></div>
         </div>
         <div style="font-size:11px;color:#94a3b8;margin-top:4px;" id="limitLabel">
-          of {{ warmup_phases[config.current_phase]['daily_limit']|int|string }} daily limit
+          of {{ daily_limit|int|string }} daily limit
         </div>
       {% else %}
-        <div style="font-size:11px;color:#94a3b8;">Enable warmup to track</div>
+        <div style="font-size:11px;color:var(--green);margin-top:4px;">All email types (flows + auto + campaigns)</div>
       {% endif %}
     </div>
   </div>
@@ -537,14 +544,20 @@
 
 <!-- ── Decision Layer: Stats Row ── -->
 <div class="decision-stats">
-  <!-- Safe Sends Remaining -->
+  <!-- Total Sent (14 days) or Safe Sends Remaining -->
   <div class="decision-stat" style="border-color:rgba(6,182,212,0.25);">
     <div class="decision-stat-icon" style="color:var(--cyan);"><i class="fas fa-paper-plane"></i></div>
-    <div class="decision-stat-value" style="color:var(--cyan);">{{ safe_send_volume }}</div>
-    <div class="decision-stat-label">Safe Sends Remaining Today</div>
-    {% if config.is_active %}
+    {% if config.current_phase >= 8 %}
+      <div class="decision-stat-value" style="color:var(--cyan);">{{ total_sent }}</div>
+      <div class="decision-stat-label">Emails Sent (14 days)</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px;">All types: flows + auto + campaigns</div>
+    {% elif config.is_active %}
+      <div class="decision-stat-value" style="color:var(--cyan);">{{ safe_send_volume }}</div>
+      <div class="decision-stat-label">Safe Sends Remaining Today</div>
       <div style="font-size:11px;color:var(--text3);margin-top:6px;">of {{ warmup_phases[config.current_phase]['daily_limit']|int|string }} daily limit</div>
     {% else %}
+      <div class="decision-stat-value" style="color:var(--cyan);">{{ total_sent }}</div>
+      <div class="decision-stat-label">Emails Sent (14 days)</div>
       <div style="font-size:11px;color:var(--amber);margin-top:6px;">Warmup disabled — no limit</div>
     {% endif %}
   </div>
@@ -578,11 +591,14 @@
 
     {% if suppression_breakdown %}
       {% set reason_meta = {
-        "hard_bounce": {"label": "Hard Bounces", "color": "#ef4444", "icon": "fas fa-exclamation-triangle"},
-        "complaint":   {"label": "Spam Complaints", "color": "#f59e0b", "icon": "fas fa-flag"},
-        "invalid":     {"label": "Invalid Addresses", "color": "#94a3b8", "icon": "fas fa-at"},
-        "manual":      {"label": "Manual Suppression", "color": "#8b5cf6", "icon": "fas fa-hand"},
-        "fatigue":     {"label": "Fatigue Suppression", "color": "#06b6d4", "icon": "fas fa-battery-quarter"}
+        "hard_bounce":       {"label": "Hard Bounces", "color": "#ef4444", "icon": "fas fa-exclamation-triangle"},
+        "complaint":         {"label": "Spam Complaints", "color": "#f59e0b", "icon": "fas fa-flag"},
+        "invalid":           {"label": "Invalid Addresses", "color": "#94a3b8", "icon": "fas fa-at"},
+        "invalid_email":     {"label": "Invalid Emails", "color": "#94a3b8", "icon": "fas fa-at"},
+        "invalid_email_typo":{"label": "Domain Typos", "color": "#f97316", "icon": "fas fa-spell-check"},
+        "manual":            {"label": "Manual Suppression", "color": "#8b5cf6", "icon": "fas fa-hand"},
+        "fatigue":           {"label": "Fatigue Suppression", "color": "#06b6d4", "icon": "fas fa-battery-quarter"},
+        "unsubscribed":      {"label": "Unsubscribed", "color": "#64748b", "icon": "fas fa-user-minus"}
       } %}
 
       {% for reason, count in suppression_breakdown.items() %}
@@ -671,28 +687,29 @@
       <span class="badge badge-sent">RFC 8058</span>
     </div>
 
-    <!-- Auto-detected compliance items -->
+    <!-- Compliance items — tied to checklist + actual state -->
     <div style="margin-bottom:20px;">
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
-        <i class="fas fa-circle-check" style="color:#22c55e;"></i>
-        <span style="font-size:13px;color:var(--text);">List-Unsubscribe Header</span>
-        <span style="margin-left:auto;font-size:11px;color:#22c55e;font-weight:600;">ACTIVE</span>
+      {% set compliance_items = [
+        ("SPF Record", config.check_spf),
+        ("DKIM Signing", config.check_dkim),
+        ("DMARC Policy", config.check_dmarc),
+        ("List-Unsubscribe Header (RFC 8058)", true),
+        ("SES Bounce/Complaint Webhook", total_suppressed > 0 or recent_events|length > 0),
+        ("Sending From Subdomain", config.check_subdomain),
+      ] %}
+      {% for label, is_active in compliance_items %}
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;{% if not loop.last %}border-bottom:1px solid var(--border);{% endif %}">
+        {% if is_active %}
+          <i class="fas fa-circle-check" style="color:#22c55e;"></i>
+        {% else %}
+          <i class="fas fa-circle-xmark" style="color:#ef4444;"></i>
+        {% endif %}
+        <span style="font-size:13px;color:var(--text);">{{ label }}</span>
+        <span style="margin-left:auto;font-size:11px;font-weight:600;color:{% if is_active %}#22c55e{% else %}#ef4444{% endif %};">
+          {% if is_active %}ACTIVE{% else %}NOT SET{% endif %}
+        </span>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
-        <i class="fas fa-circle-check" style="color:#22c55e;"></i>
-        <span style="font-size:13px;color:var(--text);">One-Click Unsubscribe (RFC 8058)</span>
-        <span style="margin-left:auto;font-size:11px;color:#22c55e;font-weight:600;">ACTIVE</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
-        <i class="fas fa-circle-check" style="color:#22c55e;"></i>
-        <span style="font-size:13px;color:var(--text);">Feedback-ID (Google Postmaster)</span>
-        <span style="margin-left:auto;font-size:11px;color:#22c55e;font-weight:600;">ACTIVE</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;">
-        <i class="fas fa-circle-check" style="color:#22c55e;"></i>
-        <span style="font-size:13px;color:var(--text);">Bounce/Complaint Auto-Suppression</span>
-        <span style="margin-left:auto;font-size:11px;color:#22c55e;font-weight:600;">ACTIVE</span>
-      </div>
+      {% endfor %}
     </div>
 
     <!-- Suppression stats -->
