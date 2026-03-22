@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-22 11:33 -- `9188724`
+
+**Add /journey-preview page — render every email across all flows + AM**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+templates/journey_preview.html
+```
+
+---
+
 ### 2026-03-22 11:21 -- `47f06dd`
 
 **Integrate learning system into Flows + AM — data-driven decisions**
