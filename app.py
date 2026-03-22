@@ -1818,6 +1818,125 @@ def sent_email_preview(email_type, email_id):
 
 
 # ─────────────────────────────────
+#  JOURNEY PREVIEW — render every email in every flow + AM
+# ─────────────────────────────────
+@app.route("/journey-preview")
+def journey_preview():
+    """Render every template in every flow + AM purpose for preview."""
+    from block_registry import render_template_blocks
+    from discount_engine import get_or_create_discount, get_discount_display
+
+    journeys = []
+
+    # ── 1. Flow Journeys ──
+    for flow in Flow.select().order_by(Flow.priority):
+        steps_data = []
+        steps = FlowStep.select().where(FlowStep.flow == flow).order_by(FlowStep.step_order)
+        for step in steps:
+            template = EmailTemplate.get_or_none(EmailTemplate.id == step.template_id)
+            if not template:
+                continue
+            steps_data.append({
+                "step_order": step.step_order,
+                "delay_hours": step.delay_hours,
+                "template_id": template.id,
+                "template_name": template.name,
+                "subject": template.subject or "",
+            })
+        journeys.append({
+            "type": "flow",
+            "name": flow.name,
+            "trigger": flow.trigger_type,
+            "active": flow.is_active,
+            "priority": flow.priority,
+            "steps": steps_data,
+        })
+
+    # ── 2. AM Journeys ──
+    try:
+        from account_manager import AM_TEMPLATES
+        am_steps = []
+        for purpose, info in AM_TEMPLATES.items():
+            template = EmailTemplate.get_or_none(EmailTemplate.name == info["name"])
+            if template:
+                am_steps.append({
+                    "step_order": len(am_steps) + 1,
+                    "delay_hours": 0,
+                    "template_id": template.id,
+                    "template_name": template.name,
+                    "subject": template.subject or "",
+                    "purpose": purpose,
+                })
+        journeys.append({
+            "type": "am",
+            "name": "Account Manager",
+            "trigger": "AI strategy per contact",
+            "active": True,
+            "priority": 99,
+            "steps": am_steps,
+        })
+    except Exception:
+        pass
+
+    return render_template("journey_preview.html", journeys=journeys)
+
+
+@app.route("/journey-preview/render/<int:template_id>")
+def journey_preview_render(template_id):
+    """Render a single template with a test contact for iframe preview."""
+    from block_registry import render_template_blocks
+
+    template = EmailTemplate.get_or_none(EmailTemplate.id == template_id)
+    if not template:
+        return "<html><body><p style='padding:40px;color:#666;'>Template not found</p></body></html>", 200
+
+    # Pick a real contact with data for realistic preview
+    test_contact = None
+    try:
+        test_contact = (Contact.select()
+                        .where(Contact.subscribed == True,
+                               Contact.first_name != "",
+                               Contact.first_name.is_null(False))
+                        .first())
+    except Exception:
+        pass
+    if not test_contact:
+        test_contact = Contact.select().first()
+
+    # Get products for product blocks
+    products = []
+    try:
+        from database import ShopifyProduct
+        products = list(ShopifyProduct.select().where(ShopifyProduct.status == "active").limit(6))
+    except Exception:
+        pass
+
+    # Get discount for discount blocks
+    discount = None
+    try:
+        from discount_engine import get_or_create_discount, get_discount_display
+        discount = get_discount_display(get_or_create_discount(test_contact.email, "preview"))
+    except Exception:
+        pass
+
+    # Render
+    try:
+        if getattr(template, 'template_format', 'html') == 'blocks' and template.blocks_json:
+            html = render_template_blocks(template, contact=test_contact, products=products, discount=discount)
+        else:
+            html = template.html_body or "<p>No content</p>"
+
+        # Personalize
+        first = test_contact.first_name or "Friend" if test_contact else "Friend"
+        html = html.replace("{{first_name}}", first)
+        html = html.replace("{{last_name}}", test_contact.last_name or "" if test_contact else "")
+    except Exception as e:
+        html = "<html><body><p style='padding:40px;color:#666;'>Render error: %s</p></body></html>" % str(e)
+
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+# ─────────────────────────────────
 #  CAMPAIGNS
 # ─────────────────────────────────
 @app.route("/campaigns")

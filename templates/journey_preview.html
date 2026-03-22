@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Journey Preview — MailEngine{% endblock %}
+{% block page_title %}Journey Preview{% endblock %}
+
+{% block extra_head %}
+<style>
+  .journey-section {
+    margin-bottom: 40px;
+  }
+  .journey-header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 16px 20px; border-radius: 12px;
+    margin-bottom: 20px;
+    background: var(--surface); border: 1px solid var(--border);
+  }
+  .journey-header .badge-flow { background: rgba(124,58,237,0.15); color: var(--purple2); padding: 4px 12px; border-radius: 99px; font-size: 11px; font-weight: 700; }
+  .journey-header .badge-am { background: rgba(6,182,212,0.15); color: var(--cyan); padding: 4px 12px; border-radius: 99px; font-size: 11px; font-weight: 700; }
+  .journey-header .badge-disabled { background: rgba(239,68,68,0.1); color: var(--red); padding: 4px 12px; border-radius: 99px; font-size: 11px; font-weight: 700; }
+  .journey-trigger { font-size: 12px; color: var(--text3); }
+  .journey-name { font-size: 18px; font-weight: 800; color: var(--text); }
+
+  .steps-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 20px;
+  }
+  .step-card {
+    border: 1px solid var(--border); border-radius: 12px;
+    background: var(--surface); overflow: hidden;
+  }
+  .step-card-header {
+    padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface2); border-bottom: 1px solid var(--border);
+  }
+  .step-number {
+    width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 800; background: var(--purple); color: #fff;
+  }
+  .step-meta { font-size: 12px; color: var(--text3); }
+  .step-template-name { font-size: 13px; font-weight: 600; color: var(--text); }
+  .step-subject { font-size: 12px; color: var(--text2); margin-top: 2px; }
+  .step-delay {
+    font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 99px;
+    background: rgba(16,185,129,0.1); color: var(--green);
+  }
+  .step-preview {
+    width: 100%; height: 520px; border: none;
+    background: #fff;
+  }
+  .step-preview-actions {
+    padding: 8px 16px; display: flex; gap: 8px; justify-content: flex-end;
+    border-top: 1px solid var(--border);
+  }
+  .step-preview-actions a {
+    font-size: 11px; color: var(--cyan); text-decoration: none; font-weight: 600;
+  }
+  .step-preview-actions a:hover { text-decoration: underline; }
+
+  /* AM purpose badge */
+  .purpose-badge {
+    font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 99px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .purpose-education { background: rgba(6,182,212,0.15); color: var(--cyan); }
+  .purpose-product_recommendation { background: rgba(124,58,237,0.15); color: var(--purple2); }
+  .purpose-winback { background: rgba(236,72,153,0.15); color: var(--pink); }
+  .purpose-reorder_reminder { background: rgba(16,185,129,0.15); color: var(--green); }
+  .purpose-loyalty { background: rgba(245,158,11,0.15); color: #f59e0b; }
+  .purpose-cross_sell { background: rgba(99,102,241,0.15); color: #6366f1; }
+
+  .connector {
+    display: flex; align-items: center; justify-content: center;
+    padding: 8px 0;
+  }
+  .connector-line {
+    width: 2px; height: 24px; background: var(--border);
+  }
+  .connector-arrow {
+    font-size: 10px; color: var(--text3); margin: 0 8px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div style="margin-bottom:24px;padding:14px 20px;background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.25);border-radius:10px;font-size:13px;color:var(--cyan);line-height:1.6;">
+  <strong>Email Journey Preview</strong> — Every email a customer can receive, across all flows and the AI Account Manager.
+  Templates are rendered with a real contact for realistic preview. Click "Open Full" to see the email in a new tab.
+</div>
+
+{% for journey in journeys %}
+<div class="journey-section">
+  <div class="journey-header">
+    {% if journey.type == "flow" %}
+      <i class="fas fa-route" style="font-size:22px;color:var(--purple2);"></i>
+    {% else %}
+      <i class="fas fa-robot" style="font-size:22px;color:var(--cyan);"></i>
+    {% endif %}
+    <div style="flex:1;">
+      <div class="journey-name">{{ journey.name }}</div>
+      <div class="journey-trigger">
+        Trigger: <strong>{{ journey.trigger }}</strong>
+        {% if journey.type == "flow" %} | Priority: {{ journey.priority }}{% endif %}
+        | {{ journey.steps|length }} email{{ 's' if journey.steps|length != 1 else '' }}
+      </div>
+    </div>
+    {% if journey.type == "flow" %}
+      {% if journey.active %}
+        <span class="badge-flow"><i class="fas fa-circle" style="font-size:6px;margin-right:4px;vertical-align:middle;"></i> Active</span>
+      {% else %}
+        <span class="badge-disabled"><i class="fas fa-pause" style="font-size:8px;margin-right:4px;"></i> Disabled</span>
+      {% endif %}
+    {% else %}
+      <span class="badge-am"><i class="fas fa-brain" style="font-size:8px;margin-right:4px;"></i> AI-Driven</span>
+    {% endif %}
+  </div>
+
+  <div class="steps-grid">
+    {% for step in journey.steps %}
+    <div class="step-card">
+      <div class="step-card-header">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="step-number">{{ step.step_order }}</div>
+          <div>
+            <div class="step-template-name">{{ step.template_name }}</div>
+            {% if step.subject %}
+            <div class="step-subject">Subject: {{ step.subject }}</div>
+            {% endif %}
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+          {% if step.delay_hours > 0 %}
+            <span class="step-delay">
+              {% if step.delay_hours >= 24 %}
+                {{ (step.delay_hours / 24)|int }}d delay
+              {% else %}
+                {{ step.delay_hours|int }}h delay
+              {% endif %}
+            </span>
+          {% elif journey.type == "flow" %}
+            <span class="step-delay">Immediate</span>
+          {% endif %}
+          {% if step.purpose is defined and step.purpose %}
+            <span class="purpose-badge purpose-{{ step.purpose }}">{{ step.purpose }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <iframe class="step-preview" src="/journey-preview/render/{{ step.template_id }}" loading="lazy"></iframe>
+      <div class="step-preview-actions">
+        <a href="/journey-preview/render/{{ step.template_id }}" target="_blank"><i class="fas fa-expand"></i> Open Full</a>
+        <a href="/templates/{{ step.template_id }}/edit"><i class="fas fa-pen"></i> Edit Template</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+
+{% endblock %}
