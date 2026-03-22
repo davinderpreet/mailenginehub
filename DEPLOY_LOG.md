@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-22 12:31 -- `c3e3b3c`
+
+**Redesign /profits table — full names, always-visible save, full-width layout**
+
+Files changed:
+```
+REFERENCE.md
+templates/profit_dashboard.html
+```
+
+---
+
 ### 2026-03-22 12:22 -- `7f5f7de`
 
 **Fix smart discount: match products by title when product_id missing**
