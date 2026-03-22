@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-22 13:09. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-22 13:22. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -234,9 +234,9 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (57 files, 34,803 lines)
+## Python Files — Detailed (57 files, 34,840 lines)
 
-### `app.py` (7,178 lines)
+### `app.py` (7,215 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
 
 Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,

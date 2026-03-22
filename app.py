@@ -6982,7 +6982,44 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
 
     _scheduler.add_job(_run_nightly_intelligence, "cron", hour=3, minute=30,
                        id="nightly_intelligence", replace_existing=True)
-    # NBM (Next Best Message) removed — Flows + AM + Campaigns are the only senders now
+
+    # ── Real-time profile rebuild (debounced) ──────────────────────────
+    # Runs every 5 min. Finds contacts whose last_active_at > last_intelligence_at
+    # but who haven't been active in the last 10 min (session likely over).
+    # Rebuilds only those profiles — keeps data fresh without waiting for nightly.
+    def _rebuild_stale_profiles():
+        try:
+            from database import CustomerProfile, init_db
+            from customer_intelligence import compute_intelligence
+            init_db()
+            now = datetime.now()
+            cooldown = now - timedelta(minutes=10)
+            rebuilt = 0
+            # Find profiles where: activity is newer than last rebuild,
+            # and last activity was >10 min ago (session ended)
+            stale = list(CustomerProfile.select(
+                CustomerProfile.contact_id, CustomerProfile.email
+            ).where(
+                CustomerProfile.last_active_at.is_null(False),
+                CustomerProfile.last_active_at < cooldown,
+                (
+                    CustomerProfile.last_intelligence_at.is_null(True) |
+                    (CustomerProfile.last_active_at > CustomerProfile.last_intelligence_at)
+                )
+            ).limit(20))  # Cap at 20 per cycle to avoid overload
+            for p in stale:
+                try:
+                    compute_intelligence(p.contact_id)
+                    rebuilt += 1
+                except Exception as _e:
+                    app.logger.debug("Profile rebuild failed for %s: %s", p.email, _e)
+            if rebuilt:
+                app.logger.info("[ProfileRebuild] Rebuilt %d stale profiles", rebuilt)
+        except Exception as _e:
+            app.logger.error("[ProfileRebuild] Error: %s", _e)
+
+    _scheduler.add_job(_rebuild_stale_profiles, "interval", minutes=5,
+                       id="rebuild_stale_profiles", replace_existing=True)
 
     # ── AI Account Manager: per-contact AI strategist ──
     def _run_account_manager():
