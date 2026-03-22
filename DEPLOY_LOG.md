@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-22 12:22 -- `7f5f7de`
+
+**Fix smart discount: match products by title when product_id missing**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+profit_engine.py
+```
+
+---
+
 ### 2026-03-22 12:18 -- `02ba91b`
 
 **Add manual cost editing + profit-aware discount escalation**
