@@ -4,6 +4,23 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-22 11:21 -- `47f06dd`
+
+**Integrate learning system into Flows + AM — data-driven decisions**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+account_manager.py
+app.py
+delivery_engine.py
+deploy.sh
+learning_context.py
+```
+
+---
+
 ### 2026-03-22 11:01 -- `51a8970`
 
 **Remove NBM system — Flows + AM + Campaigns are the only email senders**
