@@ -2901,6 +2901,20 @@ def _enroll_contact_in_flows(contact, trigger_type, trigger_value=""):
         query = query.where(Flow.trigger_value == trigger_value)
 
     for flow in query:
+        # ── Learning: skip sunsetted contacts (disengaged, score >= 85) ──
+        try:
+            from database import ContactScore
+            _cs = ContactScore.get_or_none(ContactScore.contact == contact)
+            if _cs and _cs.sunset_score and _cs.sunset_score >= 85:
+                app.logger.info("[FlowEnroll] Skipping '%s' for %s — sunset_score=%d (disengaged)"
+                                % (flow.name, contact.email, _cs.sunset_score))
+                log_action(contact, "flow", flow.id, "suppressed", "RC_SUNSET_SKIP",
+                           source_type=flow.name,
+                           reason_detail="Sunset score %d >= 85, contact disengaged" % _cs.sunset_score)
+                continue
+        except Exception:
+            pass
+
         # For order_placed: skip if recently completed this flow (30-day cooldown)
         if trigger_type == "order_placed":
             _thirty_days_ago = datetime.now() - timedelta(days=30)
@@ -3115,6 +3129,28 @@ def _process_flow_enrollments():
         # instead of queued, so the contact never received them.
 
         template = step.template
+
+        # ── Learning: try to swap for better-performing template in same family ──
+        try:
+            from learning_context import get_best_template_for_family
+            from database import ContactScore as _CS2
+            _cs2 = _CS2.get_or_none(_CS2.contact == contact)
+            _seg = _cs2.rfm_segment if _cs2 else "new"
+            _family = template.family if hasattr(template, 'family') and template.family else ""
+            if _family and _seg:
+                _better_id = get_best_template_for_family(_family, _seg)
+                if _better_id and _better_id != template.id:
+                    _better_tpl = EmailTemplate.get_or_none(EmailTemplate.id == _better_id)
+                    if _better_tpl:
+                        app.logger.info("[FlowLearn] Swapped template %d→%d for %s (family=%s, segment=%s)"
+                                        % (template.id, _better_id, contact.email, _family, _seg))
+                        log_action(contact, "flow", enrollment.flow_id, "info", "RC_TEMPLATE_SWAP",
+                                   source_type=enrollment.flow.name,
+                                   reason_detail="Learning swap: %s → %s for segment %s" % (template.name, _better_tpl.name, _seg))
+                        template = _better_tpl
+        except Exception:
+            pass  # Fallback to original template
+
         _unsub = _make_unsubscribe_url(contact)
 
         # Map flow trigger types to discount engine purposes
@@ -3381,21 +3417,46 @@ def _process_flow_enrollments():
 
 
 def _check_abandoned_checkouts():
-    """Run every 15 min. Enroll contacts with 1h+ old un-recovered checkouts into checkout_abandoned flows."""
+    """Run every 15 min. Enroll contacts with abandoned checkouts into checkout_abandoned flows.
+    Timing is learning-aware: high churn risk = faster trigger (30min), low risk = slower (2h)."""
     try:
-        one_hour_ago = datetime.now() - timedelta(hours=1)
-        # Use abandoned_at (Shopify's actual timestamp) not created_at (DB insert time)
-        # This ensures the 1-hour delay is from actual abandonment, not webhook processing
+        # ── Learning: vary checkout trigger delay by churn risk ──
+        # Default 1 hour, but check per-contact below
+        default_cutoff = datetime.now() - timedelta(hours=1)
+        aggressive_cutoff = datetime.now() - timedelta(minutes=30)  # High churn risk
+        conservative_cutoff = datetime.now() - timedelta(hours=2)   # Low churn risk
+
+        # Get all un-enrolled checkouts older than 30 min (widest window)
         pending = (AbandonedCheckout.select()
                    .where(AbandonedCheckout.recovered == False,
                           AbandonedCheckout.enrolled_in_flow == False,
-                          AbandonedCheckout.abandoned_at <= one_hour_ago.isoformat()))
+                          AbandonedCheckout.abandoned_at <= aggressive_cutoff.isoformat()))
 
         enrolled_count = 0
         for checkout in pending:
             contact = checkout.contact
             if not contact or not contact.subscribed:
                 continue
+
+            # ── Learning: check if this contact's churn risk warrants this timing ──
+            _abandoned_at = checkout.abandoned_at
+            try:
+                from database import CustomerProfile as _CP_chk
+                _cp = _CP_chk.get_or_none(_CP_chk.contact == contact)
+                _churn = _cp.churn_risk_score if _cp and _cp.churn_risk_score else 50
+                if _churn >= 70:
+                    _min_wait = aggressive_cutoff  # 30 min — high risk, act fast
+                elif _churn < 30:
+                    _min_wait = conservative_cutoff  # 2 hours — low risk, give time
+                else:
+                    _min_wait = default_cutoff  # 1 hour — default
+                # Skip if checkout isn't old enough for this contact's risk level
+                if _abandoned_at and _abandoned_at > _min_wait.isoformat():
+                    continue  # Not ready yet for this churn level
+            except Exception:
+                # Fallback: only process if >= 1 hour old
+                if _abandoned_at and _abandoned_at > default_cutoff.isoformat():
+                    continue
 
             # Enroll in checkout_abandoned flows
             checkout_flows = (Flow.select()

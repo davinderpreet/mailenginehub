@@ -421,7 +421,21 @@ def _advance_flow_enrollment(enrollment_id, step_id, flow_id):
                      .first())
         if next_step:
             enrollment.current_step = next_step.step_order
-            enrollment.next_send_at = datetime.now() + timedelta(hours=next_step.delay_hours)
+            # ── Learning: adjust delay based on engagement score ──
+            _delay_hours = next_step.delay_hours
+            try:
+                from learning_config import get_learning_phase
+                if get_learning_phase() == "active":
+                    _cs_eng = ContactScore.get_or_none(ContactScore.contact == enrollment.contact)
+                    if _cs_eng:
+                        _eng = _cs_eng.engagement_score or 50
+                        if _eng >= 70:
+                            _delay_hours = max(1.0, _delay_hours * 0.8)   # Engaged: send sooner
+                        elif _eng < 30:
+                            _delay_hours = _delay_hours * 1.5             # Cold: slow down
+            except Exception:
+                pass
+            enrollment.next_send_at = datetime.now() + timedelta(hours=_delay_hours)
             enrollment.save()
         else:
             enrollment.status = "completed"

@@ -710,6 +710,24 @@ def generate_am_email_from_template(contact, purpose, strategy_context=""):
             logger.error("[AM] Could not create template '%s'", tpl_info["name"])
             return None
 
+    # ── Learning: try to pick a better template for this contact's segment ──
+    try:
+        from learning_context import get_best_template_for_family
+        from database import ContactScore as _CS_AM
+        _cs_am = _CS_AM.get_or_none(_CS_AM.contact == contact)
+        _seg_am = _cs_am.rfm_segment if _cs_am else None
+        _family = template.family if hasattr(template, 'family') and template.family else tpl_info.get("family", "")
+        if _family and _seg_am:
+            _better = get_best_template_for_family(_family, _seg_am)
+            if _better and _better != template.id:
+                _alt = EmailTemplate.get_or_none(EmailTemplate.id == _better)
+                if _alt:
+                    logger.info("[AM-Learn] Template swap %d→%d for %s (family=%s, segment=%s)",
+                                template.id, _better, contact.email, _family, _seg_am)
+                    template = _alt
+    except Exception:
+        pass
+
     # Gather contact profile for AI prompt
     profile_text = gather_contact_profile(contact)
 
@@ -722,10 +740,29 @@ def generate_am_email_from_template(contact, purpose, strategy_context=""):
     has_products = "product_grid" in block_types or "product_hero" in block_types
     has_discount = "discount" in block_types
 
+    # ── Learning: build insights section for Claude ──
+    _learning_section = ""
+    try:
+        from learning_context import build_learning_prompt_section
+        _learning_section = build_learning_prompt_section(contact.id, segment=None)
+    except Exception:
+        pass
+
+    # ── Learning: include cross-account patterns ──
+    _cross_learnings = ""
+    try:
+        _cross_learnings = gather_cross_account_learnings()
+    except Exception:
+        pass
+
     prompt = """CUSTOMER PROFILE:
 %s
 
 STRATEGY CONTEXT: %s
+
+%s
+
+%s
 
 %s
 
@@ -743,7 +780,8 @@ Respond with ONLY valid JSON:
 }
 
 ALL URLs must use ldas.ca domain. Use the customer's first name if available.""" % (
-        profile_text, strategy_context, email_gen_prompt, purpose,
+        profile_text, strategy_context, email_gen_prompt,
+        _learning_section, _cross_learnings, purpose,
         " → ".join(block_types)
     )
 
