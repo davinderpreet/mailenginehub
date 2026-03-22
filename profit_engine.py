@@ -599,18 +599,22 @@ def compute_smart_discount(contact_id, purpose):
         default["reason"] = "No customer profile"
         return default
 
-    # Collect product IDs from their purchase history
+    # Collect product IDs or titles from their purchase history
     product_ids = set()
+    product_titles = set()
     try:
         import json as _json
         all_prods = _json.loads(cp.all_products_bought or "[]")
         for p in all_prods:
-            if isinstance(p, dict) and p.get("product_id"):
-                product_ids.add(str(p["product_id"]))
+            if isinstance(p, dict):
+                if p.get("product_id"):
+                    product_ids.add(str(p["product_id"]))
+                if p.get("title"):
+                    product_titles.add(p["title"])
     except Exception:
         pass
 
-    if not product_ids:
+    if not product_ids and not product_titles:
         # No product history — use catalog average
         from peewee import fn
         avg = (ProductCommercial.select(fn.AVG(ProductCommercial.margin_pct))
@@ -631,13 +635,20 @@ def compute_smart_discount(contact_id, purpose):
         default["reason"] = "Catalog margin too thin (%.0f%%)" % avg
         return default
 
-    # Look up margins for their products
+    # Look up margins for their products (by ID or title match)
     margins = []
-    for pc in ProductCommercial.select().where(
-        ProductCommercial.product_id.in_(list(product_ids)[:50])
-    ):
-        if pc.margin_pct is not None and pc.promotion_eligible:
-            margins.append(pc.margin_pct)
+    if product_ids:
+        for pc in ProductCommercial.select().where(
+            ProductCommercial.product_id.in_(list(product_ids)[:50])
+        ):
+            if pc.margin_pct is not None and pc.promotion_eligible:
+                margins.append(pc.margin_pct)
+    if not margins and product_titles:
+        for pc in ProductCommercial.select().where(
+            ProductCommercial.product_title.in_(list(product_titles)[:50])
+        ):
+            if pc.margin_pct is not None and pc.promotion_eligible:
+                margins.append(pc.margin_pct)
 
     if not margins:
         default["reason"] = "No margin data for customer's products"

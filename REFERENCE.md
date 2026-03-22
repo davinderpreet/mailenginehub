@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-22 12:17. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-22 12:20. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -234,7 +234,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (57 files, 34,812 lines)
+## Python Files — Detailed (57 files, 34,823 lines)
 
 ### `app.py` (7,217 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -348,7 +348,7 @@ Key functions:
 - `scrape_competitor(source) — Extracts product/pricing from competitor pages`
 - `classify_content(text, source_type) — AI classifies and scores relevance`
 
-### `profit_engine.py` (866 lines)
+### `profit_engine.py` (877 lines)
 **Product profitability scoring — Shopify cost/inventory sync, margin computation, promo eligibility**
 
 Syncs product commercial data from Shopify: cost_per_unit (from variant cost field),

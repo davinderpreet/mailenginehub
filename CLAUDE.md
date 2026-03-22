@@ -1,6 +1,6 @@
 # MailEngineHub — Project Context
 > Email marketing platform for LDAS Electronics. Flask + SQLite (Peewee) + Amazon SES + Gunicorn.
-> 57 files, 34,812 lines. For full detail: read `REFERENCE.md`
+> 57 files, 34,823 lines. For full detail: read `REFERENCE.md`
 
 ## Deployment
 - **Repo**: `C:\Users\davin\Claude Work Folder\mailenginehub-repo\`
@@ -28,7 +28,7 @@ Studio: knowledge + performance -> studio_skills(6 AI skills) -> candidate -> ap
 | `identity_resolution.py` | 1,084 | Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching |
 | `customer_intelligence.py` | 1,004 | Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV |
 | `knowledge_scraper.py` | 952 | Auto-enrichment pipeline — scrapes products, blogs, competitors, FAQs into knowledge base |
-| `profit_engine.py` | 866 | Product profitability scoring — Shopify cost/inventory sync, margin computation, promo eligibility |
+| `profit_engine.py` | 877 | Product profitability scoring — Shopify cost/inventory sync, margin computation, promo eligibility |
 | `ai_engine.py` | 836 | Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution |
 
 ## Gotchas
