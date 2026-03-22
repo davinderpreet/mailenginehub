@@ -367,7 +367,7 @@
   </div>
   <div style="position:relative;">
     <div class="code-block" id="pixel-code">
-&lt;!-- MailEngineHub Tracking Pixel v3 --&gt;
+&lt;!-- MailEngineHub Tracking Pixel v4 --&gt;
 &lt;!-- Step 1: Add this ABOVE the pixel in theme.liquid (identifies logged-in customers): --&gt;
 &lt;!-- {% if customer %}&lt;script&gt;window.meh_email='{{ customer.email }}';&lt;/script&gt;{% endif %} --&gt;
 &lt;script&gt;
@@ -398,24 +398,126 @@
     fetch(ENDPOINT, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) }).catch(function(){});
   }
 
+  // ── UTM &amp; referrer (Gap 5) ──
+  var params = new URLSearchParams(location.search);
+  var utm = {};
+  ['utm_source','utm_medium','utm_campaign','utm_term','utm_content'].forEach(function(k) {
+    var v = params.get(k); if (v) utm[k] = v;
+  });
+  var referrer = document.referrer || '';
+  if (referrer &amp;&amp; referrer.indexOf(location.hostname) !== -1) referrer = ''; // ignore self-referrals
+
   var meta = (window.ShopifyAnalytics &amp;&amp; window.ShopifyAnalytics.meta) || {};
 
-  track('viewed_page', { url: location.pathname, page_title: document.title });
+  // ── Page view with UTM + referrer ──
+  var pageData = { url: location.pathname, page_title: document.title };
+  if (referrer) pageData.referrer = referrer;
+  if (Object.keys(utm).length) pageData.utm = utm;
+  track('viewed_page', pageData);
 
-  if (meta.product)    track('viewed_product',    { product_id: String(meta.product.id), product_title: meta.product.title, url: location.pathname });
-  if (meta.article)    track('viewed_blog',        { article_id: String(meta.article.id||''), article_title: meta.article.title||document.title, blog_title: (meta.blog&amp;&amp;meta.blog.title)||'', url: location.pathname });
-  if (meta.collection) track('viewed_collection',  { collection_id: String(meta.collection.id), collection_title: meta.collection.title, url: location.pathname });
+  // ── Product / Blog / Collection / Search / Cart ──
+  if (meta.product) track('viewed_product', { product_id: String(meta.product.id), product_title: meta.product.title, url: location.pathname });
+  if (meta.article) track('viewed_blog', { article_id: String(meta.article.id||''), article_title: meta.article.title||document.title, blog_title: (meta.blog&amp;&amp;meta.blog.title)||'', url: location.pathname });
+  if (meta.collection) track('viewed_collection', { collection_id: String(meta.collection.id), collection_title: meta.collection.title, url: location.pathname });
 
-  var sq = new URLSearchParams(location.search).get('q');
+  var sq = params.get('q');
   if (sq &amp;&amp; location.pathname.indexOf('/search') !== -1) track('searched', { query: sq, url: location.pathname });
   if (location.pathname === '/cart') track('viewed_cart', { url: location.pathname });
+
+  // ── Add to Cart interception (Gap 1) ──
+  // Intercept Shopify AJAX cart API calls (fetch + XMLHttpRequest)
+  var origFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    var result = origFetch.apply(this, arguments);
+    try {
+      var urlStr = (typeof url === 'string') ? url : (url &amp;&amp; url.url) || '';
+      if (urlStr.indexOf('/cart/add') !== -1 &amp;&amp; opts &amp;&amp; opts.method &amp;&amp; opts.method.toUpperCase() === 'POST') {
+        result.then(function(resp) {
+          if (resp.ok) {
+            resp.clone().json().then(function(data) {
+              track('added_to_cart', {
+                product_id: String(data.product_id || data.id || ''),
+                product_title: data.product_title || data.title || '',
+                variant_id: String(data.variant_id || ''),
+                quantity: data.quantity || 1,
+                price: data.price ? (data.price / 100).toFixed(2) : '0',
+                url: location.pathname
+              });
+            }).catch(function(){});
+          }
+        }).catch(function(){});
+      }
+    } catch(e) {}
+    return result;
+  };
+
+  // Also intercept XMLHttpRequest for themes using jQuery.ajax
+  var origXHROpen = XMLHttpRequest.prototype.open;
+  var origXHRSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    this._mehUrl = url; this._mehMethod = method;
+    return origXHROpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function(body) {
+    var xhr = this;
+    if (xhr._mehUrl &amp;&amp; xhr._mehUrl.indexOf('/cart/add') !== -1 &amp;&amp; xhr._mehMethod &amp;&amp; xhr._mehMethod.toUpperCase() === 'POST') {
+      xhr.addEventListener('load', function() {
+        try {
+          if (xhr.status &gt;= 200 &amp;&amp; xhr.status &lt; 300) {
+            var data = JSON.parse(xhr.responseText);
+            track('added_to_cart', {
+              product_id: String(data.product_id || data.id || ''),
+              product_title: data.product_title || data.title || '',
+              variant_id: String(data.variant_id || ''),
+              quantity: data.quantity || 1,
+              price: data.price ? (data.price / 100).toFixed(2) : '0',
+              url: location.pathname
+            });
+          }
+        } catch(e) {}
+      });
+    }
+    return origXHRSend.apply(this, arguments);
+  };
+
+  // ── Time-on-page heartbeat (Gap 6) ──
+  // Fires at 30s (engaged) and 120s (deep read). Stops after that.
+  var startTime = Date.now();
+  var heartbeats = [30, 120];
+  var hbIndex = 0;
+  var hbTimer = setInterval(function() {
+    if (hbIndex &gt;= heartbeats.length) { clearInterval(hbTimer); return; }
+    var elapsed = Math.round((Date.now() - startTime) / 1000);
+    if (elapsed &gt;= heartbeats[hbIndex]) {
+      track('engagement', {
+        url: location.pathname,
+        seconds_on_page: elapsed,
+        milestone: heartbeats[hbIndex] + 's',
+        is_product_page: !!meta.product
+      });
+      hbIndex++;
+    }
+  }, 5000);
+
+  // Also fire on page unload with total time
+  window.addEventListener('beforeunload', function() {
+    var total = Math.round((Date.now() - startTime) / 1000);
+    if (total &gt;= 5) { // Only log if they stayed at least 5 seconds
+      navigator.sendBeacon(ENDPOINT, JSON.stringify({
+        event_type: 'page_exit',
+        event_data: { url: location.pathname, seconds_on_page: total, is_product_page: !!meta.product },
+        session_id: sid,
+        email: email || undefined
+      }));
+    }
+  });
 })();
 &lt;/script&gt;</div>
     <button class="copy-btn" onclick="copyPixel()">Copy</button>
   </div>
   <p style="font-size:11.5px; color:var(--text3); margin-top:10px;">
     <i class="fas fa-info-circle" style="color:var(--cyan);"></i>
-    Tracks: product views, blog reads, searches, cart visits, page views. Customers are auto-identified when logged in (via Liquid) or when clicking from an email link (via <code style="color:var(--cyan);">?meh_e=EMAIL</code>). Anonymous browsing is automatically stitched to the contact when identity is discovered.
+    Tracks: product views, <strong>add to cart</strong>, blog reads, searches, cart visits, page views, <strong>UTM/referrer attribution</strong>, and <strong>time-on-page engagement</strong>. Customers are auto-identified when logged in (via Liquid) or when clicking from an email link (via <code style="color:var(--cyan);">?meh_e=EMAIL</code>). Anonymous browsing is automatically stitched to the contact when identity is discovered.
   </p>
 </div>
 <!-- ── Popup Subscription Widget Setup ───────────────────── -->

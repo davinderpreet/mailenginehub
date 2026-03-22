@@ -2213,6 +2213,35 @@ def _get_campaign_contacts(campaign):
 # ─────────────────────────────────
 #  TRACKING
 # ─────────────────────────────────
+def _log_email_engagement(contact_id, event_type, email_type, extra=None):
+    """Log email open/click to CustomerActivity so profile enrichment sees it.
+    Called from all tracking endpoints (campaign, flow, auto).
+    """
+    try:
+        from database import CustomerActivity, Contact, CustomerProfile
+        import json as _j
+        contact = Contact.get_or_none(Contact.id == contact_id)
+        if not contact:
+            return
+        data = {"email_type": email_type}
+        if extra:
+            data.update(extra)
+        CustomerActivity.create(
+            contact_id=contact_id,
+            email=contact.email,
+            event_type=event_type,
+            event_data=_j.dumps(data),
+            source="email_tracker",
+            source_ref="",
+            session_id="",
+            occurred_at=datetime.now(),
+        )
+        # Update last_active_at so debounced profile rebuild picks it up
+        CustomerProfile.update(last_active_at=datetime.now()).where(
+            CustomerProfile.contact == contact_id).execute()
+    except Exception:
+        pass
+
 @app.route("/track/open/<int:campaign_id>/<int:contact_id>")
 def track_open(campaign_id, contact_id):
     try:
@@ -2284,6 +2313,7 @@ def track_open_token(token):
             Contact.update(last_open_at=datetime.now()).where(Contact.id == contact_id).execute()
         except Exception as e:
             app.logger.warning("[SilentFix] Update last_open_at for contact %s: %s" % (contact_id, e))
+        _log_email_engagement(contact_id, "email_opened", "campaign", {"campaign_id": campaign_id})
         # Real-time pipeline: refresh after email open
         try:
             from cascade import cascade_contact
@@ -2315,6 +2345,7 @@ def track_flow_open_token(token):
             Contact.update(last_open_at=datetime.now()).where(Contact.id == contact_id).execute()
         except Exception as e:
             app.logger.warning("[SilentFix] Update last_open_at for contact %s: %s" % (contact_id, e))
+        _log_email_engagement(contact_id, "email_opened", "flow", {"enrollment_id": enrollment_id, "step_id": step_id})
         # Real-time pipeline: refresh after flow email open
         try:
             from cascade import cascade_contact
@@ -2351,6 +2382,9 @@ def track_flow_click(token):
             fe.opened = True
             fe.opened_at = datetime.now()
             fe.save()
+        _log_email_engagement(fe.contact_id, "email_clicked", "flow",
+                              {"enrollment_id": enrollment_id, "step_id": step_id,
+                               "url": request.args.get("url", "")})
 
     redirect_url = request.args.get("url", "https://ldas.ca")
     return redirect(redirect_url)
@@ -2381,6 +2415,7 @@ def track_auto_open(token):
         contact = ae.contact
         contact.last_open_at = datetime.now()
         contact.save()
+        _log_email_engagement(contact.id, "email_opened", "auto", {"auto_email_id": auto_email_id})
 
         try:
             from cascade import cascade_contact
@@ -2453,6 +2488,8 @@ def track_auto_click(token):
         contact = ae.contact
         contact.last_click_at = datetime.now()
         contact.save()
+        _log_email_engagement(contact.id, "email_clicked", "auto",
+                              {"auto_email_id": auto_email_id, "url": destination})
 
         try:
             from cascade import cascade_contact
