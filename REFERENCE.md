@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-22 12:20. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-22 12:29. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -1016,7 +1016,7 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 - **`learning_dashboard.html`** (32.4KB, extends base.html) -- Learning dashboard (24KB) — phase indicator (observation/conservative/active), template performance table, action effectiveness heatmap, model weights display, toggle button.
 - **`profile_detail.html`** (74.5KB, extends base.html) -- Full contact profile (67KB) — intelligence summary card, lifecycle/type/intent/churn badges, purchase history timeline, engagement chart, category affinity radar, AI email preview modal, quick send form, decision history table.
 - **`profiles.html`** (20.2KB, extends base.html) -- Intelligence profiles — search, lifecycle stage filter pills, sortable table (email, lifecycle, type, intent, churn risk, LTV, last decision).
-- **`profit_dashboard.html`** (16.1KB, extends base.html) -- Profit dashboard — product profitability table, margin analysis, promo eligibility recommendations.
+- **`profit_dashboard.html`** (16.0KB, extends base.html) -- Profit dashboard — product profitability table, margin analysis, promo eligibility recommendations.
 - **`prompt_editor.html`** (17.8KB, extends base.html)
 - **`sent_emails.html`** (11.1KB, extends base.html) -- Sent email log — filterable table (campaign/flow emails), preview link, status, open/click timestamps.
 - **`settings.html`** (9.8KB, extends base.html) -- Settings — delivery mode selector (live/shadow/sandbox), SES test send, system config.
