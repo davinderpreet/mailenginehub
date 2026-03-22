@@ -1713,9 +1713,10 @@ def render_divider(content):
 # =========================================================================
 
 def resolve_products_for_contact(contact, limit=4):
-    """Resolve product data for a contact using profile-based fallback chain.
+    """Resolve product data for a contact using profile + real-time activity.
 
-    Chain: recommendations -> top_products -> last_viewed -> popular products.
+    Chain: real-time activity -> recommendations -> top_products ->
+           last_viewed (profile) -> popular products.
     Returns list of product dicts: [{title, image_url, price, product_url, compare_price}]
     """
     try:
@@ -1741,20 +1742,54 @@ def resolve_products_for_contact(contact, limit=4):
                 seen_titles.add(p["title"])
                 results.append(p)
 
+    # 0. Real-time: check CustomerActivity for recent product views (last 30 days)
+    #    This catches products the contact browsed BEFORE nightly enrichment runs.
+    try:
+        from database import CustomerActivity
+        from datetime import datetime, timedelta
+        cutoff = datetime.now() - timedelta(days=30)
+        # Match by contact FK or by email (activity may not be stitched yet)
+        contact_email = getattr(contact, "email", None)
+        q = CustomerActivity.select().where(
+            CustomerActivity.event_type == "viewed_product",
+            CustomerActivity.occurred_at >= cutoff
+        ).order_by(CustomerActivity.occurred_at.desc()).limit(20)
+        # Filter to this contact (by FK or email)
+        contact_id = getattr(contact, "id", None)
+        realtime_titles = []
+        for ev in q:
+            # Match by contact FK or email
+            if ev.contact_id != contact_id and ev.email != contact_email:
+                continue
+            try:
+                ev_data = json.loads(ev.event_data or "{}")
+                title = ev_data.get("product_title") or ""
+                if title and title not in realtime_titles:
+                    realtime_titles.append(title)
+            except Exception:
+                pass
+            if len(realtime_titles) >= limit:
+                break
+        if realtime_titles:
+            _add_products(realtime_titles)
+    except Exception:
+        pass
+
+    # 1. Profile: recommendations
     try:
         from database import CustomerProfile
         profile = CustomerProfile.get(CustomerProfile.contact == contact)
 
-        # 1. Recommendations
-        recs = json.loads(profile.product_recommendations or "[]")
-        _add_products(recs)
+        if len(results) < limit:
+            recs = json.loads(profile.product_recommendations or "[]")
+            _add_products(recs)
 
         # 2. Top products
         if len(results) < limit:
             tops = json.loads(profile.top_products or "[]")
             _add_products(tops)
 
-        # 3. Last viewed
+        # 3. Last viewed (from nightly enrichment)
         if len(results) < limit and profile.last_viewed_product:
             _add_products([profile.last_viewed_product])
 
