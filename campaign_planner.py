@@ -374,14 +374,19 @@ def _get_talking_points(action_type, top_products, top_categories, avg_aov):
 # ═══════════════════════════════════════════════════════════════
 
 def scan_opportunities():
-    """Scan MessageDecision table, generate ranked campaign suggestions.
-    Returns list of dicts sorted by quality_score DESC.
+    """Scan for campaign opportunities.
+    NOTE: NBM (MessageDecision) has been removed. This function now returns
+    empty until Campaigns system is rebuilt to use Flows + AM data instead.
     """
-    from database import (MessageDecision, SuggestedCampaign, OpportunityScanLog,
+    from database import (SuggestedCampaign, OpportunityScanLog,
                           CustomerProfile, ContactScore, WarmupConfig, Contact,
                           init_db)
     from peewee import fn
     init_db()
+
+    # NBM removed — campaign planner will be rebuilt to use AM/Flow data
+    logger.info("[CampaignPlanner] Skipped — NBM removed, awaiting rebuild")
+    return []
 
     start_time = time.time()
     today = datetime.now().strftime("%Y-%m-%d")

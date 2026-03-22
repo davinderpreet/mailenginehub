@@ -82,13 +82,25 @@ def _get_contact_segment(contact_id):
 
 
 def _get_action_type(contact_id):
-    """Get the most recent action_type from MessageDecision."""
-    from database import MessageDecision
+    """Get the action_type for a contact from AM strategy or flow enrollment."""
     try:
-        md = MessageDecision.get(MessageDecision.contact == contact_id)
-        return md.action_type
+        from database import ContactStrategy
+        cs = ContactStrategy.get_or_none(ContactStrategy.contact == contact_id)
+        if cs and cs.next_action_type:
+            return cs.next_action_type
     except Exception:
-        return ""
+        pass
+    try:
+        from database import FlowEnrollment
+        fe = (FlowEnrollment.select()
+              .where(FlowEnrollment.contact == contact_id)
+              .order_by(FlowEnrollment.enrolled_at.desc())
+              .first())
+        if fe and fe.flow:
+            return fe.flow.flow_type or "flow"
+    except Exception:
+        pass
+    return ""
 
 
 def _process_campaign_emails(lookback_hours=48):

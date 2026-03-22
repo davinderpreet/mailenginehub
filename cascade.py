@@ -48,7 +48,6 @@ def cascade_contact(contact_id, trigger="unknown"):
     Steps:
         1. score_single_contact()    → ContactScore (RFM + engagement)
         2. compute_intelligence()    → CustomerProfile (lifecycle, intent, churn)
-        3. decide_next_action()      → MessageDecision (next best action)
     """
     if not contact_id:
         return
@@ -93,15 +92,8 @@ def cascade_contact(contact_id, trigger="unknown"):
             logger.error(f"[Cascade] Intelligence failed for {contact_id}: {e}")
             steps_done.append("intelligence=ERR")
 
-        try:
-            # Step 3: Decision (next best action)
-            from next_best_message import decide_next_action
-            result = decide_next_action(contact_id)
-            action = result.get("action_type", "?")
-            steps_done.append(f"decision={action}")
-        except Exception as e:
-            logger.error(f"[Cascade] Decision failed for {contact_id}: {e}")
-            steps_done.append("decision=ERR")
+        # NBM decision step removed — Flows + AM handle actions now
+        steps_done.append("decision=skipped(NBM_removed)")
 
         elapsed = round(time.time() - start, 2)
         logger.info(f"[Cascade] contact={contact_id} trigger={trigger} "
@@ -150,13 +142,9 @@ def cascade_contact_sync(contact_id, trigger="unknown"):
     except Exception as e:
         results["intelligence_error"] = str(e)
 
-    try:
-        from next_best_message import decide_next_action
-        result = decide_next_action(contact_id)
-        results["action"] = result.get("action_type")
-        results["score"] = result.get("action_score")
-    except Exception as e:
-        results["decision_error"] = str(e)
+    # NBM decision removed — Flows + AM handle actions
+    results["action"] = "nbm_removed"
+    results["score"] = 0
 
     results["elapsed"] = round(time.time() - start, 2)
     results["trigger"] = trigger

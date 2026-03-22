@@ -2006,20 +2006,7 @@ def _send_campaign_async(campaign_id):
         except Exception:
             pass
 
-        # ── Next-best-message gating (skip contacts whose learned decision is "wait") ──
-        try:
-            from database import MessageDecision
-            _decision = MessageDecision.get_or_none(MessageDecision.contact == contact)
-            if _decision and _decision.action_type == "wait":
-                _still_valid = (not _decision.expires_at) or _decision.expires_at > datetime.now()
-                if _still_valid:
-                    log_action(contact, "campaign", campaign_id, "suppressed", "RC_DECISION_WAIT",
-                               source_type=campaign.name,
-                               reason_detail="Next-best-message decision: wait (%s)" % (_decision.action_reason or "fatigue/suppression"))
-                    CampaignEmail.create(campaign=campaign, contact=contact, status="suppressed", error_msg="decision_wait")
-                    continue
-        except Exception:
-            pass
+        # NBM gating removed — Flows + AM handle contact decisions now
 
         # ── Personalise ─────────────────────────────────────────
         unsub_url = _make_unsubscribe_url(contact)
@@ -5035,17 +5022,15 @@ def profiles_list():
             "action_score":    0,
         })
 
-    # Phase 2B: Bulk-load decisions for listed profiles
+    # NBM decisions removed — next_action now comes from AM strategy
     try:
-        from database import MessageDecision as _MD
+        from database import ContactStrategy
         _cids = [r["contact_id"] for r in profiles]
-        _dmap = {}
-        for _md in _MD.select().where(_MD.contact.in_(_cids)):
-            _dmap[_md.contact_id] = {"action_type": _md.action_type, "action_score": _md.action_score}
+        _smap = {}
+        for _cs in ContactStrategy.select().where(ContactStrategy.contact.in_(_cids)):
+            _smap[_cs.contact_id] = _cs.next_action_type or ""
         for _r in profiles:
-            _d = _dmap.get(_r["contact_id"], {})
-            _r["next_action"] = _d.get("action_type", "")
-            _r["action_score"] = _d.get("action_score", 0)
+            _r["next_action"] = _smap.get(_r["contact_id"], "")
     except Exception:
         pass
 
@@ -5318,35 +5303,8 @@ def profile_detail(contact_id):
             "last_computed": profile.last_intelligence_at.strftime("%Y-%m-%d %H:%M") if profile.last_intelligence_at else "",
         }
 
-    # Phase 2B: Next-Best-Action decision
+    # NBM decision removed — Flows + AM handle contact actions now
     _decision = {}
-    try:
-        from database import MessageDecision, MessageDecisionHistory
-        import json as _jd2
-        _md = MessageDecision.get_or_none(MessageDecision.contact == contact_id)
-        if _md:
-            _decision = {
-                "action_type": _md.action_type,
-                "action_score": _md.action_score,
-                "action_reason": _md.action_reason,
-                "ranked_actions": _jd2.loads(_md.ranked_actions_json or "[]"),
-                "rejections": _jd2.loads(_md.rejections_json or "[]"),
-                "decided_at": _md.decided_at.strftime("%Y-%m-%d %H:%M") if _md.decided_at else "",
-            }
-        _decision_history = []
-        for _dh in (MessageDecisionHistory.select()
-                    .where(MessageDecisionHistory.contact == contact_id)
-                    .order_by(MessageDecisionHistory.decided_at.desc())
-                    .limit(14)):
-            _decision_history.append({
-                "date": _dh.decision_date,
-                "action_type": _dh.action_type,
-                "action_score": _dh.action_score,
-                "was_executed": _dh.was_executed,
-            })
-        _decision["history"] = _decision_history
-    except Exception:
-        pass
 
     # Discount codes for this customer
     _discount_codes = []
@@ -5605,17 +5563,6 @@ def profit_dashboard():
         no_discount_customers=no_discount_customers,
         campaign_forecasts=campaign_forecasts,
     )
-
-
-@app.route("/api/profiles/<int:contact_id>/decide", methods=["POST"])
-def recompute_decision(contact_id):
-    """Recompute next-best-action for a single contact on-demand."""
-    try:
-        from next_best_message import decide_next_action
-        result = decide_next_action(contact_id)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/profiles/<int:contact_id>/intelligence", methods=["POST"])
@@ -5877,15 +5824,9 @@ def learning_dashboard():
         segment_dist[seg] = ContactScore.select().where(ContactScore.rfm_segment == seg).count()
     total_scored = sum(segment_dist.values()) or 1
 
-    # ── NEW: Message Decision Breakdown ──
-    from database import MessageDecision
+    # NBM decisions removed — Flows + AM handle actions now
     from peewee import fn
     decision_dist = {}
-    for row in (MessageDecision.select(MessageDecision.action_type, fn.COUNT(MessageDecision.id).alias('cnt'))
-                .group_by(MessageDecision.action_type)
-                .order_by(fn.COUNT(MessageDecision.id).desc())
-                .limit(10)):
-        decision_dist[row.action_type] = row.cnt
 
     # ── NEW: Frequency Optimization Stats ──
     avg_gap = ContactScore.select(fn.AVG(ContactScore.optimal_gap_hours)).where(
@@ -6876,15 +6817,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
 
     _scheduler.add_job(_run_nightly_intelligence, "cron", hour=3, minute=30,
                        id="nightly_intelligence", replace_existing=True)
-    def _run_nightly_decisions():
-        try:
-            import sys as _sn; _sn.path.insert(0, APP_DIR)
-            from next_best_message import decide_all_contacts
-            app.logger.info("Nightly decision engine starting...")
-            count = decide_all_contacts()
-            app.logger.info(f"Nightly decisions complete: {count} contacts processed")
-        except Exception as _e:
-            app.logger.error(f"Nightly decision engine failed: {_e}")
+    # NBM (Next Best Message) removed — Flows + AM + Campaigns are the only senders now
 
     # ── AI Account Manager: per-contact AI strategist ──
     def _run_account_manager():
@@ -6909,8 +6842,6 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
 
     _scheduler.add_job(_run_account_manager, "cron", hour=4, minute=10,
                        id="account_manager", replace_existing=True)
-    _scheduler.add_job(_run_nightly_decisions, "cron", hour=4, minute=40,
-                       id="nightly_decisions", replace_existing=True)
     def _run_nightly_opportunity_scan():
         try:
             import sys as _so; _so.path.insert(0, APP_DIR)
