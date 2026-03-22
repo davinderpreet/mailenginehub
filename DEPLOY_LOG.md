@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-22 13:24 -- `95c8e7e`
+
+**Add real-time profile rebuild — debounced, session-aware**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-22 13:10 -- `cee724d`
 
 **Fix product mismatch in emails — real-time activity lookup**
