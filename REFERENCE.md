@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-22 11:46. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-22 12:17. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -234,9 +234,9 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (57 files, 34,536 lines)
+## Python Files — Detailed (57 files, 34,812 lines)
 
-### `app.py` (7,193 lines)
+### `app.py` (7,217 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
 
 Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,
@@ -284,7 +284,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 (5) AI/Studio: KnowledgeEntry, StudioJob, TemplateCandidate, AIModelConfig
 (6) Learning: OutcomeLog, ActionPerformance, TemplatePerformance, ModelWeights, LearningConfig
 
-### `account_manager.py` (1,572 lines)
+### `account_manager.py` (1,611 lines)
 ### `generate-context.py` (1,243 lines)
 **Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
 
@@ -347,6 +347,16 @@ Key functions:
 - `scrape_blog(source) — Fetches blog post content from URL`
 - `scrape_competitor(source) — Extracts product/pricing from competitor pages`
 - `classify_content(text, source_type) — AI classifies and scores relevance`
+
+### `profit_engine.py` (866 lines)
+**Product profitability scoring — Shopify cost/inventory sync, margin computation, promo eligibility**
+
+Syncs product commercial data from Shopify: cost_per_unit (from variant cost field),
+inventory levels, sales velocity. Computes margin_pct per product. Margin estimates by type
+when cost data unavailable: headsets 45%, dash cams 35%, accessories 55%, etc.
+score_product_profitability(product_id) returns composite score: margin % + inventory level + velocity.
+get_promotion_eligibility(product_id) recommends discount/promotion strategy.
+Stored in ProductCommercial model (product_id, current_price, cost_per_unit, margin_pct, etc.).
 
 ### `ai_engine.py` (836 lines)
 **Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution**
@@ -452,16 +462,6 @@ Key functions:
 - `validate_and_fix(context) — Pure-Python validation + auto-fix pass`
 - `_parse_json_response(text) — Handles markdown fences, reasoning model outputs`
 - `_build_knowledge_summary(knowledge, block_type) — Filters relevant knowledge, truncates to 2000 chars`
-
-### `profit_engine.py` (654 lines)
-**Product profitability scoring — Shopify cost/inventory sync, margin computation, promo eligibility**
-
-Syncs product commercial data from Shopify: cost_per_unit (from variant cost field),
-inventory levels, sales velocity. Computes margin_pct per product. Margin estimates by type
-when cost data unavailable: headsets 45%, dash cams 35%, accessories 55%, etc.
-score_product_profitability(product_id) returns composite score: margin % + inventory level + velocity.
-get_promotion_eligibility(product_id) recommends discount/promotion strategy.
-Stored in ProductCommercial model (product_id, current_price, cost_per_unit, margin_pct, etc.).
 
 ### `studio_routes.py` (639 lines)
 **Flask Blueprint for /studio/* — knowledge base, generation, jobs, models, sources, scraping**
@@ -588,7 +588,7 @@ build_system_map_nodes() returns 65+ nodes representing every system component
 build_system_map_edges() returns relationships between nodes (data flow, dependencies).
 Consumed by /api/system-map/data endpoint, rendered as D3.js force-directed graph on /system-map page.
 
-### `discount_engine.py` (406 lines)
+### `discount_engine.py` (407 lines)
 **Dynamic discount generation — per-contact codes via Shopify price rules**
 
 get_or_create_discount(email, purpose) returns a unique discount code for a contact.
@@ -790,7 +790,7 @@ IMPORTANT: Use LearningConfig.get_val(key, default) / LearningConfig.set_val(key
 
 ---
 
-## Routes — Full Detail (136 total)
+## Routes — Full Detail (137 total)
 
 ### Dashboard & Overview
 Main dashboard, system monitoring, and reporting pages
@@ -798,9 +798,9 @@ Main dashboard, system monitoring, and reporting pages
 | Route | Methods | Function | Line | Description |
 |---|---|---|---|---|
 | `/` | GET | `dashboard` | 478 | Main dashboard — stat cards (contacts, campaigns, open rate, revenue), recent activity feed, warmup status, quick actions |
-| `/activity` | GET | `activity_feed` | 6463 | Activity feed — real-time log of all system events (sends, opens, clicks, bounces, triggers) |
+| `/activity` | GET | `activity_feed` | 6487 | Activity feed — real-time log of all system events (sends, opens, clicks, bounces, triggers) |
 | `/audit` | GET | `audit_dashboard` | 4584 | Audit dashboard — ActionLedger viewer with filtering by trigger type, source, status |
-| `/system-map` | GET | `system_map` | 6881 | Interactive D3.js force graph — 65+ nodes showing all system components and data flow |
+| `/system-map` | GET | `system_map` | 6905 | Interactive D3.js force graph — 65+ nodes showing all system components and data flow |
 | `/telemetry` | GET | `telemetry_dashboard` | 4620 | AI rendering telemetry — success rates, latency, field-specific performance metrics |
 
 ### Contacts & Profiles
@@ -844,9 +844,9 @@ Autonomous AI scoring, plan generation, and learning system
 | Route | Methods | Function | Line | Description |
 |---|---|---|---|---|
 | `/agent` | GET | `agent` | 5020 | IT Agent chat — Claude-powered assistant for system questions |
-| `/ai-engine` | GET | `ai_engine_dashboard` | 5785 | AI Engine dashboard — segment distribution, today's plan, decision log, run-now button |
+| `/ai-engine` | GET | `ai_engine_dashboard` | 5809 | AI Engine dashboard — segment distribution, today's plan, decision log, run-now button |
 | `/campaign-planner` | GET | `campaign_planner_page` | 5592 | Campaign planner — suggested campaigns from opportunity scanner, accept/dismiss |
-| `/learning` | GET | `learning_dashboard` | 5880 | Learning dashboard — phase indicator, template performance, action effectiveness, model weights |
+| `/learning` | GET | `learning_dashboard` | 5904 | Learning dashboard — phase indicator, template performance, action effectiveness, model weights |
 | `/profits` | GET | `profit_dashboard` | 5675 | Profit dashboard — product profitability scores, margin analysis, promo eligibility |
 
 ### AI Template Studio
@@ -890,41 +890,41 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 
 | Route | Methods | Function | Line | Description |
 |---|---|---|---|---|
-| `/api/activity/feed` | GET | `api_activity_feed` | 6526 | Activity feed JSON — paginated events for activity page auto-refresh |
+| `/api/activity/feed` | GET | `api_activity_feed` | 6550 | Activity feed JSON — paginated events for activity page auto-refresh |
 | `/api/agent/chat` | POST | `api_agent_chat` | 5027 | Agent chat API — sends message to Claude, returns response |
-| `/api/ai-engine/run-now` | POST | `ai_engine_run_now` | 5864 | Trigger AI engine manually — runs scoring + plan generation |
-| `/api/ai-engine/sample-email` | POST | `ai_engine_sample_email` | 5822 | Generate sample AI email — preview without sending |
+| `/api/ai-engine/run-now` | POST | `ai_engine_run_now` | 5888 | Trigger AI engine manually — runs scoring + plan generation |
+| `/api/ai-engine/sample-email` | POST | `ai_engine_sample_email` | 5846 | Generate sample AI email — preview without sending |
 | `/api/campaign/recipient-count` | GET | `api_recipient_count` | 1980 | Count recipients for a segment filter — used by campaign form |
-| `/api/identify` | POST, OPTIONS | `identify_visitor` | 6571 | Identity pixel — JavaScript tracking pixel for website visitor identification |
-| `/api/learning/stats` | GET | `api_learning_stats` | 6084 | Learning stats JSON — for dashboard auto-refresh |
-| `/api/subscribe` | POST, OPTIONS | `api_subscribe` | 6670 | Public subscribe endpoint — CORS-enabled for external forms |
-| `/api/system-map/data` | GET | `system_map_api` | 6885 | System map JSON — 65+ nodes and edges for D3.js visualization |
+| `/api/identify` | POST, OPTIONS | `identify_visitor` | 6595 | Identity pixel — JavaScript tracking pixel for website visitor identification |
+| `/api/learning/stats` | GET | `api_learning_stats` | 6108 | Learning stats JSON — for dashboard auto-refresh |
+| `/api/subscribe` | POST, OPTIONS | `api_subscribe` | 6694 | Public subscribe endpoint — CORS-enabled for external forms |
+| `/api/system-map/data` | GET | `system_map_api` | 6909 | System map JSON — 65+ nodes and edges for D3.js visualization |
 | `/api/telemetry/data` | GET | `api_telemetry_data` | 4625 | Telemetry JSON — AI render stats for telemetry page auto-refresh |
 | `/api/templates/ai-generate-block` | POST | `api_ai_generate_block` | 1383 | AI generate single block content — for template builder |
 | `/api/templates/ai-generate-template` | POST | `api_ai_generate_template` | 1446 | AI generate full template — for template builder |
-| `/api/track` | POST, OPTIONS | `track_event` | 6605 | Event tracking API — receives behavioral events from website JavaScript |
+| `/api/track` | POST, OPTIONS | `track_event` | 6629 | Event tracking API — receives behavioral events from website JavaScript |
 | `/api/warmup/health` | GET | `api_warmup_health` | 2793 | Warmup health JSON — for warmup dashboard auto-refresh |
 
 ### Other Routes
 
 | Route | Methods | Function | Line |
 |---|---|---|---|
-| `/account-manager` | GET | `account_manager_dashboard` | 6124 |
-| `/account-manager/approve/<int:pending_id>` | POST | `am_approve` | 6183 |
-| `/account-manager/bulk-approve` | POST | `am_bulk_approve` | 6248 |
-| `/account-manager/contact/<int:contact_id>` | GET | `am_contact_detail` | 6261 |
-| `/account-manager/edit/<int:pending_id>` | POST | `am_edit` | 6202 |
-| `/account-manager/enroll/<int:contact_id>` | POST | `am_enroll` | 6301 |
-| `/account-manager/preview/<int:pending_id>` | GET | `am_preview_email` | 6337 |
-| `/account-manager/prompts` | GET | `am_prompts` | 6348 |
-| `/account-manager/prompts/preview` | POST | `am_prompt_preview` | 6430 |
-| `/account-manager/prompts/revert` | POST | `am_revert_prompt` | 6412 |
-| `/account-manager/prompts/save` | POST | `am_save_prompt` | 6380 |
-| `/account-manager/regenerate/<int:pending_id>` | POST | `am_regenerate` | 6229 |
-| `/account-manager/reject/<int:pending_id>` | POST | `am_reject` | 6192 |
-| `/account-manager/settings` | GET, POST | `am_settings` | 6319 |
-| `/account-manager/unenroll/<int:contact_id>` | POST | `am_unenroll` | 6310 |
-| `/activity/sync` | POST | `activity_sync_trigger` | 6782 |
+| `/account-manager` | GET | `account_manager_dashboard` | 6148 |
+| `/account-manager/approve/<int:pending_id>` | POST | `am_approve` | 6207 |
+| `/account-manager/bulk-approve` | POST | `am_bulk_approve` | 6272 |
+| `/account-manager/contact/<int:contact_id>` | GET | `am_contact_detail` | 6285 |
+| `/account-manager/edit/<int:pending_id>` | POST | `am_edit` | 6226 |
+| `/account-manager/enroll/<int:contact_id>` | POST | `am_enroll` | 6325 |
+| `/account-manager/preview/<int:pending_id>` | GET | `am_preview_email` | 6361 |
+| `/account-manager/prompts` | GET | `am_prompts` | 6372 |
+| `/account-manager/prompts/preview` | POST | `am_prompt_preview` | 6454 |
+| `/account-manager/prompts/revert` | POST | `am_revert_prompt` | 6436 |
+| `/account-manager/prompts/save` | POST | `am_save_prompt` | 6404 |
+| `/account-manager/regenerate/<int:pending_id>` | POST | `am_regenerate` | 6253 |
+| `/account-manager/reject/<int:pending_id>` | POST | `am_reject` | 6216 |
+| `/account-manager/settings` | GET, POST | `am_settings` | 6343 |
+| `/account-manager/unenroll/<int:contact_id>` | POST | `am_unenroll` | 6334 |
+| `/activity/sync` | POST | `activity_sync_trigger` | 6806 |
 | `/api/agent/clear` | POST | `api_agent_clear` | 5109 |
 | `/api/audit/details` | GET | `api_audit_details` | 4602 |
 | `/api/audit/stats` | GET | `api_audit_stats` | 4597 |
@@ -936,7 +936,8 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 | `/api/contacts/count` | GET | `api_contacts_count` | 4727 |
 | `/api/contacts/sync-status` | GET | `api_sync_status` | 819 |
 | `/api/flows/<int:flow_id>/stats` | GET | `api_flow_stats` | 4494 |
-| `/api/profiles/<int:contact_id>/intelligence` | POST | `recompute_intelligence` | 5748 |
+| `/api/profiles/<int:contact_id>/intelligence` | POST | `recompute_intelligence` | 5772 |
+| `/api/profits/update-cost` | POST | `api_update_product_cost` | 5748 |
 | `/api/sanitize-contacts` | POST | `sanitize_contacts_api` | 778 |
 | `/api/templates/<int:template_id>/preview-blocks` | GET | `preview_blocks_template` | 1297 |
 | `/api/templates/<int:template_id>/save-blocks` | POST | `api_save_blocks` | 1250 |
@@ -956,9 +957,9 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 | `/flows/<int:flow_id>/toggle` | POST | `flow_toggle` | 4373 |
 | `/journey-preview` | GET | `journey_preview` | 1823 |
 | `/journey-preview/render/<int:template_id>` | GET | `journey_preview_render` | 1884 |
-| `/learning/toggle` | POST | `learning_toggle` | 6074 |
+| `/learning/toggle` | POST | `learning_toggle` | 6098 |
 | `/profiles/<int:contact_id>` | GET | `profile_detail` | 5255 |
-| `/profiles/<int:contact_id>/ai-email-preview` | POST | `ai_email_preview` | 5759 |
+| `/profiles/<int:contact_id>/ai-email-preview` | POST | `ai_email_preview` | 5783 |
 | `/profiles/<int:contact_id>/send-quick-email` | POST | `send_quick_email` | 5558 |
 | `/sent-emails/preview/<email_type>/<int:email_id>` | GET | `sent_email_preview` | 1781 |
 | `/settings/delivery-mode` | POST | `settings_delivery_mode` | 4558 |
@@ -1015,7 +1016,7 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 - **`learning_dashboard.html`** (32.4KB, extends base.html) -- Learning dashboard (24KB) — phase indicator (observation/conservative/active), template performance table, action effectiveness heatmap, model weights display, toggle button.
 - **`profile_detail.html`** (74.5KB, extends base.html) -- Full contact profile (67KB) — intelligence summary card, lifecycle/type/intent/churn badges, purchase history timeline, engagement chart, category affinity radar, AI email preview modal, quick send form, decision history table.
 - **`profiles.html`** (20.2KB, extends base.html) -- Intelligence profiles — search, lifecycle stage filter pills, sortable table (email, lifecycle, type, intent, churn risk, LTV, last decision).
-- **`profit_dashboard.html`** (11.5KB, extends base.html) -- Profit dashboard — product profitability table, margin analysis, promo eligibility recommendations.
+- **`profit_dashboard.html`** (16.1KB, extends base.html) -- Profit dashboard — product profitability table, margin analysis, promo eligibility recommendations.
 - **`prompt_editor.html`** (17.8KB, extends base.html)
 - **`sent_emails.html`** (11.1KB, extends base.html) -- Sent email log — filterable table (campaign/flow emails), preview link, status, open/click timestamps.
 - **`settings.html`** (9.8KB, extends base.html) -- Settings — delivery mode selector (live/shadow/sandbox), SES test send, system config.
