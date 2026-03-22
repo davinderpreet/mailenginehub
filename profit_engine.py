@@ -463,22 +463,21 @@ def compute_product_scores():
 
 
 # ═══════════════════════════════════════════════════════════════
-# Single-Product Margin Recalc (for manual cost entry)
+# Update Product (inline editing from /profits UI)
 # ═══════════════════════════════════════════════════════════════
 
-def recalc_product_margins(product_id, new_cost):
-    """Recalculate margin and scores for a single product after manual cost edit.
+def update_product(product_id, updates):
+    """Update any editable field on a product and recalculate margin.
 
     Args:
         product_id: str product ID
-        new_cost: float cost per unit
+        updates: dict — any of {cost_per_unit, current_price, inventory_level,
+                 promotion_eligible, promotion_reason}
 
     Returns:
-        dict with updated fields or {"error": str}
+        dict with full product state or {"error": str}
     """
-    from database import (ProductCommercial, ShopifyOrderItem, ShopifyOrder,
-                          init_db)
-    from peewee import fn
+    from database import ProductCommercial, init_db
     init_db()
 
     try:
@@ -486,80 +485,65 @@ def recalc_product_margins(product_id, new_cost):
     except ProductCommercial.DoesNotExist:
         return {"error": "Product not found"}
 
+    # Apply updates
+    if "cost_per_unit" in updates and updates["cost_per_unit"] is not None:
+        pc.cost_per_unit = round(float(updates["cost_per_unit"]), 2)
+        pc.margin_source = "manual"
+
+    if "current_price" in updates and updates["current_price"] is not None:
+        pc.current_price = round(float(updates["current_price"]), 2)
+
+    if "inventory_level" in updates and updates["inventory_level"] is not None:
+        pc.inventory_level = int(updates["inventory_level"])
+
+    if "promotion_eligible" in updates:
+        pc.promotion_eligible = bool(updates["promotion_eligible"])
+
+    if "promotion_reason" in updates:
+        pc.promotion_reason = updates["promotion_reason"]
+
+    # Recalculate margin from cost + price
     price = pc.current_price or 0
-    if price <= 0:
-        return {"error": "Product has no price"}
+    cost = pc.cost_per_unit
+    if cost is not None and price > 0:
+        pc.margin_pct = round((price - cost) / price * 100, 1)
+    elif price > 0 and cost is None:
+        # No cost set — estimate
+        ptype = pc.product_type or "Other Electronics"
+        margin_est = MARGIN_ESTIMATES.get(ptype, DEFAULT_MARGIN)
+        pc.margin_pct = round(margin_est * 100, 1)
 
-    # Update cost and margin
-    pc.cost_per_unit = round(new_cost, 2)
-    pc.margin_source = "manual"
-    pc.margin_pct = round((price - new_cost) / price * 100, 1)
+    # Recalc profit from margin
+    if pc.margin_pct is not None:
+        pc.profit_30d = round((pc.revenue_30d or 0) * pc.margin_pct / 100, 2)
+        pc.profit_90d = round((pc.revenue_90d or 0) * pc.margin_pct / 100, 2)
 
-    # Recalc profit
-    pc.profit_30d = round((pc.revenue_30d or 0) * pc.margin_pct / 100, 2)
-    pc.profit_90d = round((pc.revenue_90d or 0) * pc.margin_pct / 100, 2)
-
-    # Recompute promotion eligibility
-    margin_pct = pc.margin_pct
-    stock_pressure = pc.stock_pressure or "unknown"
-    return_rate = pc.return_rate or 0
-
-    promo_eligible = True
-    promo_reason = "Standard eligibility"
-
-    if stock_pressure == "out_of_stock":
-        promo_eligible = False
-        promo_reason = "Out of stock -- do not promote"
-    elif stock_pressure == "critical" and margin_pct < 30:
-        promo_eligible = False
-        promo_reason = "Low stock, low margin -- preserve inventory"
-    elif return_rate > 15:
-        promo_eligible = False
-        promo_reason = "High return rate -- fix product issues first"
-    elif stock_pressure == "overstocked":
-        promo_reason = "Overstocked -- push aggressively"
-    elif margin_pct > 50:
-        promo_reason = "High margin -- prioritize"
-    elif margin_pct < 20:
-        promo_reason = "Low margin -- discount-averse"
-
-    pc.promotion_eligible = promo_eligible
-    pc.promotion_reason = promo_reason
-
-    # Recompute profitability score
-    units_30d = pc.units_sold_30d or 0
-    avg_discount = pc.avg_discount_given or 0
-    prof_score = 40
-    if margin_pct >= 40:
-        prof_score += 20
-    elif margin_pct < 20:
-        prof_score -= 20
-    if units_30d >= 10:
-        prof_score += 15
-    if stock_pressure in ("healthy", "overstocked"):
-        prof_score += 10
-    if return_rate < 5:
-        prof_score += 10
-    if stock_pressure in ("out_of_stock", "critical"):
-        prof_score -= 15
-    if return_rate > 10:
-        prof_score -= 10
-    if avg_discount > 15:
-        prof_score -= 10
-    pc.profitability_score = max(0, min(100, prof_score))
+    # Max discount the margin can absorb (keep 10% floor)
+    max_discount = max(0, round((pc.margin_pct or 0) - 10, 1))
 
     pc.last_computed = datetime.now()
     pc.save()
 
     return {
         "ok": True,
+        "product_id": pc.product_id,
+        "product_title": pc.product_title,
+        "current_price": pc.current_price,
+        "cost_per_unit": pc.cost_per_unit,
         "margin_pct": pc.margin_pct,
-        "profit_30d": pc.profit_30d,
-        "profit_90d": pc.profit_90d,
-        "profitability_score": pc.profitability_score,
+        "margin_source": pc.margin_source,
+        "inventory_level": pc.inventory_level,
         "promotion_eligible": pc.promotion_eligible,
-        "promotion_reason": pc.promotion_reason,
+        "promotion_reason": pc.promotion_reason or "",
+        "max_discount_pct": max_discount,
+        "profit_30d": pc.profit_30d,
     }
+
+
+# Keep old name as alias for backwards compat
+def recalc_product_margins(product_id, new_cost):
+    """Legacy wrapper — calls update_product."""
+    return update_product(product_id, {"cost_per_unit": new_cost})
 
 
 # ═══════════════════════════════════════════════════════════════

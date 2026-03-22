@@ -4,143 +4,128 @@
 
 {% block content %}
 <style>
+  .pb-table { width:100%;border-collapse:separate;border-spacing:0; }
+  .pb-table th { font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);padding:10px 10px;text-align:left;position:sticky;top:0;background:var(--bg2);z-index:1; }
+  .pb-table td { padding:14px 10px;vertical-align:middle;border-bottom:1px solid rgba(255,255,255,0.04); }
+  .pb-table tr:hover { background:rgba(124,58,237,0.04); }
+  .pb-input { width:80px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px;font-weight:600;text-align:right;transition:border-color 0.15s; }
+  .pb-input:focus { border-color:var(--purple);outline:none;box-shadow:0 0 0 2px rgba(124,58,237,0.15); }
+  .pb-input.saved { border-color:var(--green);background:rgba(16,185,129,0.06); }
+  .pb-input.err { border-color:var(--red); }
+  .pb-save { background:var(--purple);color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:10px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.3px;transition:all 0.15s;white-space:nowrap; }
+  .pb-save:hover { background:var(--purple2);transform:scale(1.03); }
+  .pb-save.saving { opacity:0.6;pointer-events:none; }
+  .margin-val { font-weight:800;font-size:15px; }
   .margin-green { color:var(--green); }
-  .margin-amber { color:var(--amber); }
-  .margin-red { color:var(--red); }
-  .stock-badge { padding:3px 8px;border-radius:99px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;white-space:nowrap; }
-  .stock-healthy { background:rgba(16,185,129,0.12);color:var(--green);border:1px solid rgba(16,185,129,0.25); }
-  .stock-overstocked { background:rgba(124,58,237,0.12);color:var(--purple2);border:1px solid rgba(124,58,237,0.25); }
-  .stock-low { background:rgba(245,158,11,0.12);color:var(--amber);border:1px solid rgba(245,158,11,0.25); }
-  .stock-critical { background:rgba(239,68,68,0.12);color:var(--red);border:1px solid rgba(239,68,68,0.25); }
-  .stock-out_of_stock { background:rgba(239,68,68,0.2);color:var(--red);border:1px solid rgba(239,68,68,0.4); }
-  .stock-unknown { background:var(--surface2);color:var(--text3);border:1px solid var(--border); }
-  .prof-bar { height:6px;border-radius:99px;background:var(--surface2);overflow:hidden; }
-  .prof-bar-fill { height:100%;border-radius:99px;transition:width 0.3s; }
-  .promo-yes { color:var(--green); }
-  .promo-no { color:var(--red); }
-  .no-disc-card { background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:14px; }
-  .dnp-card { background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:14px; }
-  .forecast-row { display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);font-size:12px; }
-  .forecast-row:last-child { border-bottom:none; }
-  .cost-cell { display:flex;align-items:center;gap:5px; }
-  .cost-input { width:70px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 7px;color:var(--text);font-size:12px;font-weight:600;text-align:right; }
-  .cost-input:focus { border-color:var(--purple);outline:none;box-shadow:0 0 0 2px rgba(124,58,237,0.2); }
-  .cost-save { background:var(--green);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.3px;transition:all 0.15s; }
-  .cost-save:hover { background:#0d9668;transform:scale(1.05); }
-  .cost-save.saving { background:var(--purple);pointer-events:none; }
-  .source-badge { padding:2px 6px;border-radius:99px;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px; }
+  .margin-amber { color:#f59e0b; }
+  .margin-red { color:#ef4444; }
+  .source-tag { display:inline-block;padding:2px 6px;border-radius:99px;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;margin-top:3px; }
   .source-manual { background:rgba(16,185,129,0.12);color:var(--green);border:1px solid rgba(16,185,129,0.25); }
-  .source-estimated { background:rgba(245,158,11,0.1);color:var(--amber);border:1px solid rgba(245,158,11,0.2); }
-  .source-shopify { background:rgba(124,58,237,0.12);color:var(--purple2);border:1px solid rgba(124,58,237,0.25); }
-  .cost-ok { color:var(--green);font-size:11px;font-weight:700;opacity:0;transition:opacity 0.3s; }
-  .cost-ok.show { opacity:1; }
-  .prod-table th { font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);padding:10px 8px; }
-  .prod-table td { padding:12px 8px;vertical-align:middle; }
-  .prod-table tr { border-bottom:1px solid rgba(255,255,255,0.04); }
-  .prod-table tr:hover { background:rgba(124,58,237,0.04); }
+  .source-estimated { background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.2); }
+  .promo-toggle { width:36px;height:20px;border-radius:99px;border:none;cursor:pointer;position:relative;transition:background 0.2s;padding:0; }
+  .promo-toggle.on { background:var(--green); }
+  .promo-toggle.off { background:rgba(255,255,255,0.15); }
+  .promo-toggle::after { content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:2px;transition:left 0.2s; }
+  .promo-toggle.on::after { left:18px; }
+  .promo-toggle.off::after { left:2px; }
+  .max-disc { font-size:11px;font-weight:700;padding:3px 8px;border-radius:99px;background:rgba(124,58,237,0.1);color:var(--purple2);border:1px solid rgba(124,58,237,0.2); }
+  .row-status { font-size:10px;font-weight:700;opacity:0;transition:opacity 0.3s;margin-left:6px; }
+  .row-status.show { opacity:1; }
 </style>
 
-<!-- Hero Banner -->
-<div style="background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(124,58,237,0.08));border:1px solid rgba(16,185,129,0.2);border-radius:16px;padding:28px 32px;margin-bottom:24px;">
-  <h2 style="font-size:22px;font-weight:800;margin:0 0 6px;">
-    <span class="grad-text">Profit & Inventory Brain</span>
-  </h2>
-  <p style="font-size:13px;color:var(--text2);margin:0;">
-    Commercial intelligence for every product and campaign decision. Optimize for money, not just clicks.
-  </p>
-</div>
-
-<!-- Stats Grid -->
-<div class="stats-grid" style="margin-bottom:24px;">
-  <div class="stat-card purple">
-    <div class="stat-icon"><i class="fas fa-receipt"></i></div>
-    <div class="stat-value">${{ "{:,.0f}".format(total_revenue_30d) }}</div>
-    <div class="stat-label">Revenue (30d)</div>
+<!-- Hero -->
+<div style="background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(124,58,237,0.08));border:1px solid rgba(16,185,129,0.2);border-radius:16px;padding:24px 28px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;">
+  <div>
+    <h2 style="font-size:20px;font-weight:800;margin:0 0 4px;">
+      <span class="grad-text">Profit Brain</span>
+    </h2>
+    <p style="font-size:12px;color:var(--text2);margin:0;">
+      Enter your real costs. AM uses margins to decide discounts. Toggle promo eligibility to control what gets recommended.
+    </p>
   </div>
-  <div class="stat-card green">
-    <div class="stat-icon"><i class="fas fa-piggy-bank"></i></div>
-    <div class="stat-value">${{ "{:,.0f}".format(total_profit_30d) }}</div>
-    <div class="stat-label">Profit (30d)</div>
-  </div>
-  <div class="stat-card cyan">
-    <div class="stat-icon"><i class="fas fa-percentage"></i></div>
-    <div class="stat-value">{{ "%.1f"|format(avg_margin) }}%</div>
-    <div class="stat-label">Avg Margin</div>
-  </div>
-  <div class="stat-card pink">
-    <div class="stat-icon"><i class="fas fa-box-open"></i></div>
-    <div class="stat-value">{{ total_products }}</div>
-    <div class="stat-label">Products Tracked</div>
+  <div style="display:flex;gap:24px;text-align:center;">
+    <div>
+      <div style="font-size:22px;font-weight:800;color:var(--text);">{{ total_products }}</div>
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;">Products</div>
+    </div>
+    <div>
+      <div style="font-size:22px;font-weight:800;color:var(--green);">{{ "%.0f"|format(avg_margin) }}%</div>
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;">Avg Margin</div>
+    </div>
+    <div>
+      <div style="font-size:22px;font-weight:800;color:{% if manual_count == total_products %}var(--green){% elif manual_count > 0 %}var(--purple2){% else %}var(--red){% endif %};">{{ manual_count }}/{{ total_products }}</div>
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;">Real Costs</div>
+    </div>
   </div>
 </div>
 
-<!-- FULL-WIDTH Product Profitability Table -->
-<div class="card" style="margin-bottom:24px;">
-  <div class="card-header">
-    <span class="card-title"><i class="fas fa-chart-bar" style="color:var(--purple);margin-right:6px;"></i>Product Profitability</span>
-    <span style="font-size:11px;color:var(--text3);">{{ products|length }} products &mdash; enter real costs to get accurate margins</span>
-  </div>
-  <div class="table-wrap" style="max-height:600px;overflow-y:auto;">
-    <table class="prod-table" style="width:100%;">
+<!-- Product Table -->
+<div class="card" style="padding:0;overflow:hidden;">
+  <div style="max-height:calc(100vh - 240px);overflow-y:auto;">
+    <table class="pb-table">
       <thead>
         <tr>
-          <th style="min-width:260px;">Product</th>
+          <th style="min-width:280px;">Product</th>
           <th>Sell Price</th>
-          <th style="min-width:180px;">Your Cost</th>
+          <th>Your Cost</th>
           <th>Margin</th>
-          <th>Sold 30d</th>
-          <th>Rev 30d</th>
-          <th>Stock</th>
-          <th>Score</th>
-          <th>Promo</th>
+          <th>Max Discount</th>
+          <th>Inventory</th>
+          <th style="text-align:center;">Promote</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         {% for p in products %}
-        <tr data-pid="{{ p.product_id }}">
+        <tr id="row-{{ p.product_id }}">
           <td>
-            <div style="font-weight:600;font-size:12px;line-height:1.3;">{{ p.product_title }}</div>
+            <div style="font-weight:600;font-size:12px;line-height:1.4;color:var(--text);">{{ p.product_title }}</div>
             <div style="font-size:10px;color:var(--text3);margin-top:2px;">{{ p.product_type }}{% if p.sku %} &middot; {{ p.sku }}{% endif %}</div>
           </td>
-          <td style="font-weight:700;font-size:13px;color:var(--text);">${{ "%.2f"|format(p.current_price) }}</td>
           <td>
-            <div class="cost-cell">
-              <span style="color:var(--text3);font-size:12px;">$</span>
-              <input type="number" class="cost-input" data-pid="{{ p.product_id }}"
-                     value="{{ '%.2f'|format(p.cost_per_unit) if p.cost_per_unit else '' }}"
-                     data-original="{{ '%.2f'|format(p.cost_per_unit) if p.cost_per_unit else '' }}"
-                     step="0.01" min="0" placeholder="enter cost">
-              <button class="cost-save" data-pid="{{ p.product_id }}" onclick="saveCost('{{ p.product_id }}')">Save</button>
-              <span class="cost-ok" id="ok-{{ p.product_id }}">Saved!</span>
-            </div>
-            <div style="margin-top:3px;">
-              <span class="source-badge source-{{ p.margin_source }}" id="src-{{ p.product_id }}">{{ p.margin_source }}</span>
+            <div style="display:flex;align-items:center;gap:3px;">
+              <span style="color:var(--text3);font-size:11px;">$</span>
+              <input type="number" class="pb-input" data-pid="{{ p.product_id }}" data-field="current_price"
+                     value="{{ '%.2f'|format(p.current_price) if p.current_price else '' }}"
+                     step="0.01" min="0" placeholder="0.00">
             </div>
           </td>
           <td>
-            <span id="margin-{{ p.product_id }}" class="{% if p.margin_pct is not none %}{% if p.margin_pct >= 40 %}margin-green{% elif p.margin_pct >= 20 %}margin-amber{% else %}margin-red{% endif %}{% endif %}" style="font-weight:700;font-size:14px;">
+            <div style="display:flex;align-items:center;gap:3px;">
+              <span style="color:var(--text3);font-size:11px;">$</span>
+              <input type="number" class="pb-input" data-pid="{{ p.product_id }}" data-field="cost_per_unit"
+                     value="{{ '%.2f'|format(p.cost_per_unit) if p.cost_per_unit else '' }}"
+                     step="0.01" min="0" placeholder="enter cost">
+            </div>
+            <span class="source-tag source-{{ p.margin_source }}" id="src-{{ p.product_id }}">{{ p.margin_source }}</span>
+          </td>
+          <td>
+            <span id="margin-{{ p.product_id }}" class="margin-val {% if p.margin_pct is not none %}{% if p.margin_pct >= 40 %}margin-green{% elif p.margin_pct >= 20 %}margin-amber{% else %}margin-red{% endif %}{% endif %}">
               {% if p.margin_pct is not none %}{{ "%.0f"|format(p.margin_pct) }}%{% else %}--{% endif %}
             </span>
           </td>
-          <td style="font-weight:600;">{{ p.units_sold_30d }}</td>
-          <td style="font-weight:600;">${{ "%.0f"|format(p.revenue_30d) }}</td>
-          <td><span class="stock-badge stock-{{ p.stock_pressure }}">{{ p.stock_pressure }}</span></td>
-          <td style="min-width:80px;">
-            <div style="display:flex;align-items:center;gap:6px;">
-              <span id="score-{{ p.product_id }}" style="font-weight:700;font-size:13px;min-width:22px;">{{ p.profitability_score }}</span>
-              <div class="prof-bar" style="flex:1;">
-                <div id="scorebar-{{ p.product_id }}" class="prof-bar-fill" style="width:{{ p.profitability_score }}%;background:{% if p.profitability_score >= 60 %}var(--green){% elif p.profitability_score >= 35 %}var(--amber){% else %}var(--red){% endif %};"></div>
-              </div>
-            </div>
+          <td>
+            <span class="max-disc" id="maxdisc-{{ p.product_id }}">
+              {% if p.margin_pct is not none %}up to {{ "%.0f"|format([p.margin_pct - 10, 0]|max) }}%{% else %}--{% endif %}
+            </span>
+          </td>
+          <td>
+            <input type="number" class="pb-input" data-pid="{{ p.product_id }}" data-field="inventory_level"
+                   value="{{ p.inventory_level if p.inventory_level is not none else '' }}"
+                   step="1" min="0" placeholder="--" style="width:65px;">
           </td>
           <td style="text-align:center;">
-            <span id="promo-{{ p.product_id }}">
-            {% if p.promotion_eligible %}
-              <i class="fas fa-check-circle promo-yes" title="{{ p.promotion_reason }}"></i>
-            {% else %}
-              <i class="fas fa-ban promo-no" title="{{ p.promotion_reason }}"></i>
-            {% endif %}
-            </span>
+            <button class="promo-toggle {{ 'on' if p.promotion_eligible else 'off' }}"
+                    id="promo-{{ p.product_id }}"
+                    data-pid="{{ p.product_id }}"
+                    onclick="togglePromo('{{ p.product_id }}')">
+            </button>
+          </td>
+          <td>
+            <div style="display:flex;align-items:center;gap:4px;">
+              <button class="pb-save" data-pid="{{ p.product_id }}" onclick="saveRow('{{ p.product_id }}')">Save</button>
+              <span class="row-status" id="status-{{ p.product_id }}" style="color:var(--green);">Saved!</span>
+            </div>
           </td>
         </tr>
         {% endfor %}
@@ -149,164 +134,95 @@
   </div>
 </div>
 
-<!-- Three-Column Layout: Forecasts, Do Not Promote, No Discount -->
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;">
-
-  <!-- Campaign Profit Forecast -->
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title"><i class="fas fa-chart-pie" style="color:var(--green);margin-right:6px;"></i>Campaign Profit Forecast</span>
-    </div>
-    <div style="padding:16px 18px;">
-      {% if campaign_forecasts %}
-        {% for cf in campaign_forecasts %}
-        <div class="forecast-row">
-          <div style="flex:1;">
-            <div style="font-weight:600;font-size:12px;color:var(--text);">{{ cf.campaign_name[:40] }}{% if cf.campaign_name|length > 40 %}...{% endif %}</div>
-            <div style="display:flex;gap:12px;margin-top:4px;">
-              <span style="font-size:10px;color:var(--text3);">Rev: <span style="color:var(--purple);font-weight:600;">${{ "%.0f"|format(cf.predicted_revenue) }}</span></span>
-              <span style="font-size:10px;color:var(--text3);">Profit: <span style="color:var(--green);font-weight:600;">${{ "%.0f"|format(cf.net_profit) }}</span></span>
-              {% if cf.discount_cost > 0 %}
-              <span style="font-size:10px;color:var(--text3);">Disc: <span style="color:var(--red);font-weight:600;">-${{ "%.0f"|format(cf.discount_cost) }}</span></span>
-              {% endif %}
-            </div>
-          </div>
-          <div style="text-align:right;min-width:50px;">
-            <div style="font-size:16px;font-weight:800;color:{% if cf.net_profit > 0 %}var(--green){% else %}var(--red){% endif %};">${{ "%.0f"|format(cf.net_profit) }}</div>
-            <div style="font-size:9px;color:var(--text3);">net</div>
-          </div>
-        </div>
-        {% endfor %}
-      {% else %}
-        <div style="text-align:center;padding:30px 0;color:var(--text3);font-size:13px;">
-          <i class="fas fa-chart-pie" style="font-size:24px;margin-bottom:8px;display:block;"></i>
-          No campaign forecasts today
-        </div>
-      {% endif %}
-    </div>
-  </div>
-
-  <!-- Do Not Promote -->
-  <div class="dnp-card" style="padding:0;overflow:hidden;">
-    <div style="padding:16px 20px;border-bottom:1px solid rgba(239,68,68,0.15);display:flex;align-items:center;gap:8px;">
-      <i class="fas fa-ban" style="color:var(--red);"></i>
-      <span style="font-size:14px;font-weight:700;color:var(--text);">Do Not Promote</span>
-      <span style="font-size:11px;color:var(--text3);margin-left:auto;">{{ do_not_promote|length }} products</span>
-    </div>
-    <div style="padding:12px 20px;max-height:320px;overflow-y:auto;">
-      {% if do_not_promote %}
-        {% for p in do_not_promote %}
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;">
-          <div style="flex:1;">
-            <div style="font-weight:600;color:var(--text);">{{ p.product_title }}</div>
-            <div style="font-size:11px;color:var(--red);opacity:0.8;">{{ p.promotion_reason }}</div>
-          </div>
-          <span class="stock-badge stock-{{ p.stock_pressure }}">{{ p.stock_pressure }}</span>
-        </div>
-        {% endfor %}
-      {% else %}
-        <div style="text-align:center;padding:20px 0;color:var(--text3);font-size:12px;">
-          All products are eligible for promotion
-        </div>
-      {% endif %}
-    </div>
-  </div>
-
-  <!-- No Discount Customers -->
-  <div class="no-disc-card" style="padding:0;overflow:hidden;">
-    <div style="padding:16px 20px;border-bottom:1px solid rgba(245,158,11,0.15);display:flex;align-items:center;gap:8px;">
-      <i class="fas fa-hand-holding-usd" style="color:var(--amber);"></i>
-      <span style="font-size:14px;font-weight:700;color:var(--text);">No Discount Needed</span>
-      <span style="font-size:11px;color:var(--text3);margin-left:auto;">{{ no_discount_customers|length }} customers</span>
-    </div>
-    <div style="padding:12px 20px;max-height:320px;overflow-y:auto;">
-      {% if no_discount_customers %}
-        {% for c in no_discount_customers %}
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;">
-          <div style="flex:1;">
-            <div style="font-weight:600;color:var(--text);">{{ c.name }}</div>
-            <div style="font-size:10px;color:var(--text3);">{{ c.email }}</div>
-          </div>
-          <span style="font-weight:700;color:var(--green);font-size:11px;">${{ "%.0f"|format(c.total_spent) }}</span>
-          <span style="padding:2px 6px;border-radius:99px;font-size:9px;font-weight:700;background:rgba(124,58,237,0.12);color:var(--purple2);border:1px solid rgba(124,58,237,0.25);">{{ c.price_tier }}</span>
-        </div>
-        {% endfor %}
-      {% else %}
-        <div style="text-align:center;padding:20px 0;color:var(--text3);font-size:12px;">
-          No full-price VIP customers identified
-        </div>
-      {% endif %}
-    </div>
-  </div>
-</div>
-
 <script>
-document.querySelectorAll('.cost-input').forEach(function(input) {
-  input.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); saveCost(this.dataset.pid); }
+function togglePromo(pid) {
+  var btn = document.getElementById('promo-'+pid);
+  var isOn = btn.classList.contains('on');
+  btn.classList.toggle('on', !isOn);
+  btn.classList.toggle('off', isOn);
+  // Save immediately
+  saveRow(pid);
+}
+
+function saveRow(pid) {
+  var row = document.getElementById('row-'+pid);
+  var inputs = row.querySelectorAll('.pb-input');
+  var data = {product_id: pid};
+
+  inputs.forEach(function(inp) {
+    var field = inp.dataset.field;
+    var val = inp.value.trim();
+    if (val !== '') {
+      data[field] = field === 'inventory_level' ? parseInt(val) : parseFloat(val);
+    }
   });
-});
 
-function saveCost(pid) {
-  var input = document.querySelector('.cost-input[data-pid="'+pid+'"]');
-  var cost = parseFloat(input.value);
-  if (isNaN(cost) || cost < 0) { input.style.borderColor='var(--red)'; return; }
+  // Promo toggle
+  var promoBtn = document.getElementById('promo-'+pid);
+  data.promotion_eligible = promoBtn.classList.contains('on');
 
-  var btn = document.querySelector('.cost-save[data-pid="'+pid+'"]');
-  btn.textContent = '...';
-  btn.classList.add('saving');
+  var saveBtn = row.querySelector('.pb-save');
+  saveBtn.textContent = '...';
+  saveBtn.classList.add('saving');
 
-  fetch('/api/profits/update-cost', {
+  fetch('/api/profits/update', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({product_id: pid, cost_per_unit: cost})
+    body: JSON.stringify(data)
   })
   .then(function(r) { return r.json(); })
   .then(function(d) {
-    btn.textContent = 'Save';
-    btn.classList.remove('saving');
+    saveBtn.textContent = 'Save';
+    saveBtn.classList.remove('saving');
 
-    if (d.error) { input.style.borderColor='var(--red)'; return; }
+    if (d.error) {
+      inputs.forEach(function(i) { i.classList.add('err'); });
+      return;
+    }
 
     // Update margin
     var m = document.getElementById('margin-'+pid);
-    m.textContent = Math.round(d.margin_pct)+'%';
-    m.className = d.margin_pct >= 40 ? 'margin-green' : d.margin_pct >= 20 ? 'margin-amber' : 'margin-red';
-    m.style.fontWeight = '700';
-    m.style.fontSize = '14px';
-
-    // Update source badge
-    var src = document.getElementById('src-'+pid);
-    src.textContent = 'manual';
-    src.className = 'source-badge source-manual';
-
-    // Update score
-    var sc = document.getElementById('score-'+pid);
-    sc.textContent = d.profitability_score;
-    var bar = document.getElementById('scorebar-'+pid);
-    bar.style.width = d.profitability_score+'%';
-    bar.style.background = d.profitability_score >= 60 ? 'var(--green)' : d.profitability_score >= 35 ? 'var(--amber)' : 'var(--red)';
-
-    // Update promo
-    var promo = document.getElementById('promo-'+pid);
-    if (d.promotion_eligible) {
-      promo.innerHTML = '<i class="fas fa-check-circle promo-yes" title="'+d.promotion_reason+'"></i>';
-    } else {
-      promo.innerHTML = '<i class="fas fa-ban promo-no" title="'+d.promotion_reason+'"></i>';
+    if (d.margin_pct !== null && d.margin_pct !== undefined) {
+      m.textContent = Math.round(d.margin_pct)+'%';
+      m.className = 'margin-val ' + (d.margin_pct >= 40 ? 'margin-green' : d.margin_pct >= 20 ? 'margin-amber' : 'margin-red');
     }
 
+    // Update source
+    var src = document.getElementById('src-'+pid);
+    src.textContent = d.margin_source;
+    src.className = 'source-tag source-' + d.margin_source;
+
+    // Update max discount
+    var md = document.getElementById('maxdisc-'+pid);
+    md.textContent = 'up to ' + Math.round(d.max_discount_pct) + '%';
+
+    // Update promo toggle
+    var promo = document.getElementById('promo-'+pid);
+    promo.classList.toggle('on', d.promotion_eligible);
+    promo.classList.toggle('off', !d.promotion_eligible);
+
     // Flash saved
-    input.dataset.original = cost.toFixed(2);
-    input.style.borderColor = 'var(--green)';
-    var ok = document.getElementById('ok-'+pid);
-    ok.classList.add('show');
+    inputs.forEach(function(i) { i.classList.remove('err'); i.classList.add('saved'); });
+    var status = document.getElementById('status-'+pid);
+    status.classList.add('show');
     setTimeout(function() {
-      ok.classList.remove('show');
-      input.style.borderColor = '';
+      status.classList.remove('show');
+      inputs.forEach(function(i) { i.classList.remove('saved'); });
     }, 2000);
   })
-  .catch(function() { btn.textContent='Save'; btn.classList.remove('saving'); input.style.borderColor='var(--red)'; });
+  .catch(function() {
+    saveBtn.textContent = 'Save';
+    saveBtn.classList.remove('saving');
+    inputs.forEach(function(i) { i.classList.add('err'); });
+  });
 }
+
+// Enter key saves the row
+document.querySelectorAll('.pb-input').forEach(function(input) {
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); saveRow(this.dataset.pid); }
+  });
+});
 </script>
 
 {% endblock %}

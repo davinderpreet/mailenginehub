@@ -5674,99 +5674,60 @@ def campaign_planner_brief(sc_id):
 
 @app.route("/profits")
 def profit_dashboard():
-    from database import ProductCommercial, SuggestedCampaign, CustomerProfile, Contact
+    from database import ProductCommercial
     from peewee import fn
-    today = datetime.now().strftime("%Y-%m-%d")
     total_products = ProductCommercial.select().count()
-    total_revenue_30d = (ProductCommercial
-        .select(fn.SUM(ProductCommercial.revenue_30d))
-        .scalar()) or 0
-    total_profit_30d = (ProductCommercial
-        .select(fn.SUM(ProductCommercial.profit_30d))
-        .where(ProductCommercial.profit_30d.is_null(False))
-        .scalar()) or 0
     avg_margin = (ProductCommercial
         .select(fn.AVG(ProductCommercial.margin_pct))
         .where(ProductCommercial.margin_pct.is_null(False))
         .scalar()) or 0
+    manual_count = ProductCommercial.select().where(
+        ProductCommercial.margin_source == "manual").count()
     products = list(
         ProductCommercial.select()
-        .order_by(ProductCommercial.profitability_score.desc())
-        .limit(100)
-    )
-    do_not_promote = list(
-        ProductCommercial.select()
-        .where(ProductCommercial.promotion_eligible == False)
         .order_by(ProductCommercial.product_title)
-    )
-    no_discount_customers = []
-    try:
-        _ndc_profiles = list(
-            CustomerProfile.select()
-            .where(
-                (CustomerProfile.price_tier == "premium") &
-                (CustomerProfile.discount_sensitivity < 0.2) &
-                (CustomerProfile.total_orders >= 1)
-            )
-            .order_by(CustomerProfile.total_spent.desc())
-            .limit(50)
-        )
-        for cp in _ndc_profiles:
-            try:
-                c = Contact.get_by_id(cp.contact_id)
-                no_discount_customers.append({
-                    "name": f"{c.first_name or ''} {c.last_name or ''}".strip() or c.email,
-                    "email": c.email,
-                    "price_tier": cp.price_tier,
-                    "total_spent": cp.total_spent,
-                    "total_orders": cp.total_orders,
-                    "discount_sensitivity": cp.discount_sensitivity,
-                    "reason": "Buys full price -- no discount needed",
-                })
-            except Exception:
-                pass
-    except Exception:
-        pass
-    campaign_forecasts = list(
-        SuggestedCampaign.select()
-        .where(SuggestedCampaign.scan_date == today)
-        .where(SuggestedCampaign.status != "dismissed")
-        .order_by(SuggestedCampaign.net_profit.desc())
     )
     return render_template("profit_dashboard.html",
         total_products=total_products,
-        total_revenue_30d=total_revenue_30d,
-        total_profit_30d=total_profit_30d,
         avg_margin=avg_margin,
+        manual_count=manual_count,
         products=products,
-        do_not_promote=do_not_promote,
-        no_discount_customers=no_discount_customers,
-        campaign_forecasts=campaign_forecasts,
     )
 
 
-@app.route("/api/profits/update-cost", methods=["POST"])
-def api_update_product_cost():
-    """Update cost for a product and recalculate margins."""
+@app.route("/api/profits/update", methods=["POST"])
+def api_update_product():
+    """Update any editable field on a product."""
     data = request.get_json(silent=True) or {}
     product_id = data.get("product_id")
-    cost = data.get("cost_per_unit")
-    if not product_id or cost is None:
-        return jsonify({"error": "product_id and cost_per_unit required"}), 400
+    if not product_id:
+        return jsonify({"error": "product_id required"}), 400
+    # Build updates dict from allowed fields
+    updates = {}
+    for field in ("cost_per_unit", "current_price", "inventory_level",
+                  "promotion_eligible", "promotion_reason"):
+        if field in data:
+            updates[field] = data[field]
+    if not updates:
+        return jsonify({"error": "No fields to update"}), 400
     try:
-        cost = float(cost)
-        if cost < 0:
-            return jsonify({"error": "Cost cannot be negative"}), 400
-    except (ValueError, TypeError):
-        return jsonify({"error": "Invalid cost value"}), 400
-    try:
-        from profit_engine import recalc_product_margins
-        result = recalc_product_margins(product_id, cost)
+        from profit_engine import update_product
+        result = update_product(product_id, updates)
         if "error" in result:
             return jsonify(result), 404
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# Keep old endpoint for any cached pages
+@app.route("/api/profits/update-cost", methods=["POST"])
+def api_update_product_cost():
+    data = request.get_json(silent=True) or {}
+    data.setdefault("product_id", data.get("product_id"))
+    if "cost_per_unit" in data:
+        return api_update_product()
+    return jsonify({"error": "cost_per_unit required"}), 400
 
 
 @app.route("/api/profiles/<int:contact_id>/intelligence", methods=["POST"])

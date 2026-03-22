@@ -1,6 +1,6 @@
 # MailEngineHub — Project Context
 > Email marketing platform for LDAS Electronics. Flask + SQLite (Peewee) + Amazon SES + Gunicorn.
-> 57 files, 34,823 lines. For full detail: read `REFERENCE.md`
+> 57 files, 34,768 lines. For full detail: read `REFERENCE.md`
 
 ## Deployment
 - **Repo**: `C:\Users\davin\Claude Work Folder\mailenginehub-repo\`
@@ -21,14 +21,14 @@ Studio: knowledge + performance -> studio_skills(6 AI skills) -> candidate -> ap
 ## Key Files (top 10 by importance)
 | File | Lines | Role |
 |------|-------|------|
-| `app.py` | 7,217 | Flask application — all routes, scheduler, webhooks, auth |
+| `app.py` | 7,178 | Flask application — all routes, scheduler, webhooks, auth |
 | `block_registry.py` | 2,416 | Email template block rendering engine — 26 block types, validation, personalization |
 | `database.py` | 1,852 | All 53 Peewee ORM models + init_db() + migration helpers |
 | `generate-context.py` | 1,243 | Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file) |
 | `identity_resolution.py` | 1,084 | Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching |
 | `customer_intelligence.py` | 1,004 | Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV |
 | `knowledge_scraper.py` | 952 | Auto-enrichment pipeline — scrapes products, blogs, competitors, FAQs into knowledge base |
-| `profit_engine.py` | 877 | Product profitability scoring — Shopify cost/inventory sync, margin computation, promo eligibility |
+| `profit_engine.py` | 861 | Product profitability scoring — Shopify cost/inventory sync, margin computation, promo eligibility |
 | `ai_engine.py` | 836 | Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution |
 
 ## Gotchas
