@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-23 13:48 -- `5f724f6`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-03-23 11:32 -- `148c343`
 
 **feat: add discount annotations and smart preview text to email rendering**
