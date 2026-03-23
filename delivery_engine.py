@@ -14,6 +14,7 @@ from database import (
     WarmupConfig, FlowEmail, CampaignEmail,
     FlowEnrollment, FlowStep, Flow, Contact,
     ContactScore, AutoEmail, db, get_system_config,
+    ShopifyOrder, BounceLog, SuppressionEntry,
 )
 from action_ledger import update_ledger_status
 
@@ -306,6 +307,93 @@ def _send_one(item, send_fn):
                 return 0
         except Exception:
             pass  # If check fails, proceed with send (suppression list in email_sender is backup)
+
+        # ── Guard 1: Enrollment still active? ──
+        _enrollment = None  # shared by Guard 1 and Guard 2
+        if item.email_type == "flow" and item.enrollment_id:
+            try:
+                _enrollment = FlowEnrollment.get_or_none(
+                    FlowEnrollment.id == item.enrollment_id)
+                if _enrollment and _enrollment.status != "active":
+                    item.status = "cancelled"
+                    item.error_msg = "enrollment_%s" % _enrollment.status
+                    item.sent_at = datetime.now()
+                    item.save()
+                    update_ledger_status(item.ledger_id, "cancelled",
+                                         reason_code="enrollment_cancelled_at_send",
+                                         reason_detail="Enrollment status is '%s', not active" % _enrollment.status)
+                    logger.info("[Guard1] Cancelled queue #%s — enrollment #%s is %s",
+                                item.id, item.enrollment_id, _enrollment.status)
+                    return 0
+            except Exception:
+                pass  # Fail-open: if check fails, proceed with send
+
+        # ── Guard 2: Purchase since enrollment? (recovery flows only) ──
+        if item.email_type == "flow" and item.enrollment_id:
+            try:
+                if not _enrollment:
+                    _enrollment = FlowEnrollment.get_or_none(
+                        FlowEnrollment.id == item.enrollment_id)
+                if _enrollment:
+                    _flow = Flow.get_or_none(Flow.id == _enrollment.flow_id)
+                    if _flow and _flow.trigger_type in ("checkout_abandoned", "browse_abandonment"):
+                        _has_order = ShopifyOrder.select().where(
+                            ShopifyOrder.email == item.email,
+                            ShopifyOrder.ordered_at >= _enrollment.enrolled_at,
+                            ShopifyOrder.financial_status.not_in(["refunded", "voided"]),
+                        ).exists()
+                        if _has_order:
+                            item.status = "cancelled"
+                            item.error_msg = "purchased_after_enrollment"
+                            item.sent_at = datetime.now()
+                            item.save()
+                            _enrollment.status = "cancelled"
+                            _enrollment.save()
+                            update_ledger_status(item.ledger_id, "cancelled",
+                                                 reason_code="purchased_after_enrollment",
+                                                 reason_detail="Order found after enrollment at %s" % _enrollment.enrolled_at)
+                            logger.info("[Guard2] Cancelled queue #%s — purchase found after enrollment", item.id)
+                            return 0
+            except Exception:
+                pass  # Fail-open
+
+        # ── Guard 3: Recent hard bounce or complaint? ──
+        if item.email_type == "flow":
+            try:
+                _seven_days_ago = datetime.now() - timedelta(days=7)
+                _has_bounce = BounceLog.select().where(
+                    BounceLog.email == item.email,
+                    BounceLog.event_type.in_(["Bounce", "Complaint"]),
+                    BounceLog.timestamp >= _seven_days_ago,
+                ).exists()
+                if _has_bounce:
+                    item.status = "cancelled"
+                    item.error_msg = "recent_bounce_or_complaint"
+                    item.sent_at = datetime.now()
+                    item.save()
+                    # Add suppression if not present
+                    SuppressionEntry.get_or_create(
+                        email=item.email,
+                        defaults={"reason": "bounce", "source": "delivery_guard", "detail": "Auto-suppressed by pre-send guard"})
+                    # Cancel ALL active enrollments for this contact (null-safe)
+                    if item.contact:
+                        FlowEnrollment.update(status="cancelled").where(
+                            FlowEnrollment.contact == item.contact,
+                            FlowEnrollment.status.in_(["active", "paused"]),
+                        ).execute()
+                    # Cancel ALL pending queue items for this email
+                    DeliveryQueue.update(status="cancelled", error_msg="bounce_suppressed").where(
+                        DeliveryQueue.email == item.email,
+                        DeliveryQueue.status == "queued",
+                        DeliveryQueue.id != item.id,
+                    ).execute()
+                    update_ledger_status(item.ledger_id, "cancelled",
+                                         reason_code="bounce_suppressed",
+                                         reason_detail="Hard bounce or complaint in last 7 days")
+                    logger.info("[Guard3] Bounce-suppressed queue #%s for %s", item.id, item.email)
+                    return 0
+            except Exception:
+                pass  # Fail-open
 
         item.status = "sending"
         item.save()
