@@ -15,6 +15,7 @@ from email_sender import send_campaign_email, test_ses_connection
 from discount_engine import generate_discount_code
 from token_utils import create_token, verify_token
 from shopify_sync import sync_shopify_customers, verify_shopify_webhook, handle_shopify_customer_webhook
+from customer_intelligence import schedule_profile_refresh
 import json
 import os
 import fcntl
@@ -976,6 +977,12 @@ def webhook_shopify_checkout_create():
                 reason_code="flow_exit_checkout_started",
             )
 
+            # Schedule real-time profile refresh
+            try:
+                schedule_profile_refresh(contact.id, "completed_checkout")
+            except Exception as _e:
+                app.logger.warning("[ProfileRefresh] Failed to schedule for checkout: %s", _e)
+
         # Identity resolution: stitch session + tokens if email discovered via checkout
         if email:
             from identity_resolution import resolve_identity
@@ -1048,6 +1055,12 @@ def webhook_shopify_order_create():
                 ["checkout_abandoned", "browse_abandonment", "cart_abandonment", "no_purchase_days", "contact_created"],
                 reason_code="flow_exit_purchase",
             )
+
+            # Schedule real-time profile refresh (15 min after last activity)
+            try:
+                schedule_profile_refresh(contact.id, "placed_order")
+            except Exception as _e:
+                app.logger.warning("[ProfileRefresh] Failed to schedule for order: %s", _e)
 
             # 4. Enroll in order_placed flows
             _enroll_contact_in_flows(contact, "order_placed")
@@ -2386,6 +2399,12 @@ def track_flow_click(token):
                               {"enrollment_id": enrollment_id, "step_id": step_id,
                                "url": request.args.get("url", "")})
 
+        # Schedule profile refresh on email click
+        try:
+            schedule_profile_refresh(fe.contact_id, "email_click")
+        except Exception as _e:
+            app.logger.debug("[ProfileRefresh] click schedule failed: %s", _e)
+
     redirect_url = request.args.get("url", "https://ldas.ca")
     return redirect(redirect_url)
 
@@ -2496,6 +2515,12 @@ def track_auto_click(token):
             cascade_contact(contact.id, trigger="auto_click")
         except Exception:
             pass
+
+        # Schedule profile refresh on email click
+        try:
+            schedule_profile_refresh(contact.id, "email_click")
+        except Exception as _e:
+            app.logger.debug("[ProfileRefresh] click schedule failed: %s", _e)
     except AutoEmail.DoesNotExist:
         pass
     except Exception as e:
@@ -4053,6 +4078,13 @@ def _detect_behavioural_triggers(_start_time=None, _max_runtime=300, _batch_size
                             detected_at=now,
                             status='pending'
                         )
+                        # Schedule profile refresh for abandonment detection
+                        try:
+                            _c = Contact.get_or_none(Contact.email == email)
+                            if _c:
+                                schedule_profile_refresh(_c.id, 'browse_abandonment')
+                        except Exception as _e:
+                            app.logger.debug("[ProfileRefresh] trigger schedule failed: %s", _e)
                 except Exception as _e:
                     app.logger.warning("Browse abandonment error for record: %s" % _e)
             _time.sleep(_batch_sleep)
@@ -4132,6 +4164,13 @@ def _detect_behavioural_triggers(_start_time=None, _max_runtime=300, _batch_size
                         detected_at=now,
                         status='pending'
                     )
+                    # Schedule profile refresh for abandonment detection
+                    try:
+                        _c = Contact.get_or_none(Contact.email == email)
+                        if _c:
+                            schedule_profile_refresh(_c.id, 'cart_abandonment')
+                    except Exception as _e:
+                        app.logger.debug("[ProfileRefresh] trigger schedule failed: %s", _e)
                 except Exception as _e:
                     app.logger.warning("Viewed cart abandonment error for record: %s" % _e)
             _time.sleep(_batch_sleep)
@@ -4208,6 +4247,13 @@ def _detect_behavioural_triggers(_start_time=None, _max_runtime=300, _batch_size
                         detected_at=now,
                         status='pending'
                     )
+                    # Schedule profile refresh for abandonment detection
+                    try:
+                        _c = Contact.get_or_none(Contact.email == email)
+                        if _c:
+                            schedule_profile_refresh(_c.id, 'cart_abandonment')
+                    except Exception as _e:
+                        app.logger.debug("[ProfileRefresh] trigger schedule failed: %s", _e)
                 except Exception as _e:
                     app.logger.warning("Cart abandonment error for record: %s" % _e)
             _time.sleep(_batch_sleep)
@@ -6707,6 +6753,14 @@ def track_event():
                 checkout_token=str(event_data.get("checkout_token", "") or ""),
             )
 
+        # Schedule profile refresh for qualifying events
+        _qualifying_events = {"viewed_product", "product_search", "add_to_cart"}
+        if event_type in _qualifying_events and contact_id:
+            try:
+                schedule_profile_refresh(contact_id, event_type)
+            except Exception as _e:
+                app.logger.debug("[ProfileRefresh] Failed to schedule for %s: %s", event_type, _e)
+
         return jsonify({"ok": True}), 200, cors_headers
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400, cors_headers
@@ -6975,6 +7029,44 @@ def _process_delivery_queue_wrapper():
     except Exception as _e:
         app.logger.error("[DeliveryQueue] Error: %s" % _e)
 
+def _process_profile_refresh_queue():
+    """
+    Every 60s: find contacts whose refresh_scheduled_at has elapsed
+    (15 min of silence after last qualifying activity) and run full
+    intelligence recompute + flow fitness evaluation.
+
+    Replaces the old _rebuild_stale_profiles() job.
+    """
+    try:
+        from database import CustomerProfile, init_db
+        from customer_intelligence import refresh_contact_profile
+        init_db()
+        now = datetime.now()
+
+        due = list(CustomerProfile.select(
+            CustomerProfile.contact_id, CustomerProfile.email, CustomerProfile.last_refresh_trigger
+        ).where(
+            CustomerProfile.refresh_scheduled_at.is_null(False),
+            CustomerProfile.refresh_scheduled_at <= now,
+        ).limit(10))  # Cap at 10 per cycle to avoid overload
+
+        if not due:
+            return
+
+        refreshed = 0
+        for p in due:
+            try:
+                result = refresh_contact_profile(p.contact_id)
+                if result:
+                    refreshed += 1
+            except Exception as _e:
+                app.logger.error("[ProfileRefreshQueue] Failed for %s: %s", p.email, _e)
+
+        if refreshed:
+            app.logger.info("[ProfileRefreshQueue] Refreshed %d profiles", refreshed)
+    except Exception as _e:
+        app.logger.error("[ProfileRefreshQueue] Error: %s", _e)
+
 if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and _try_scheduler_lock():
     _scheduler.add_job(_process_flow_enrollments, "interval", seconds=60,
                        id="flow_processor", replace_existing=True)
@@ -7027,7 +7119,10 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
         try:
             import sys as _si; _si.path.insert(0, APP_DIR)
             from customer_intelligence import compute_all_intelligence
-            from database import LearningConfig
+            from database import LearningConfig, CustomerProfile
+            # Clear pending real-time refreshes — nightly batch handles everything
+            CustomerProfile.update(refresh_scheduled_at=None).execute()
+            app.logger.info("[NightlyIntelligence] Cleared pending real-time refresh queue")
             LearningConfig.set_val("intelligence_running", "true")
             app.logger.info("Nightly intelligence computation starting...")
             count = compute_all_intelligence()
@@ -7044,43 +7139,10 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
     _scheduler.add_job(_run_nightly_intelligence, "cron", hour=3, minute=30,
                        id="nightly_intelligence", replace_existing=True)
 
-    # ── Real-time profile rebuild (debounced) ──────────────────────────
-    # Runs every 5 min. Finds contacts whose last_active_at > last_intelligence_at
-    # but who haven't been active in the last 10 min (session likely over).
-    # Rebuilds only those profiles — keeps data fresh without waiting for nightly.
-    def _rebuild_stale_profiles():
-        try:
-            from database import CustomerProfile, init_db
-            from customer_intelligence import compute_intelligence
-            init_db()
-            now = datetime.now()
-            cooldown = now - timedelta(minutes=10)
-            rebuilt = 0
-            # Find profiles where: activity is newer than last rebuild,
-            # and last activity was >10 min ago (session ended)
-            stale = list(CustomerProfile.select(
-                CustomerProfile.contact_id, CustomerProfile.email
-            ).where(
-                CustomerProfile.last_active_at.is_null(False),
-                CustomerProfile.last_active_at < cooldown,
-                (
-                    CustomerProfile.last_intelligence_at.is_null(True) |
-                    (CustomerProfile.last_active_at > CustomerProfile.last_intelligence_at)
-                )
-            ).limit(20))  # Cap at 20 per cycle to avoid overload
-            for p in stale:
-                try:
-                    compute_intelligence(p.contact_id)
-                    rebuilt += 1
-                except Exception as _e:
-                    app.logger.debug("Profile rebuild failed for %s: %s", p.email, _e)
-            if rebuilt:
-                app.logger.info("[ProfileRebuild] Rebuilt %d stale profiles", rebuilt)
-        except Exception as _e:
-            app.logger.error("[ProfileRebuild] Error: %s", _e)
-
-    _scheduler.add_job(_rebuild_stale_profiles, "interval", minutes=5,
-                       id="rebuild_stale_profiles", replace_existing=True)
+    # ── Real-time profile refresh queue ──────────────────────────
+    # Every 60s: process contacts whose refresh_scheduled_at has elapsed.
+    _scheduler.add_job(_process_profile_refresh_queue, "interval", seconds=60,
+                       id="profile_refresh_queue", replace_existing=True)
 
     # ── AI Account Manager: per-contact AI strategist ──
     def _run_account_manager():
