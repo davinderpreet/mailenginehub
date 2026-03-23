@@ -13,6 +13,7 @@ Usage:
 """
 
 import html as html_mod
+import json
 
 # ── Brand Constants (LDAS Electronics) ───────────────────────
 BRAND_NAME = "LDAS Electronics"
@@ -31,7 +32,42 @@ LOGO_URL = "https://ldas.ca/cdn/shop/files/Untitled_design_Logo.png?v=1758142321
 PHYSICAL_ADDRESS = "23 Westmore Dr #5b Unit #209, Etobicoke, ON M9W 0C3, Canada"
 
 
-def wrap_email(body_html, preview_text="", unsubscribe_url="{{unsubscribe_url}}"):
+# ── Gmail / Yahoo JSON-LD Annotation Builder ─────────────────
+def _build_schema_annotation(offer_meta):
+    """
+    Build a JSON-LD DiscountOffer annotation for Gmail/Yahoo inbox badges.
+
+    Gmail renders these as colored deal badges in the Promotions tab:
+    e.g. "5% off · Expires tomorrow" or "Free shipping · Expires in 3 days"
+
+    Args:
+        offer_meta: dict with keys:
+            - description: str ("5% off your entire order" or "Free shipping on your order")
+            - discountCode: str (the Shopify discount code, e.g. "CART5A2F6B")
+            - availabilityStarts: str (ISO 8601 UTC, e.g. "2026-03-23T10:00:00+00:00")
+            - availabilityEnds: str (ISO 8601 UTC, e.g. "2026-03-25T10:00:00+00:00")
+
+    Returns:
+        str: <script type="application/ld+json">...</script> block, or ""
+    """
+    if not offer_meta:
+        return ""
+    # Gmail requires at least one of: description, discountCode, or availabilityEnds
+    if not any(offer_meta.get(k) for k in ("description", "discountCode", "availabilityEnds")):
+        return ""
+
+    annotation = [{
+        "@context": "http://schema.org/",
+        "@type": "DiscountOffer",
+    }]
+    for key in ("description", "discountCode", "availabilityStarts", "availabilityEnds"):
+        if offer_meta.get(key):
+            annotation[0][key] = offer_meta[key]
+
+    return '<script type="application/ld+json">' + json.dumps(annotation) + '</script>\n'
+
+
+def wrap_email(body_html, preview_text="", unsubscribe_url="{{unsubscribe_url}}", offer_meta=None):
     """
     Wrap body HTML in the universal LDAS Electronics email shell.
 
@@ -39,6 +75,8 @@ def wrap_email(body_html, preview_text="", unsubscribe_url="{{unsubscribe_url}}"
         body_html: HTML table rows (<tr>...</tr>) for the email body
         preview_text: Inbox preview text (will be HTML-escaped)
         unsubscribe_url: One-click unsubscribe URL
+        offer_meta: optional dict for Gmail/Yahoo JSON-LD annotation
+                    {description, discountCode, availabilityStarts, availabilityEnds}
 
     Returns:
         str: Complete HTML email document ready to send
@@ -69,7 +107,7 @@ def wrap_email(body_html, preview_text="", unsubscribe_url="{{unsubscribe_url}}"
     .dark-bg { background-color: #0d1020 !important; }
   }
 </style>
-</head>
+''' + _build_schema_annotation(offer_meta) + '''</head>
 <body style="margin:0;padding:0;background:''' + BG_OUTER + ''';font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
 <!-- Preheader (inbox preview text) -->
 <div style="display:none;max-height:0;overflow:hidden;font-size:1px;line-height:1px;color:''' + BG_OUTER + ''';">

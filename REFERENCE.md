@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-23 11:29. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-23 11:30. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -234,7 +234,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (57 files, 34,929 lines)
+## Python Files — Detailed (57 files, 34,967 lines)
 
 ### `app.py` (7,276 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -715,6 +715,15 @@ Captures: trigger_type (browse, cart, checkout, tag, score_change, etc.), source
 ai_engine, manual), status (pending, sent, failed, skipped), reason_code (RC_* constants),
 template_id, enrollment_id, step_id. Every significant system action gets an audit trail entry.
 
+### `email_shell.py` (170 lines)
+**Universal email wrapper — LDAS-branded header, dark theme body, CAN-SPAM footer**
+
+Wraps any email body HTML in the standard LDAS template: header with logo on dark gradient
+background (radial blue glow), unified dark navy body (#0d1020), CAN-SPAM compliant footer
+(physical address: 35 Capreol Court, Toronto, ON M5V 4B3; unsubscribe link; social links).
+Responsive design: 600px container, mobile stacking. wrap_email(body_html, preview_text, unsubscribe_url)
+returns a complete HTML document ready for email clients.
+
 ### `cascade.py` (169 lines)
 **Auto-cascade intelligence — propagate profile updates to related contacts (household, device, IP)**
 
@@ -734,15 +743,6 @@ consistent schema for downstream processing by intelligence and decision engines
 
 ### `render_previews.py` (134 lines)
 **Render preview HTML — generates preview files from block templates for testing**
-
-### `email_shell.py` (132 lines)
-**Universal email wrapper — LDAS-branded header, dark theme body, CAN-SPAM footer**
-
-Wraps any email body HTML in the standard LDAS template: header with logo on dark gradient
-background (radial blue glow), unified dark navy body (#0d1020), CAN-SPAM compliant footer
-(physical address: 35 Capreol Court, Toronto, ON M5V 4B3; unsubscribe link; social links).
-Responsive design: 600px container, mobile stacking. wrap_email(body_html, preview_text, unsubscribe_url)
-returns a complete HTML document ready for email clients.
 
 ### `sns_verify.py` (106 lines)
 **AWS SNS signature verification — validates webhook authenticity**
