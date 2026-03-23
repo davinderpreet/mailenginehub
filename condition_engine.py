@@ -229,6 +229,13 @@ def get_contact_context(contact):
         "has_used_discount": False,
         "tags": getattr(contact, "tags", "") or "",
         "source": getattr(contact, "source", "manual") or "manual",
+        # ── New intelligence fields ──
+        "intent_score": 0,
+        "churn_risk_score": 0,
+        "reorder_likelihood": 0,
+        "top_category": "unknown",
+        "discount_sensitivity": 0.0,
+        "fatigue_score": 0,
     }
 
     if not contact:
@@ -239,6 +246,7 @@ def get_contact_context(contact):
     ctx["source"] = getattr(contact, "source", "manual") or "manual"
     ctx["total_orders"] = getattr(contact, "total_orders", 0) or 0
     ctx["total_spent"] = float(getattr(contact, "total_spent", 0.0) or 0.0)
+    ctx["fatigue_score"] = getattr(contact, "fatigue_score", 0) or 0
 
     # Pull from CustomerProfile if it exists
     try:
@@ -249,6 +257,23 @@ def get_contact_context(contact):
         ctx["total_spent"] = max(ctx["total_spent"], float(profile.total_spent or 0.0))
         ctx["days_since_last_order"] = profile.days_since_last_order if profile.days_since_last_order is not None else 999
         ctx["has_used_discount"] = bool(profile.has_used_discount)
+
+        # New intelligence fields
+        ctx["intent_score"] = profile.intent_score or 0
+        ctx["churn_risk_score"] = profile.churn_risk_score or 0
+        ctx["reorder_likelihood"] = profile.reorder_likelihood or 0
+        ctx["discount_sensitivity"] = float(profile.discount_sensitivity or 0.0)
+
+        # Derive top_category from category_affinity_json
+        try:
+            import json
+            affinity = json.loads(profile.category_affinity_json or "{}")
+            if affinity and isinstance(affinity, dict):
+                ctx["top_category"] = max(affinity, key=affinity.get)
+            else:
+                ctx["top_category"] = "unknown"
+        except (json.JSONDecodeError, ValueError):
+            ctx["top_category"] = "unknown"
     except CustomerProfile.DoesNotExist:
         pass
 
