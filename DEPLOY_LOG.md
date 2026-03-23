@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-23 11:32 -- `148c343`
+
+**feat: add discount annotations and smart preview text to email rendering**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+block_registry.py
+```
+
+---
+
 ### 2026-03-22 15:19 -- `673f26b`
 
 **Add Shopify Custom Pixel — full checkout funnel tracking**
