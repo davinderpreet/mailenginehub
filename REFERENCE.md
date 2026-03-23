@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-23 13:32. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-23 13:34. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -234,7 +234,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (57 files, 35,008 lines)
+## Python Files — Detailed (57 files, 35,086 lines)
 
 ### `app.py` (7,276 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -304,7 +304,7 @@ Key functions:
 - `process_identity_jobs() — Drain IdentityJob queue`
 - `replay_triggers(contact) — Re-evaluate pending triggers after stitching`
 
-### `customer_intelligence.py` (1,004 lines)
+### `customer_intelligence.py` (1,082 lines)
 **Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV**
 
 Nightly (3:30 UTC). Computes complete intelligence profile per contact from all data sources:

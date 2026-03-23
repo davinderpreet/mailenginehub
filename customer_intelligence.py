@@ -60,6 +60,84 @@ CUSTOMER_TYPE_LABELS = {
 }
 
 
+def schedule_profile_refresh(contact_id, trigger_event):
+    """
+    Schedule a full profile recompute for 15 minutes after the contact's last
+    qualifying activity. If already scheduled, the timer resets (pushes forward).
+
+    Qualifying events: placed_order, completed_checkout, viewed_product,
+    product_search, add_to_cart, email_click, checkout_abandoned, cart_abandoned.
+
+    Args:
+        contact_id: int — the Contact.id
+        trigger_event: str — the event type that triggered this (e.g. "placed_order")
+    """
+    from database import CustomerProfile
+    refresh_at = datetime.now() + timedelta(minutes=15)
+    updated = CustomerProfile.update(
+        refresh_scheduled_at=refresh_at,
+        last_refresh_trigger=trigger_event,
+    ).where(CustomerProfile.contact_id == contact_id).execute()
+    if updated:
+        logger.info("[ProfileRefresh] Scheduled refresh for contact #%s at %s (trigger: %s)",
+                     contact_id, refresh_at.strftime("%H:%M:%S"), trigger_event)
+    else:
+        logger.debug("[ProfileRefresh] No profile found for contact #%s, skipping", contact_id)
+
+
+def refresh_contact_profile(contact_id):
+    """
+    Run full intelligence enrichment for a single contact and evaluate
+    flow fitness afterward. Called by the scheduler when
+    refresh_scheduled_at has elapsed.
+
+    Returns dict with computed values, or None on error.
+    """
+    from database import CustomerProfile
+
+    try:
+        result = compute_intelligence(contact_id)
+        if result and "error" not in result:
+            # Stamp the refresh
+            CustomerProfile.update(
+                refresh_scheduled_at=None,
+                last_intelligence_at=datetime.now(),
+            ).where(CustomerProfile.contact_id == contact_id).execute()
+            logger.info("[ProfileRefresh] Refreshed contact #%s successfully", contact_id)
+
+            # Evaluate flow fitness with new profile
+            try:
+                evaluate_flow_fitness(contact_id)
+            except Exception as e:
+                logger.warning("[ProfileRefresh] Flow fitness eval failed for #%s: %s", contact_id, e)
+
+            return result
+        else:
+            # compute_intelligence returned an error — clear schedule to prevent retry loop
+            CustomerProfile.update(
+                refresh_scheduled_at=None,
+            ).where(CustomerProfile.contact_id == contact_id).execute()
+            logger.warning("[ProfileRefresh] compute_intelligence failed for #%s: %s",
+                           contact_id, result)
+            return None
+    except Exception as e:
+        # Clear schedule to prevent infinite retry — nightly batch will catch it
+        CustomerProfile.update(
+            refresh_scheduled_at=None,
+        ).where(CustomerProfile.contact_id == contact_id).execute()
+        logger.error("[ProfileRefresh] Exception for contact #%s: %s", contact_id, e)
+        return None
+
+
+def evaluate_flow_fitness(contact_id):
+    """
+    Check if contact's active flow enrollments still match their refreshed profile.
+    Auto-exits flows that no longer make sense.
+    Stub — full implementation in Task 7.
+    """
+    pass
+
+
 def _infer_category(product_title):
     """Match product title to a category using keyword matching."""
     t = product_title.lower()
