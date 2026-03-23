@@ -132,10 +132,86 @@ def refresh_contact_profile(contact_id):
 def evaluate_flow_fitness(contact_id):
     """
     Check if contact's active flow enrollments still match their refreshed profile.
-    Auto-exits flows that no longer make sense.
-    Stub — full implementation in Task 7.
+    Auto-exits flows that no longer make sense after a profile recompute.
+
+    Exit rules:
+    - checkout_abandoned / browse_abandonment: exit if order placed since enrollment
+    - no_purchase_days (winback): exit if lifecycle changed from churned/at_risk to active+
+    - contact_created (welcome): exit if lifecycle changed from prospect/new_customer to active+
     """
-    pass
+    from database import (Contact, CustomerProfile, Flow, FlowEnrollment,
+                          ShopifyOrder, DeliveryQueue, init_db)
+    from action_ledger import log_action
+    init_db()
+
+    contact = Contact.get_or_none(Contact.id == contact_id)
+    if not contact:
+        return
+
+    profile = CustomerProfile.get_or_none(CustomerProfile.contact_id == contact_id)
+    if not profile:
+        return
+
+    # Get all active/paused enrollments
+    enrollments = list(FlowEnrollment.select(
+        FlowEnrollment, Flow
+    ).join(Flow).where(
+        FlowEnrollment.contact == contact,
+        FlowEnrollment.status.in_(["active", "paused"]),
+    ))
+
+    active_lifecycle = profile.lifecycle_stage or "unknown"
+    positive_stages = {"active_buyer", "loyal", "vip", "reactivated"}
+
+    for enrollment in enrollments:
+        flow = enrollment.flow
+        should_exit = False
+        exit_reason = ""
+
+        if flow.trigger_type in ("checkout_abandoned", "browse_abandonment"):
+            # Exit if order placed since enrollment
+            has_order = ShopifyOrder.select().where(
+                ShopifyOrder.email == contact.email,
+                ShopifyOrder.ordered_at >= enrollment.enrolled_at,
+                ShopifyOrder.financial_status.not_in(["refunded", "voided"]),
+            ).exists()
+            if has_order:
+                should_exit = True
+                exit_reason = "Order placed since enrollment (trigger: %s)" % flow.trigger_type
+
+        elif flow.trigger_type == "no_purchase_days":
+            # Winback: exit if lifecycle improved
+            if active_lifecycle in positive_stages:
+                should_exit = True
+                exit_reason = "Lifecycle improved to '%s' (winback no longer relevant)" % active_lifecycle
+
+        elif flow.trigger_type == "contact_created":
+            # Welcome: exit if they became a buyer
+            if active_lifecycle in positive_stages:
+                should_exit = True
+                exit_reason = "Lifecycle changed to '%s' (no longer a new prospect)" % active_lifecycle
+
+        if should_exit:
+            old_status = enrollment.status
+            enrollment.status = "cancelled"
+            enrollment.save()
+
+            # Cancel pending queue items for this enrollment
+            DeliveryQueue.update(
+                status="cancelled", error_msg="flow_fitness_exit"
+            ).where(
+                DeliveryQueue.enrollment_id == enrollment.id,
+                DeliveryQueue.status == "queued",
+            ).execute()
+
+            log_action(
+                contact, "flow", flow.id, "cancelled", "flow_fitness_exit",
+                source_type=flow.name,
+                enrollment_id=enrollment.id,
+                reason_detail=exit_reason,
+            )
+            logger.info("[FlowFitness] Exited '%s' for contact #%s (was %s) — %s",
+                        flow.name, contact_id, old_status, exit_reason)
 
 
 def _infer_category(product_title):
