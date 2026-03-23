@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-22 15:18. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-23 11:29. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -234,7 +234,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (57 files, 34,928 lines)
+## Python Files — Detailed (57 files, 34,929 lines)
 
 ### `app.py` (7,276 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -588,7 +588,7 @@ build_system_map_nodes() returns 65+ nodes representing every system component
 build_system_map_edges() returns relationships between nodes (data flow, dependencies).
 Consumed by /api/system-map/data endpoint, rendered as D3.js force-directed graph on /system-map page.
 
-### `discount_engine.py` (407 lines)
+### `discount_engine.py` (408 lines)
 **Dynamic discount generation — per-contact codes via Shopify price rules**
 
 get_or_create_discount(email, purpose) returns a unique discount code for a contact.

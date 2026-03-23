@@ -319,6 +319,7 @@ def get_discount_display(discount_info):
         "display_text": display_text,
         "value_display": value_display,
         "expires_text": expires_text,
+        "expires_at": expires,
     }
 
 
