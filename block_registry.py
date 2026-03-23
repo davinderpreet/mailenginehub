@@ -2057,7 +2057,32 @@ def render_template_blocks(template, contact=None, products=None, discount=None,
 
     # Wrap in email shell
     preview_text = getattr(template, "preview_text", "") or ""
-    full_html = wrap_email(body_html, preview_text=preview_text, unsubscribe_url="{{unsubscribe_url}}")
+
+    # ── Tier 2: Enrich preview text with discount context ──────────
+    if discount and discount.get("code"):
+        _val = discount.get("value_display", "")
+        _code = discount["code"]
+        if preview_text:
+            preview_text = "%s - Code: %s - %s" % (_val, _code, preview_text)
+        else:
+            _exp = discount.get("expires_text", "")
+            preview_text = "%s - Use code %s before %s" % (_val, _code, _exp) if _exp else "%s - Code: %s" % (_val, _code)
+
+    # ── Tier 1: Build JSON-LD offer annotation for Gmail/Yahoo badges ──
+    offer_meta = None
+    if discount and discount.get("code") and discount.get("expires_at"):
+        from datetime import datetime as _dt, timezone as _tz
+        _expires_at = discount["expires_at"]
+        if hasattr(_expires_at, 'isoformat') and _expires_at > _dt.now(_tz.utc):
+            _now = _dt.now(_tz.utc)
+            offer_meta = {
+                "description": discount.get("display_text", ""),
+                "discountCode": discount["code"],
+                "availabilityStarts": _now.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+                "availabilityEnds": _expires_at.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+            }
+
+    full_html = wrap_email(body_html, preview_text=preview_text, unsubscribe_url="{{unsubscribe_url}}", offer_meta=offer_meta)
 
     if explain:
         return full_html, explain_list

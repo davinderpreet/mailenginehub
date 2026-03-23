@@ -234,7 +234,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (57 files, 34,967 lines)
+## Python Files — Detailed (57 files, 34,992 lines)
 
 ### `app.py` (7,276 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -254,7 +254,7 @@ Key functions:
 - `_process_flow_enrollments() — Every 60s: advance flow steps, send scheduled emails`
 - `_process_delivery_queue_wrapper() — Every 30s: drain queue respecting warmup limits`
 
-### `block_registry.py` (2,451 lines)
+### `block_registry.py` (2,476 lines)
 **Email template block rendering engine — 26 block types, validation, personalization**
 
 Defines BLOCK_TYPES registry (26 types) with schema (required/optional fields, defaults, label, category).
