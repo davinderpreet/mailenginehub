@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-23 13:34. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-23 13:35. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -234,7 +234,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (57 files, 35,086 lines)
+## Python Files — Detailed (57 files, 35,206 lines)
 
 ### `app.py` (7,276 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -398,6 +398,23 @@ Key functions:
 - `_score_wait(contact, profile) — Fatigue/frequency default action`
 - `run_nightly_decisions() — Batch: decide for all active contacts`
 
+### `condition_engine.py` (811 lines)
+**Journey-aware template families, per-contact variant resolution, family constraints**
+
+Implements Phase 2 conditional logic. Defines 8 TEMPLATE_FAMILIES (welcome, browse_recovery,
+cart_recovery, checkout_recovery, post_purchase, winback, high_intent_browse, promo) each with
+allowed_blocks, required_blocks, recommended_order, and max_blocks. Condition schema: {field, op, value}
+with 9 fields (lifecycle_stage, customer_type, total_orders, total_spent, days_since_last_order,
+has_used_discount, tags, source) and 7 operators (eq, neq, gt, lt, in, contains, not_contains).
+Variant resolution is first-match-wins: each block can have a variants array with conditions + content override.
+At send time, the engine evaluates conditions against the contact's profile to pick the right variant.
+
+Key functions:
+- `get_contact_context(contact) — Builds flat evaluation dict from Contact + CustomerProfile`
+- `evaluate_conditions(conditions, context) — AND logic, returns bool`
+- `resolve_block_variants(block, context) — Returns (resolved_content, explain_dict)`
+- `enforce_family_constraints(blocks, family_key) — Returns (is_valid, errors list)`
+
 ### `campaign_planner.py` (796 lines)
 **Aggregate decisions into campaign opportunities — scoring, preflight simulation, ranking**
 
@@ -414,23 +431,6 @@ Key functions:
 - `scan_opportunities() — Group decisions into campaigns, score, rank`
 - `simulate_preflight(campaign) — Check warmup headroom, fatigue, complaints`
 - `compute_quality_score(opportunity) — 0-100 multi-factor score`
-
-### `condition_engine.py` (786 lines)
-**Journey-aware template families, per-contact variant resolution, family constraints**
-
-Implements Phase 2 conditional logic. Defines 8 TEMPLATE_FAMILIES (welcome, browse_recovery,
-cart_recovery, checkout_recovery, post_purchase, winback, high_intent_browse, promo) each with
-allowed_blocks, required_blocks, recommended_order, and max_blocks. Condition schema: {field, op, value}
-with 9 fields (lifecycle_stage, customer_type, total_orders, total_spent, days_since_last_order,
-has_used_discount, tags, source) and 7 operators (eq, neq, gt, lt, in, contains, not_contains).
-Variant resolution is first-match-wins: each block can have a variants array with conditions + content override.
-At send time, the engine evaluates conditions against the contact's profile to pick the right variant.
-
-Key functions:
-- `get_contact_context(contact) — Builds flat evaluation dict from Contact + CustomerProfile`
-- `evaluate_conditions(conditions, context) — AND logic, returns bool`
-- `resolve_block_variants(block, context) — Returns (resolved_content, explain_dict)`
-- `enforce_family_constraints(blocks, family_key) — Returns (is_valid, errors list)`
 
 ### `convert_templates.py` (701 lines)
 **Template migration — converts legacy HTML templates to blocks_json format**
@@ -494,6 +494,22 @@ Updates CampaignEmail / FlowEmail with opened, opened_at, clicked, clicked_at ti
 Processes both SES webhook notifications and tracking pixel hits. Nightly (3:00 UTC) batch
 reconciliation ensures no events missed.
 
+### `delivery_engine.py` (604 lines)
+**Email delivery queue — priority-based, warmup-compliant, shadow/sandbox/live modes**
+
+Separates email generation from sending via DeliveryQueue model. enqueue_email() stages
+emails with priority (checkout_abandoned=10 highest, contact_created=50 lowest).
+process_queue() runs every 30s: drains by priority, respects warmup phase caps.
+8 warmup phases: Ignition (50/day, 3d) -> Spark (150, 4d) -> Gaining Trust (350, 7d) ->
+Building (750, 7d) -> Momentum (1500, 7d) -> Scaling (3000, 7d) -> High Volume (7000, 7d) ->
+Full Send (999999, 99d). Delivery modes: live (send via SES), shadow (mark as shadowed, no SES),
+sandbox (SES sandbox mode with 5/day cap). SystemConfig.delivery_mode controls the mode.
+
+Key functions:
+- `enqueue_email(contact, email_type, ...) — Stage email in queue with priority`
+- `process_queue() — Drain queue respecting warmup limits and delivery mode`
+- `_get_warmup_remaining() — Calculate remaining daily capacity`
+
 ### `flow_templates_seed.py` (593 lines)
 **Seed flow definitions — pre-built automation flows with steps and timing**
 
@@ -523,22 +539,6 @@ Key functions:
 - `generate_block_content(block_type, contact, family, fallback, purpose) — AI content merged with fallback`
 - `personalize_text_field(field_name, template_text, contact, fallback) — Send-time personalization`
 - `generate_template_content(blocks, family, contact) — Batch generation for all blocks`
-
-### `delivery_engine.py` (516 lines)
-**Email delivery queue — priority-based, warmup-compliant, shadow/sandbox/live modes**
-
-Separates email generation from sending via DeliveryQueue model. enqueue_email() stages
-emails with priority (checkout_abandoned=10 highest, contact_created=50 lowest).
-process_queue() runs every 30s: drains by priority, respects warmup phase caps.
-8 warmup phases: Ignition (50/day, 3d) -> Spark (150, 4d) -> Gaining Trust (350, 7d) ->
-Building (750, 7d) -> Momentum (1500, 7d) -> Scaling (3000, 7d) -> High Volume (7000, 7d) ->
-Full Send (999999, 99d). Delivery modes: live (send via SES), shadow (mark as shadowed, no SES),
-sandbox (SES sandbox mode with 5/day cap). SystemConfig.delivery_mode controls the mode.
-
-Key functions:
-- `enqueue_email(contact, email_type, ...) — Stage email in queue with priority`
-- `process_queue() — Drain queue respecting warmup limits and delivery mode`
-- `_get_warmup_remaining() — Calculate remaining daily capacity`
 
 ### `create_showcase_templates.py` (474 lines)
 **Showcase template generator — creates example templates demonstrating all block types**
@@ -707,7 +707,7 @@ Shopify (API key valid, webhook registered), Warmup (phase, daily limit, health 
 Scheduler (all jobs running). Used by /settings page and monitoring.
 
 ### `postmaster_tools.py` (181 lines)
-### `action_ledger.py` (170 lines)
+### `action_ledger.py` (177 lines)
 **Comprehensive audit logging — every decision, trigger, send, and outcome recorded**
 
 log_action(contact, email, trigger_type, source_type, source_id, ...) writes to ActionLedger.

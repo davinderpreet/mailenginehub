@@ -45,6 +45,13 @@ RC_IDENTITY_PROBABLE    = "identity_probable_match"            # non-email ident
 RC_IDENTITY_MULTI_STITCH = "identity_multi_stitch"             # multiple identifier types stitched in one call
 RC_IDENTITY_JOB_DEDUPED  = "identity_job_deduped"              # duplicate IdentityJob skipped (dedupe_key match)
 
+# Smart flow / pre-send guard reason codes
+RC_PROFILE_REFRESH         = "profile_refresh"                  # contact profile refreshed before send evaluation
+RC_ENROLLMENT_CANCELLED    = "enrollment_cancelled_at_send"     # enrollment cancelled at send time (pre-send guard)
+RC_PURCHASED_AFTER_ENROLL  = "purchased_after_enrollment"       # purchase detected after enrollment, skip send
+RC_BOUNCE_SUPPRESSED       = "bounce_suppressed"                # contact suppressed due to prior bounce
+RC_FLOW_FITNESS_EXIT       = "flow_fitness_exit"                # flow fitness check failed, contact exited flow
+
 
 # ── Core logging function ────────────────────────────────────────────
 
