@@ -395,6 +395,9 @@ class CustomerProfile(BaseModel):
     # Metadata
     intelligence_summary     = TextField(default="")            # plain-English for Claude
     last_intelligence_at     = DateTimeField(null=True)
+    # ── Real-time refresh fields ──────────────────────────
+    refresh_scheduled_at     = DateTimeField(null=True, index=True)
+    last_refresh_trigger     = CharField(max_length=50, null=True)
 
     class Meta:
         table_name = "customer_profiles"
@@ -793,6 +796,7 @@ def init_db():
     _migrate_deliverability_fields()
     _migrate_bounce_log_fields()
     _migrate_intelligence_fields()
+    _migrate_smart_flow_fields()
     _migrate_message_decision_tables()
     _migrate_flow_priority()
     _migrate_flow_enrollment_pause()
@@ -973,6 +977,18 @@ def _migrate_intelligence_fields():
             db.execute_sql(f"ALTER TABLE customer_profiles ADD COLUMN {col_name} {col_def}")
             print(f"  [migrate] Added {col_name} to customer_profiles")
 
+
+def _migrate_smart_flow_fields():
+    """Add real-time profile refresh columns to customer_profiles."""
+    new_cols = [
+        ("refresh_scheduled_at", "DATETIME"),
+        ("last_refresh_trigger", "VARCHAR(50)"),
+    ]
+    cursor = db.execute_sql("PRAGMA table_info(customer_profiles)")
+    existing = {row[1] for row in cursor.fetchall()}
+    for col_name, col_def in new_cols:
+        if col_name not in existing:
+            db.execute_sql(f"ALTER TABLE customer_profiles ADD COLUMN {col_name} {col_def}")
 
 
 def _migrate_message_decision_tables():
