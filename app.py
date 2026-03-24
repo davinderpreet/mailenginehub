@@ -1605,7 +1605,7 @@ def sent_emails():
     all_emails = []
 
     # ── Campaign Emails ──
-    if email_type not in ("flow", "auto"):
+    if email_type not in ("flow", "auto", "am"):
         ce_query = (CampaignEmail
                     .select(CampaignEmail, Contact, Campaign)
                     .join(Contact, on=(CampaignEmail.contact == Contact.id))
@@ -1651,7 +1651,7 @@ def sent_emails():
             })
 
     # ── Flow Emails ──
-    if email_type not in ("campaign", "auto"):
+    if email_type not in ("campaign", "auto", "am"):
         fe_query = (FlowEmail
                     .select(FlowEmail, Contact, FlowStep, FlowEnrollment)
                     .join(Contact, on=(FlowEmail.contact == Contact.id))
@@ -1714,7 +1714,7 @@ def sent_emails():
             })
 
     # ── Auto-Pilot Emails ──
-    if email_type not in ("campaign", "flow"):
+    if email_type not in ("campaign", "flow", "am"):
         from peewee import JOIN
         ae_query = (AutoEmail
                     .select(AutoEmail, Contact, EmailTemplate)
@@ -1753,6 +1753,45 @@ def sent_emails():
                 "opened": ae.opened,
                 "opened_at": ae.opened_at,
                 "error_msg": ae.error_msg or "",
+            })
+
+    # ── Account Manager Emails ──
+    if email_type not in ("campaign", "flow", "auto"):
+        am_query = (AMPendingReview
+                    .select(AMPendingReview, Contact)
+                    .join(Contact, on=(AMPendingReview.contact == Contact.id))
+                    .where(
+                        AMPendingReview.status == "approved",
+                        AMPendingReview.reviewed_at.between(dt_from, dt_to)
+                    ))
+
+        if search:
+            am_query = am_query.where(Contact.email.contains(search))
+        # AM emails don't track opens directly — skip opened filter for AM
+        if status_filter and status_filter not in ("opened",):
+            am_query = am_query.where(AMPendingReview.status == status_filter)
+
+        for am in am_query:
+            name = ""
+            try:
+                name = "{} {}".format(am.contact.first_name or "", am.contact.last_name or "").strip()
+            except Exception:
+                pass
+            subject = am.edited_subject or am.subject or ""
+            subject = subject.replace("{{first_name}}", am.contact.first_name or "Friend").replace("{{last_name}}", am.contact.last_name or "").replace("{{email}}", am.contact.email or "")
+            all_emails.append({
+                "id": am.id,
+                "sent_at": am.reviewed_at,
+                "email": am.contact.email,
+                "name": name or am.contact.email,
+                "contact_id": am.contact.id,
+                "type": "am",
+                "source": "Account Manager — " + (am.action_type or "").replace("_", " ").title(),
+                "subject": subject,
+                "status": "sent",
+                "opened": False,
+                "opened_at": None,
+                "error_msg": "",
             })
 
     # Sort by time descending
@@ -1809,6 +1848,16 @@ def sent_email_preview(email_type, email_id):
             ae = AutoEmail.get_by_id(email_id)
             contact = ae.contact
             template = EmailTemplate.get_by_id(ae.template_id)
+        elif email_type == "am":
+            am = AMPendingReview.get_by_id(email_id)
+            contact = am.contact
+            html = am.edited_html or am.body_html or ""
+            html = html.replace("{{first_name}}", contact.first_name or "Friend")
+            html = html.replace("{{last_name}}", contact.last_name or "")
+            html = html.replace("{{email}}", contact.email or "")
+            html = html.replace("{{unsubscribe_url}}", "#")
+            html = html.replace("{{discount_code}}", "PREVIEW")
+            return html, 200, {"Content-Type": "text/html; charset=utf-8"}
         else:
             return "Invalid email type", 400
 

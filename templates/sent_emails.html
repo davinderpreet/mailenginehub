@@ -39,6 +39,7 @@
         <option value="campaign" {% if email_type == 'campaign' %}selected{% endif %}>Campaign</option>
         <option value="flow" {% if email_type == 'flow' %}selected{% endif %}>Flow</option>
         <option value="auto" {% if email_type == 'auto' %}selected{% endif %}>Auto-Pilot</option>
+        <option value="am" {% if email_type == 'am' %}selected{% endif %}>Account Manager</option>
       </select>
       <select name="status" style="width:140px;" onchange="this.form.submit()">
         <option value="">All Status</option>
@@ -91,6 +92,8 @@
             <span style="background:rgba(124,58,237,0.12);color:var(--purple2);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid rgba(124,58,237,0.2);">Campaign</span>
           {% elif e.type == 'auto' %}
             <span style="background:rgba(236,72,153,0.12);color:var(--pink);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid rgba(236,72,153,0.2);">Auto-Pilot</span>
+          {% elif e.type == 'am' %}
+            <span style="background:rgba(16,185,129,0.12);color:var(--green);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid rgba(16,185,129,0.2);">Account Mgr</span>
           {% else %}
             <span style="background:rgba(6,182,212,0.10);color:var(--cyan);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid rgba(6,182,212,0.2);">Flow</span>
           {% endif %}
