@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-24 10:13 -- `f1770e1`
+
+**fix: import AMPendingReview and ContactStrategy in app.py**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-23 13:48 -- `5f724f6`
 
 **Auto-update CLAUDE.md before deploy**
