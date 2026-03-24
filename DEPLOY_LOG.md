@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-24 10:18 -- `2c86cbf`
+
+**fix: show actual send_at time for AM emails in Sent Emails page**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+```
+
+---
+
 ### 2026-03-24 10:13 -- `f1770e1`
 
 **fix: import AMPendingReview and ContactStrategy in app.py**
