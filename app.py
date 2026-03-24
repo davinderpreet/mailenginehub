@@ -1763,7 +1763,10 @@ def sent_emails():
                     .join(Contact, on=(AMPendingReview.contact == Contact.id))
                     .where(
                         AMPendingReview.status == "approved",
-                        AMPendingReview.reviewed_at.between(dt_from, dt_to)
+                        (
+                            (AMPendingReview.send_at.is_null(False) & AMPendingReview.send_at.between(dt_from, dt_to)) |
+                            (AMPendingReview.send_at.is_null() & AMPendingReview.reviewed_at.between(dt_from, dt_to))
+                        )
                     ))
 
         if search:
@@ -1782,7 +1785,7 @@ def sent_emails():
             subject = subject.replace("{{first_name}}", am.contact.first_name or "Friend").replace("{{last_name}}", am.contact.last_name or "").replace("{{email}}", am.contact.email or "")
             all_emails.append({
                 "id": am.id,
-                "sent_at": am.reviewed_at,
+                "sent_at": am.send_at or am.reviewed_at,
                 "email": am.contact.email,
                 "name": name or am.contact.email,
                 "contact_id": am.contact.id,
