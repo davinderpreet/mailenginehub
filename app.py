@@ -10,7 +10,8 @@ from database import (db, Contact, EmailTemplate, Campaign, CampaignEmail, init_
                       WarmupConfig, WarmupLog, get_warmup_config,
                       Flow, FlowStep, FlowEnrollment, FlowEmail, AbandonedCheckout, AgentMessage,
                       SuppressionEntry, BounceLog, PreflightLog, PendingTrigger,
-                      get_bounce_stats_by_domain, AutoEmail, DeliveryQueue)
+                      get_bounce_stats_by_domain, AutoEmail, DeliveryQueue,
+                      AMPendingReview, ContactStrategy)
 from email_sender import send_campaign_email, test_ses_connection
 from discount_engine import generate_discount_code
 from token_utils import create_token, verify_token
