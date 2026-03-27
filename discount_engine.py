@@ -33,6 +33,11 @@ DISCOUNT_STRATEGIES = {
     "re_engagement":      {"type": "percentage",    "value": "5",   "expires_hours": 168,  "prefix": "RE"},
     "high_intent":        {"type": "free_shipping", "value": "100", "expires_hours": 72,   "prefix": "HI"},
     "smart_escalation":   {"type": "percentage",    "value": "10",  "expires_hours": 168,  "prefix": "SAVE"},
+    # AM purpose aliases — map recovery-style names to their abandonment equivalents
+    "cart_recovery":      {"type": "percentage",    "value": "5",   "expires_hours": 48,   "prefix": "CART"},
+    "browse_recovery":    {"type": "free_shipping", "value": "100", "expires_hours": 72,   "prefix": "SHIP"},
+    "browse_abandon":     {"type": "free_shipping", "value": "100", "expires_hours": 72,   "prefix": "SHIP"},
+    "checkout_recovery":  {"type": "percentage",    "value": "5",   "expires_hours": 48,   "prefix": "CHKR"},
 }
 
 

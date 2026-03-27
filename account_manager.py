@@ -82,12 +82,16 @@ def _parse_claude_json(raw_text):
     )
 
 
-def _get_anthropic_client():
-    import anthropic
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+def _get_openrouter_client():
+    """Return an OpenAI-compatible client pointed at OpenRouter."""
+    from openai import OpenAI
+    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set in .env")
-    return anthropic.Anthropic(api_key=api_key)
+        raise RuntimeError("OPENROUTER_API_KEY not set in .env")
+    return OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=api_key,
+    )
 
 
 # ─────────────────────────────────
@@ -744,7 +748,7 @@ def generate_am_email_from_template(contact, purpose, strategy_context=""):
         from database import ContactScore as _CS_AM
         _cs_am = _CS_AM.get_or_none(_CS_AM.contact == contact)
         _seg_am = _cs_am.rfm_segment if _cs_am else None
-        _family = template.family if hasattr(template, 'family') and template.family else tpl_info.get("family", "")
+        _family = template.template_family if hasattr(template, 'template_family') and template.template_family else tpl_info.get("family", "")
         if _family and _seg_am:
             _better = get_best_template_for_family(_family, _seg_am)
             if _better and _better != template.id:
@@ -783,41 +787,64 @@ def generate_am_email_from_template(contact, purpose, strategy_context=""):
     except Exception:
         pass
 
-    # ── Profit-aware discount escalation ──
-    # Check margins BEFORE Claude generates — so AI can write persuasive discount copy
+    # ── Resolve discount BEFORE Claude generates ──
+    # We must know the actual discount value so the AI prompt and discount block always match
     _discount_context = ""
     _smart_discount_display = None
+    _actual_discount_pct = None
+
+    # Step 1: Try profit-aware smart escalation for the computed percentage
     if has_discount and purpose in ("winback", "browse_recovery", "cart_recovery",
                                      "checkout_recovery", "browse_abandon"):
         try:
             from profit_engine import compute_smart_discount
+            from discount_engine import generate_discount_code
             _smart = compute_smart_discount(contact.id, purpose)
             if _smart["should_offer"]:
-                _disc_info = get_or_create_discount(contact.email, "smart_escalation")
+                _disc_info = generate_discount_code(
+                    contact.email, "smart_escalation",
+                    override_value=str(_smart["discount_pct"]))
                 if _disc_info:
-                    # Override value with profit-safe amount
-                    from discount_engine import generate_discount_code
-                    _disc_info = generate_discount_code(
-                        contact.email, "smart_escalation",
-                        override_value=str(_smart["discount_pct"]))
-                    if _disc_info:
-                        _smart_discount_display = get_discount_display(_disc_info)
-                        _discount_context = (
-                            "\n[DISCOUNT OFFER]\n"
-                            "You are authorized to offer this customer %d%% off.\n"
-                            "Discount code: %s\n"
-                            "Expires: %s\n"
-                            "Reason: %s\n"
-                            "Weave this discount naturally into your email copy. "
-                            "Make it feel exclusive and urgent.\n"
-                        ) % (_smart["discount_pct"], _disc_info["code"],
-                             _smart_discount_display.get("expires_text", "7 days"),
-                             _smart["reason"])
-                        logger.info("[AM-SmartDisc] %s: %d%% off (margin headroom: %.0f%%, products: %d)",
-                                    contact.email, _smart["discount_pct"],
-                                    _smart["margin_headroom"], _smart["products_checked"])
+                    _smart_discount_display = get_discount_display(_disc_info)
+                    _actual_discount_pct = int(_disc_info["value"])
+                    _discount_context = (
+                        "\n[DISCOUNT OFFER]\n"
+                        "You are authorized to offer this customer EXACTLY %d%% off.\n"
+                        "Discount code: %s\n"
+                        "Expires: %s\n"
+                        "Reason: %s\n"
+                        "IMPORTANT: The discount is %d%% — do NOT mention any other percentage.\n"
+                        "Weave this discount naturally into your email copy. "
+                        "Make it feel exclusive and urgent.\n"
+                    ) % (_actual_discount_pct, _disc_info["code"],
+                         _smart_discount_display.get("expires_text", "7 days"),
+                         _smart["reason"], _actual_discount_pct)
+                    logger.info("[AM-SmartDisc] %s: %d%% off (margin headroom: %.0f%%, products: %d)",
+                                contact.email, _actual_discount_pct,
+                                _smart["margin_headroom"], _smart["products_checked"])
         except Exception as e:
             logger.debug("[AM-SmartDisc] Error: %s", e)
+
+    # Step 2: Fallback — if smart escalation didn't produce a code, use the default for this purpose
+    if has_discount and not _smart_discount_display:
+        try:
+            _fallback_info = get_or_create_discount(contact.email, purpose)
+            if _fallback_info:
+                _smart_discount_display = get_discount_display(_fallback_info)
+                _actual_discount_pct = int(_fallback_info["value"])
+                _discount_context = (
+                    "\n[DISCOUNT OFFER]\n"
+                    "You are authorized to offer this customer EXACTLY %d%% off.\n"
+                    "Discount code: %s\n"
+                    "Expires: %s\n"
+                    "IMPORTANT: The discount is %d%% — do NOT mention any other percentage.\n"
+                    "Weave this discount naturally into your email copy. "
+                    "Make it feel exclusive and urgent.\n"
+                ) % (_actual_discount_pct, _fallback_info["code"],
+                     _smart_discount_display.get("expires_text", "7 days"),
+                     _actual_discount_pct)
+        except Exception as e:
+            logger.debug("[AM-Discount fallback] Error: %s", e)
 
     prompt = """CUSTOMER PROFILE:
 %s
@@ -851,31 +878,49 @@ ALL URLs must use ldas.ca domain. Use the customer's first name if available."""
         " → ".join(block_types)
     )
 
-    # Call Claude
-    client = _get_anthropic_client()
+    # Call Claude via OpenRouter
+    client = _get_openrouter_client()
     system_prompt = _get_active_prompt("am_system_prompt", DEFAULT_PROMPTS["am_system_prompt"])
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+    response = client.chat.completions.create(
+        model="anthropic/claude-haiku-4-5",
         max_tokens=1000,
-        system=system_prompt,
-        messages=[{"role": "user", "content": prompt}]
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ],
+        extra_headers={
+            "HTTP-Referer": "https://mailenginehub.com",
+            "X-Title": "MailEngineHub AM",
+        },
     )
 
-    raw = response.content[0].text.strip()
+    raw = response.choices[0].message.content.strip()
+    _input_tokens  = getattr(response.usage, "prompt_tokens", 0) or 0
+    _output_tokens = getattr(response.usage, "completion_tokens", 0) or 0
     content = _parse_claude_json(raw)
 
     # Deep-copy template blocks and inject AI content
     import copy
     blocks = copy.deepcopy(json.loads(template.blocks_json))
 
+    # Helper: replace only the first percentage in text with the actual discount value
+    import re
+    _pct_re = re.compile(r'\d+\s*%')
+    def _sanitize_pct(text):
+        """Replace only the first N% occurrence with the actual discount percentage."""
+        if _actual_discount_pct is not None and _pct_re.search(text):
+            return _pct_re.sub("%d%%" % _actual_discount_pct, text, count=1)
+        return text
+
     for block in blocks:
         bt = block["block_type"]
         if bt == "hero":
-            block["content"]["headline"] = content.get("hero_headline", "")
-            block["content"]["subheadline"] = content.get("hero_subheadline", "")
+            block["content"]["headline"] = _sanitize_pct(content.get("hero_headline", ""))
+            block["content"]["subheadline"] = _sanitize_pct(content.get("hero_subheadline", ""))
         elif bt == "text":
-            block["content"]["paragraphs"] = content.get("paragraphs", [])
+            paragraphs = content.get("paragraphs", [])
+            block["content"]["paragraphs"] = [_sanitize_pct(p) for p in paragraphs]
         elif bt == "cta":
             block["content"]["text"] = content.get("cta_text", block["content"].get("text", "Shop Now"))
             block["content"]["url"] = content.get("cta_url", block["content"].get("url", "https://ldas.ca"))
@@ -890,13 +935,8 @@ ALL URLs must use ldas.ca domain. Use the customer's first name if available."""
     render_tpl.preview_text = content.get("preheader", "")
     render_tpl.subject = content.get("subject", "")
 
-    # Resolve discount if template has a discount block
-    # Use smart escalation discount if already created, otherwise fall back to default
+    # Discount already resolved before AI call — no fallback mismatch possible
     discount_display = _smart_discount_display
-    if has_discount and not discount_display:
-        discount_info = get_or_create_discount(contact.email, purpose)
-        if discount_info:
-            discount_display = get_discount_display(discount_info)
 
     # Render to full HTML via the block registry
     html = render_template_blocks(render_tpl, contact, products=[], discount=discount_display)
@@ -905,11 +945,17 @@ ALL URLs must use ldas.ca domain. Use the customer's first name if available."""
     _unsub = "https://mailenginehub.com/unsubscribe?email=%s" % contact.email
     html = html.replace("{{unsubscribe_url}}", _unsub)
 
+    # Sanitize subject/preheader percentages to match actual discount
+    _subject = _sanitize_pct(content.get("subject", ""))
+    _preheader = _sanitize_pct(content.get("preheader", ""))
+
     return {
-        "subject": content.get("subject", ""),
-        "preheader": content.get("preheader", ""),
+        "subject": _subject,
+        "preheader": _preheader,
         "body_html": html,
         "template_id": template.id,
+        "input_tokens": _input_tokens,
+        "output_tokens": _output_tokens,
     }
 
 
@@ -959,6 +1005,8 @@ def run_account_manager():
     fatal_errors = 0
     emails_generated = 0
     skipped = 0
+    total_input_tokens = 0
+    total_output_tokens = 0
 
     for cs in strategies:
         try:
@@ -1006,6 +1054,8 @@ def run_account_manager():
             api_elapsed = time.time() - api_start
 
             if result:
+                total_input_tokens  += result.get("input_tokens", 0)
+                total_output_tokens += result.get("output_tokens", 0)
                 if cs.autonomous:
                     send_at = _get_optimal_send_time(contact)
                     _unsub = "https://mailenginehub.com/unsubscribe?email=%s" % contact.email
@@ -1090,6 +1140,35 @@ def run_account_manager():
                 time.sleep(60)
                 api_errors = 0
 
+    # ── Cost accounting (OpenRouter: claude-haiku-4-5 pricing) ──
+    # $0.80/M input tokens, $4.00/M output tokens
+    _COST_IN  = 0.80 / 1_000_000
+    _COST_OUT = 4.00 / 1_000_000
+    run_cost_usd = (total_input_tokens * _COST_IN) + (total_output_tokens * _COST_OUT)
+
+    # Write AMRunLog
+    try:
+        from database import AMRunLog
+        _run_status = "completed"
+        if fatal_errors > 0 and emails_generated == 0:
+            _run_status = "failed"
+        AMRunLog.create(
+            run_date=datetime.now().date(),
+            ran_at=datetime.now(),
+            contacts_processed=processed,
+            emails_generated=emails_generated,
+            skipped=skipped,
+            api_errors=api_errors,
+            fatal_errors=fatal_errors,
+            input_tokens=total_input_tokens,
+            output_tokens=total_output_tokens,
+            cost_usd=run_cost_usd,
+            model="anthropic/claude-haiku-4-5",
+            status=_run_status,
+        )
+    except Exception as _e:
+        logger.warning("[AccountManager] Could not write AMRunLog: %s", _e)
+
     results = {
         "status": "completed",
         "total_due": total_due,
@@ -1099,6 +1178,9 @@ def run_account_manager():
         "db_errors": db_errors,
         "api_errors": api_errors,
         "fatal_errors": fatal_errors,
+        "input_tokens": total_input_tokens,
+        "output_tokens": total_output_tokens,
+        "cost_usd": round(run_cost_usd, 4),
         "timestamp": datetime.now().isoformat()
     }
     logger.info("[AccountManager] Run complete: %s", results)

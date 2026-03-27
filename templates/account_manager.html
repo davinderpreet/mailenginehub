@@ -35,6 +35,25 @@
   </p>
 </div>
 
+{% if missed_last_run %}
+<!-- ── Missed Run Warning ──────────────────────────────────── -->
+<div style="background:rgba(236,72,153,0.08);border:1px solid rgba(236,72,153,0.35);border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px;">
+  <i class="fas fa-exclamation-triangle" style="color:var(--pink);font-size:18px;flex-shrink:0;"></i>
+  <div>
+    <div style="font-size:13px;font-weight:700;color:var(--pink);margin-bottom:2px;">AI did not run last night</div>
+    <div style="font-size:12px;color:var(--text2);">
+      {% if last_run %}
+        Last run: <strong style="color:var(--text);">{{ last_run.ran_at.strftime('%b %d at %-I:%M %p') }}</strong>
+        &middot; {{ last_run.emails_generated }} emails generated
+        &middot; Status: <span style="color:{% if last_run.status == 'completed' %}var(--green){% else %}var(--pink){% endif %};">{{ last_run.status }}</span>
+      {% else %}
+        No runs recorded yet. Check that <code style="background:rgba(255,255,255,0.07);padding:1px 5px;border-radius:4px;">am_enabled</code> is turned on and the nightly scheduler is running.
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <!-- ── 4 Stat Cards ─────────────────────────────────────────── -->
 <div class="stats-grid" style="margin-bottom:24px;">
 
@@ -66,6 +85,72 @@
     <div class="stat-label">AI Approval Rate</div>
   </div>
 
+</div>
+
+<!-- ── AI Cost Widget ────────────────────────────────────────── -->
+<div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:16px;padding:18px 22px;margin-bottom:20px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+
+    <!-- Left: today + total -->
+    <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Today's AI Cost</div>
+        <div style="font-size:22px;font-weight:800;color:var(--cyan);">${{ "%.4f"|format(today_cost_usd) }}</div>
+      </div>
+      <div style="width:1px;height:36px;background:var(--border);"></div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Total All-Time</div>
+        <div style="font-size:22px;font-weight:800;color:var(--purple2);">${{ "%.3f"|format(total_cost_usd) }}</div>
+      </div>
+      <div style="width:1px;height:36px;background:var(--border);display:{% if recent_runs %}block{% else %}none{% endif %};"></div>
+      {% if recent_runs %}
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Last Run</div>
+        <div style="font-size:13px;font-weight:700;color:var(--text);">{{ recent_runs[0].ran_at.strftime('%b %d, %-I:%M %p') }}</div>
+        <div style="font-size:11px;color:var(--text3);">{{ recent_runs[0].emails_generated }} emails &middot; {{ recent_runs[0].contacts_processed }} contacts</div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Right: last 7 runs mini table -->
+    {% if recent_runs %}
+    <div style="overflow-x:auto;">
+      <table style="font-size:11.5px;border-collapse:collapse;white-space:nowrap;">
+        <thead>
+          <tr style="color:var(--text3);">
+            <th style="padding:3px 10px 6px 0;font-weight:600;text-align:left;">Date</th>
+            <th style="padding:3px 10px 6px;font-weight:600;text-align:right;">Contacts</th>
+            <th style="padding:3px 10px 6px;font-weight:600;text-align:right;">Emails</th>
+            <th style="padding:3px 10px 6px;font-weight:600;text-align:right;">Tokens</th>
+            <th style="padding:3px 10px 6px 10px;font-weight:600;text-align:right;">Cost</th>
+            <th style="padding:3px 0 6px 6px;font-weight:600;text-align:center;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in recent_runs %}
+          <tr style="border-top:1px solid rgba(255,255,255,0.05);">
+            <td style="padding:5px 10px 5px 0;color:var(--text2);">{{ run.ran_at.strftime('%b %d') }}</td>
+            <td style="padding:5px 10px;text-align:right;color:var(--text);">{{ run.contacts_processed }}</td>
+            <td style="padding:5px 10px;text-align:right;color:var(--cyan);">{{ run.emails_generated }}</td>
+            <td style="padding:5px 10px;text-align:right;color:var(--text2);">{{ "{:,}".format(run.input_tokens + run.output_tokens) }}</td>
+            <td style="padding:5px 10px 5px 10px;text-align:right;color:var(--green);font-weight:700;">${{ "%.4f"|format(run.cost_usd) }}</td>
+            <td style="padding:5px 0 5px 6px;text-align:center;">
+              <span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:600;
+                background:{% if run.status == 'completed' %}rgba(16,185,129,0.12){% elif run.status == 'failed' %}rgba(236,72,153,0.12){% else %}rgba(255,255,255,0.06){% endif %};
+                color:{% if run.status == 'completed' %}var(--green){% elif run.status == 'failed' %}var(--pink){% else %}var(--text3){% endif %};">
+                {{ run.status }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div style="font-size:12px;color:var(--text3);font-style:italic;">No runs recorded yet — costs will appear after the first nightly run.</div>
+    {% endif %}
+
+  </div>
 </div>
 
 <!-- ── AI Learning Progress Banner ──────────────────────────── -->

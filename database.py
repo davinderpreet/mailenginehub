@@ -788,7 +788,7 @@ def init_db():
          KnowledgeEntry, AIModelConfig, StudioJob, TemplateCandidate, TemplatePerformance,
          OutcomeLog, ActionPerformance, TemplateSegmentPerformance, ModelWeights, LearningConfig,
          ScrapeSource, ScrapeLog, RejectionLog, PostmasterMetric,
-         ContactStrategy, AMPendingReview, PromptVersion, CompetitorProduct],
+         ContactStrategy, AMPendingReview, PromptVersion, CompetitorProduct, AMRunLog],
         safe=True
     )
     _migrate_contact_columns()
@@ -1839,6 +1839,25 @@ class PromptVersion(BaseModel):
 
     class Meta:
         table_name = "prompt_versions"
+
+
+class AMRunLog(BaseModel):
+    """One row per nightly AM run — tracks token usage, cost, and outcome."""
+    run_date           = DateField(index=True)          # date of the run (UTC)
+    ran_at             = DateTimeField(default=datetime.now)
+    contacts_processed = IntegerField(default=0)
+    emails_generated   = IntegerField(default=0)
+    skipped            = IntegerField(default=0)
+    api_errors         = IntegerField(default=0)
+    fatal_errors       = IntegerField(default=0)
+    input_tokens       = IntegerField(default=0)
+    output_tokens      = IntegerField(default=0)
+    cost_usd           = FloatField(default=0.0)        # computed from token pricing
+    model              = CharField(default="")
+    status             = CharField(default="completed") # completed | failed | disabled | circuit_break
+
+    class Meta:
+        table_name = "am_run_logs"
 
 
 class CompetitorProduct(BaseModel):

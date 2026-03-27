@@ -6246,7 +6246,7 @@ def api_learning_stats():
 
 def account_manager_dashboard():
     from database import (AMPendingReview, ContactStrategy, Contact,
-                          LearningConfig)
+                          LearningConfig, AMRunLog)
     filter_type = request.args.get("filter", "all")
     page = int(request.args.get("page", 1))
     per_page = 20
@@ -6285,6 +6285,18 @@ def account_manager_dashboard():
     # Settings
     am_enabled = LearningConfig.get_val("am_enabled", "false")
 
+    # ── AI Cost & Run tracking ──
+    recent_runs = list(AMRunLog.select().order_by(AMRunLog.ran_at.desc()).limit(7))
+    total_cost_usd = sum(r.cost_usd for r in AMRunLog.select()) or 0.0
+    today_cost_usd = sum(r.cost_usd for r in AMRunLog.select().where(
+        AMRunLog.run_date == datetime.now().date())) or 0.0
+
+    # Missed run detection: did AM run in the last 26 hours?
+    from datetime import timedelta as _td
+    _cutoff = datetime.now() - _td(hours=26)
+    last_run = AMRunLog.select().order_by(AMRunLog.ran_at.desc()).first()
+    missed_last_run = (last_run is None) or (last_run.ran_at < _cutoff)
+
     return render_template("account_manager.html",
         pending_emails=pending_emails,
         pending_count=pending_count,
@@ -6298,7 +6310,12 @@ def account_manager_dashboard():
         filter_type=filter_type,
         page=page,
         total_pages=(total + per_page - 1) // per_page,
-        total=total)
+        total=total,
+        recent_runs=recent_runs,
+        total_cost_usd=total_cost_usd,
+        today_cost_usd=today_cost_usd,
+        missed_last_run=missed_last_run,
+        last_run=last_run)
 
 
 @app.route("/account-manager/approve/<int:pending_id>", methods=["POST"])

@@ -336,7 +336,7 @@ def _send_one(item, send_fn):
                         FlowEnrollment.id == item.enrollment_id)
                 if _enrollment:
                     _flow = Flow.get_or_none(Flow.id == _enrollment.flow_id)
-                    if _flow and _flow.trigger_type in ("checkout_abandoned", "browse_abandonment"):
+                    if _flow and _flow.trigger_type in ("checkout_abandoned", "browse_abandonment", "cart_abandonment"):
                         _has_order = ShopifyOrder.select().where(
                             ShopifyOrder.email == item.email,
                             ShopifyOrder.ordered_at >= _enrollment.enrolled_at,
@@ -357,8 +357,8 @@ def _send_one(item, send_fn):
             except Exception:
                 pass  # Fail-open
 
-        # ── Guard 3: Recent hard bounce or complaint? ──
-        if item.email_type == "flow":
+        # ── Guard 3: Recent hard bounce or complaint? (all email types) ──
+        if item.email_type in ("flow", "campaign", "auto"):
             try:
                 _seven_days_ago = datetime.now() - timedelta(days=7)
                 _has_bounce = BounceLog.select().where(
