@@ -4,6 +4,24 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-27 15:49 -- `a2c727a`
+
+**feat: OpenRouter for AM, architecture fixes, cost tracking dashboard**
+
+Files changed:
+```
+REFERENCE.md
+account_manager.py
+app.py
+database.py
+delivery_engine.py
+discount_engine.py
+requirements.txt
+templates/account_manager.html
+```
+
+---
+
 ### 2026-03-24 10:18 -- `2c86cbf`
 
 **fix: show actual send_at time for AM emails in Sent Emails page**
