@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-27 15:48. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-28 12:44. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -237,7 +237,7 @@ Rejected knowledge entries. Tracks what was rejected and why, prevents re-proces
 
 ---
 
-## Python Files — Detailed (57 files, 35,520 lines)
+## Python Files — Detailed (57 files, 35,522 lines)
 
 ### `app.py` (7,408 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -574,6 +574,14 @@ via Shopify REST API — fetches all customers and orders, upserts ShopifyCustom
 + ShopifyOrderItem + Contact. Enriches Contact with total_orders, total_spent, first/last order dates.
 Also incremental sync every 2s for recent changes.
 
+### `discount_engine.py` (415 lines)
+**Dynamic discount generation — per-contact codes via Shopify price rules**
+
+get_or_create_discount(email, purpose) returns a unique discount code for a contact.
+Creates Shopify price rule + discount code via API if none exists. Tracks in GeneratedDiscount table.
+get_discount_display(discount_info) formats for email insertion (code, expiry, value display).
+Supports percentage and fixed-amount discounts with configurable expiry.
+
 ### `outcome_tracker.py` (415 lines)
 **Nightly outcome collection — opened/clicked/purchased/revenue attribution for learning**
 
@@ -590,14 +598,6 @@ build_system_map_nodes() returns 65+ nodes representing every system component
 (routes, models, scheduled jobs, external services) with category, icon, and live stats.
 build_system_map_edges() returns relationships between nodes (data flow, dependencies).
 Consumed by /api/system-map/data endpoint, rendered as D3.js force-directed graph on /system-map page.
-
-### `discount_engine.py` (413 lines)
-**Dynamic discount generation — per-contact codes via Shopify price rules**
-
-get_or_create_discount(email, purpose) returns a unique discount code for a contact.
-Creates Shopify price rule + discount code via API if none exists. Tracks in GeneratedDiscount table.
-get_discount_display(discount_info) formats for email insertion (code, expiry, value display).
-Supports percentage and fixed-amount discounts with configurable expiry.
 
 ### `data_enrichment.py` (390 lines)
 **General contact enrichment — activity aggregation, profile metrics computation**
@@ -1018,7 +1018,7 @@ JSON API endpoints for AJAX calls, external integrations, and JavaScript-driven 
 - **`flows.html`** (9.1KB, extends base.html) -- Flow list — cards with trigger type icon, step count, enrollment count, active toggle, priority control.
 - **`journey_preview.html`** (6.7KB, extends base.html)
 - **`learning_dashboard.html`** (32.4KB, extends base.html) -- Learning dashboard (24KB) — phase indicator (observation/conservative/active), template performance table, action effectiveness heatmap, model weights display, toggle button.
-- **`profile_detail.html`** (74.5KB, extends base.html) -- Full contact profile (67KB) — intelligence summary card, lifecycle/type/intent/churn badges, purchase history timeline, engagement chart, category affinity radar, AI email preview modal, quick send form, decision history table.
+- **`profile_detail.html`** (74.6KB, extends base.html) -- Full contact profile (67KB) — intelligence summary card, lifecycle/type/intent/churn badges, purchase history timeline, engagement chart, category affinity radar, AI email preview modal, quick send form, decision history table.
 - **`profiles.html`** (20.2KB, extends base.html) -- Intelligence profiles — search, lifecycle stage filter pills, sortable table (email, lifecycle, type, intent, churn risk, LTV, last decision).
 - **`profit_dashboard.html`** (10.4KB, extends base.html) -- Profit dashboard — product profitability table, margin analysis, promo eligibility recommendations.
 - **`prompt_editor.html`** (17.8KB, extends base.html)
