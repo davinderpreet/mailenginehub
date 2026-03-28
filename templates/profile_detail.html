@@ -796,7 +796,7 @@
               </span>
               {% if dc.used %}
                 <span class="badge badge-pink" style="font-size:9.5px;">Used</span>
-              {% elif dc.expires_at and dc.expires_at < now %}
+              {% elif dc.expires_at and dc.expires_at.replace(tzinfo=None) < now %}
                 <span class="badge badge-ghost" style="font-size:9.5px;">Expired</span>
               {% else %}
                 <span class="badge badge-green" style="font-size:9.5px;">Active</span>

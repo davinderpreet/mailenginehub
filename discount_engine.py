@@ -307,7 +307,9 @@ def get_discount_display(discount_info):
 
     # Format expiry
     if expires:
-        days_left = (expires - datetime.now(timezone.utc)).days
+        # Normalise both sides to naive to avoid mixed-offset errors
+        expires_naive = expires.replace(tzinfo=None) if expires.tzinfo else expires
+        days_left = (expires_naive - datetime.now()).days
         if days_left <= 0:
             expires_text = "Expires today"
         elif days_left == 1:
