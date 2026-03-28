@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-28 12:46 -- `66ed4b9`
+
+**fix: resolve timezone-aware vs naive datetime comparison crashing all profile pages**
+
+Files changed:
+```
+REFERENCE.md
+discount_engine.py
+templates/profile_detail.html
+```
+
+---
+
 ### 2026-03-27 15:49 -- `a2c727a`
 
 **feat: OpenRouter for AM, architecture fixes, cost tracking dashboard**
