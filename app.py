@@ -2962,70 +2962,42 @@ def _pause_lower_priority_enrollments(contact, new_flow):
         # If Step 1 hasn't sent yet, force-send it now before pausing
         if first_step and not step1_sent and contact.subscribed:
             try:
-                template = EmailTemplate.get_by_id(first_step.template_id)
+                import flow_runtime
                 _unsub = _make_unsubscribe_url(contact)
 
-                # Determine discount purpose from flow trigger
-                _TRIGGER_TO_PURPOSE = {
-                    "checkout_abandoned": "cart_abandonment",
-                    "browse_abandonment": "browse_abandonment",
-                    "no_purchase_days":   "winback",
-                    "contact_created":    "welcome",
-                    "order_placed":       "loyalty_reward",
-                }
-                _dpurpose = _TRIGGER_TO_PURPOSE.get(enrollment.flow.trigger_type, "welcome")
-
-                if getattr(template, 'template_format', 'html') == 'blocks':
-                    from block_registry import render_template_blocks
-                    from discount_engine import get_or_create_discount, get_discount_display
-                    _dinfo = get_or_create_discount(contact.email, _dpurpose)
-                    _ddisplay = get_discount_display(_dinfo) if _dinfo else None
-                    html = render_template_blocks(template, contact, products=[], discount=_ddisplay)
-                    html = html.replace("{{unsubscribe_url}}", _unsub)
-                else:
-                    html = template.html_body or ""
-                    html = html.replace("{{first_name}}", contact.first_name or "Friend")
-                    html = html.replace("{{last_name}}", contact.last_name or "")
-                    html = html.replace("{{email}}", contact.email)
-                    html = html.replace("{{unsubscribe_url}}", _unsub)
-                    if "{{discount_code}}" in html:
-                        try:
-                            from discount_engine import get_or_create_discount
-                            _result = get_or_create_discount(contact.email, _dpurpose)
-                            _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
-                            html = html.replace("{{discount_code}}", _dcode)
-                        except Exception:
-                            html = html.replace("{{discount_code}}", "")
-
-                subject = (first_step.subject_override or template.subject or "Welcome!").replace(
-                    "{{first_name}}", contact.first_name or "Friend")
-
-                _priority = get_priority_for_trigger(enrollment.flow.trigger_type)
-                enqueue_email(
-                    contact_id=contact.id,
-                    email=contact.email,
-                    subject=subject,
-                    html=html,
-                    email_type="flow",
-                    source_id=enrollment.flow_id,
-                    enrollment_id=enrollment.id,
-                    step_id=first_step.id,
-                    template_id=first_step.template_id,
-                    priority=_priority,
-                    unsubscribe_url=_unsub,
+                package = flow_runtime.build_flow_send_package(
+                    enrollment, first_step, contact, enrollment.flow,
+                    template=first_step.template,
+                    trigger_context=None,
                 )
-                # Record flow email
-                FlowEmail.create(
-                    enrollment=enrollment,
-                    step=first_step,
-                    contact=contact,
-                    status="queued",
-                )
-                # Advance enrollment to step 2
-                enrollment.current_step = 2
-                app.logger.info(
-                    "[SmartExit] Force-sent Step 1 of '%s' for %s before pausing (discount code promised)"
-                    % (enrollment.flow.name, contact.email))
+
+                if package["status"] == "ready":
+                    html = package["html"]
+                    html = html.replace("{{unsubscribe_url}}", _unsub)
+                    flow_pixel = _make_flow_tracking_pixel_url(enrollment.id, first_step.id, contact.id)
+                    html += '<img src="%s" width="1" height="1" />' % flow_pixel
+
+                    _priority = get_priority_for_trigger(enrollment.flow.trigger_type)
+                    enqueue_email(
+                        contact=contact,
+                        email_type="flow",
+                        source_id=enrollment.flow_id,
+                        enrollment_id=enrollment.id,
+                        step_id=first_step.id,
+                        template_id=first_step.template_id,
+                        from_name=first_step.from_name or "",
+                        from_email=first_step.from_email or os.getenv("DEFAULT_FROM_EMAIL", ""),
+                        subject=package["subject"],
+                        html=html,
+                        unsubscribe_url=_unsub,
+                        priority=_priority,
+                        ledger_id=0,
+                    )
+                    # NO manual FlowEmail.create — delivery_engine._create_compat_record owns this
+                    enrollment.current_step = 2
+                    app.logger.info(
+                        "[SmartExit] Force-sent Step 1 of '%s' for %s before pausing"
+                        % (enrollment.flow.name, contact.email))
             except Exception as e:
                 app.logger.error("[SmartExit] Failed to force-send Step 1 for %s: %s" % (contact.email, e))
 
@@ -3237,6 +3209,55 @@ def _get_last_email_sent_at(contact):
     return max(times) if times else None
 
 
+def _build_trigger_context_from_enrollment(enrollment, contact, flow):
+    """Build trigger_context dict for flow_runtime based on flow trigger type.
+
+    Returns:
+        dict with cart_items/checkout_url or viewed_products, or None.
+    """
+    trigger = getattr(flow, 'trigger_type', '') or ''
+
+    if trigger in ('checkout_abandoned', 'cart_abandonment'):
+        try:
+            checkout = (AbandonedCheckout.select()
+                        .where(AbandonedCheckout.contact == contact,
+                               AbandonedCheckout.recovered == False)
+                        .order_by(AbandonedCheckout.created_at.desc())
+                        .first())
+            if checkout:
+                import json as _json
+                items = _json.loads(checkout.line_items_json) if checkout.line_items_json else []
+                return {"cart_items": items, "checkout_url": checkout.checkout_url or "https://ldas.ca/checkout"}
+        except Exception:
+            pass
+        return None
+
+    if trigger == 'browse_abandonment':
+        try:
+            from database import CustomerActivity
+            import json as _json
+            recent = (CustomerActivity.select()
+                      .where(CustomerActivity.contact == contact,
+                             CustomerActivity.event_type == 'viewed_product')
+                      .order_by(CustomerActivity.occurred_at.desc())
+                      .limit(4))
+            products = []
+            seen = set()
+            for act in recent:
+                d = _json.loads(act.event_data) if isinstance(act.event_data, str) else (act.event_data or {})
+                title = d.get("product_title", "")
+                if title and title not in seen:
+                    seen.add(title)
+                    products.append(d)
+            if products:
+                return {"viewed_products": products}
+        except Exception:
+            pass
+        return None
+
+    return None
+
+
 def _process_flow_enrollments():
     """Run every 60 seconds. Send pending flow emails whose next_send_at has passed.
     Every decision point is recorded in the ActionLedger for full traceability.
@@ -3374,224 +3395,53 @@ def _process_flow_enrollments():
         except Exception:
             pass  # Fallback to original template
 
+        # ── Build trigger context ──
+        _trigger_ctx = _build_trigger_context_from_enrollment(enrollment, contact, flow)
+
+        # ── Build flow send package via flow_runtime ──
+        import flow_runtime
         _unsub = _make_unsubscribe_url(contact)
 
-        # Map flow trigger types to discount engine purposes
-        _TRIGGER_TO_DISCOUNT_PURPOSE = {
-            "checkout_abandoned": "cart_abandonment",
-            "browse_abandonment": "browse_abandonment",
-            "no_purchase_days":   "winback",
-            "contact_created":    "welcome",
-            "order_placed":       "loyalty_reward",
-        }
-        _discount_purpose = _TRIGGER_TO_DISCOUNT_PURPOSE.get(flow.trigger_type, "welcome")
+        package = flow_runtime.build_flow_send_package(
+            enrollment, step, contact, flow,
+            template=template,
+            trigger_context=_trigger_ctx,
+        )
 
-        if getattr(template, 'template_format', 'html') == 'blocks':
-            # Block-based template -- render via block_registry
-            from block_registry import render_template_blocks
-            from discount_engine import get_or_create_discount, get_discount_display
-            _discount_info = get_or_create_discount(contact.email, _discount_purpose)
-            _discount_display = get_discount_display(_discount_info) if _discount_info else None
-            html = render_template_blocks(template, contact, products=[], discount=_discount_display)
-            html = html.replace("{{unsubscribe_url}}", _unsub)
-        else:
-            # Legacy HTML template -- existing path unchanged
-            html = template.html_body
-            html = html.replace("{{first_name}}", contact.first_name or "Friend")
-            html = html.replace("{{last_name}}",  contact.last_name  or "")
-            html = html.replace("{{email}}",      contact.email)
-            html = html.replace("{{unsubscribe_url}}", _unsub)
-            # Reuse existing discount code or create new one
-            if "{{discount_code}}" in html:
-                from discount_engine import get_or_create_discount
-                _result = get_or_create_discount(contact.email, _discount_purpose)
-                _dcode = _result.get("code", "") if isinstance(_result, dict) else ""
-                html = html.replace("{{discount_code}}", _dcode)
+        if package["status"] == "deferred":
+            enrollment.next_send_at = package["metadata"]["next_available_at"]
+            enrollment.save()
+            log_action(contact, "flow", flow.id, "suppressed", RC_COOLDOWN_ACTIVE,
+                       source_type=flow.name, enrollment_id=enrollment.id,
+                       priority=_priority,
+                       reason_detail="Soft timing gate: %s" % package["reason"])
+            continue
 
-            # Inject checkout/cart variables for abandoned checkout flows
-            if flow.trigger_type == "checkout_abandoned" and ("{{cart_items}}" in html or "{{checkout_url}}" in html):
-                _checkout = (AbandonedCheckout.select()
-                             .where(AbandonedCheckout.contact == contact,
-                                    AbandonedCheckout.recovered == False)
-                             .order_by(AbandonedCheckout.created_at.desc())
-                             .first())
-                if _checkout:
-                    import json as _json
-                    try:
-                        _items = _json.loads(_checkout.line_items_json)
-                        _cart_html = ""
-                        for _it in _items:
-                            _cart_html += f'<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; {_it.get("title","")} x{_it.get("quantity",1)} — ${_it.get("price","0.00")}</p>'
-                        if not _cart_html:
-                            _cart_html = '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>'
-                    except Exception:
-                        _cart_html = '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>'
-                    html = html.replace("{{cart_items}}", _cart_html)
-                    html = html.replace("{{checkout_url}}", _checkout.checkout_url or "https://ldas.ca/checkout")
-                else:
-                    # No AbandonedCheckout record (came from viewed_cart pixel) —
-                    # pull recently viewed products as cart proxy
-                    _cart_html = ""
-                    try:
-                        import json as _json
-                        _recent_views = (CustomerActivity.select()
-                                         .where(CustomerActivity.contact == contact,
-                                                CustomerActivity.event_type == 'viewed_product')
-                                         .order_by(CustomerActivity.occurred_at.desc())
-                                         .limit(4))
-                        _seen = set()
-                        for _rv in _recent_views:
-                            try:
-                                _rd = _json.loads(_rv.event_data) if isinstance(_rv.event_data, str) else _rv.event_data
-                                _title = _rd.get("product_title", "")
-                                _url = _rd.get("product_url", "")
-                                if _title and _title not in _seen:
-                                    _seen.add(_title)
-                                    _cart_html += f'<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; {_title}</p>'
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
-                    if not _cart_html:
-                        _cart_html = '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your selected items</p>'
-                    html = html.replace("{{cart_items}}", _cart_html)
-                    html = html.replace("{{checkout_url}}", "https://ldas.ca/cart")
+        if package["status"] in ("suppressed", "invalid"):
+            log_action(contact, "flow", flow.id, "suppressed", "RC_RENDER_INVALID",
+                       source_type=flow.name, enrollment_id=enrollment.id,
+                       priority=_priority,
+                       reason_detail=package["reason"])
+            if package["status"] == "suppressed":
+                enrollment.status = "cancelled"
+                enrollment.save()
+            continue
 
-            # ── Personalization injection — pull from CustomerProfile + ContactScore ──
-            try:
-                _profile = CustomerProfile.get_or_none(CustomerProfile.contact == contact)
-                _cscore  = ContactScore.get_or_none(ContactScore.contact == contact)
+        # package["status"] == "ready"
+        subject = package["subject"]
+        html = package["html"]
 
-                # Last viewed product (for browse abandonment emails)
-                _last_viewed = ""
-                if _profile and _profile.last_viewed_product:
-                    _last_viewed = _profile.last_viewed_product
-                html = html.replace("{{last_viewed_product}}", _last_viewed or "one of our popular items")
+        # Resolve unsubscribe URL in HTML
+        html = html.replace("{{unsubscribe_url}}", _unsub)
 
-                # Recently browsed products (HTML rows from activity)
-                if "{{recently_browsed_html}}" in html:
-                    _browsed_html = ""
-                    try:
-                        _recent = (CustomerActivity.select()
-                                   .where(CustomerActivity.contact == contact,
-                                          CustomerActivity.event_type == 'viewed_product')
-                                   .order_by(CustomerActivity.occurred_at.desc())
-                                   .limit(4))
-                        _seen_titles = set()
-                        for _act in _recent:
-                            import json as _jj
-                            _d = _jj.loads(_act.event_data) if _act.event_data else {}
-                            _t = _d.get("product_title", "")
-                            if _t and _t not in _seen_titles:
-                                _seen_titles.add(_t)
-                                _p = _d.get("price", "")
-                                _price_str = " — $%s" % _p if _p else ""
-                                _browsed_html += '<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; <strong>%s</strong>%s</p>' % (_t, _price_str)
-                    except Exception:
-                        pass
-                    html = html.replace("{{recently_browsed_html}}", _browsed_html or '<p style="margin:4px 0;font-size:14px;color:#4a5568;">Your recently viewed items</p>')
-
-                # Top purchased products (for cross-sell / post-purchase emails)
-                if "{{top_products_html}}" in html:
-                    _top_html = ""
-                    try:
-                        if _profile and _profile.top_products:
-                            import json as _jj2
-                            _tops = _jj2.loads(_profile.top_products)[:3]
-                            for _tp in _tops:
-                                _top_html += '<p style="margin:4px 0;font-size:14px;color:#4a5568;">&bull; %s</p>' % _tp
-                    except Exception:
-                        pass
-                    html = html.replace("{{top_products_html}}", _top_html or "")
-
-                # Customer stats
-                html = html.replace("{{total_orders}}", str(_profile.total_orders) if _profile else "0")
-                html = html.replace("{{total_spent}}", "$%.2f" % _profile.total_spent if _profile and _profile.total_spent else "$0")
-
-                # RFM segment and lifecycle
-                html = html.replace("{{rfm_segment}}", _cscore.rfm_segment if _cscore else "new")
-                html = html.replace("{{lifecycle_stage}}", _profile.lifecycle_stage if _profile and hasattr(_profile, 'lifecycle_stage') else "prospect")
-
-                # ── Learned intelligence variables ──────────────────
-                # Customer type (vip/loyal/repeat/new/etc.)
-                html = html.replace("{{customer_type}}", _profile.customer_type if _profile and hasattr(_profile, 'customer_type') and _profile.customer_type else "valued customer")
-
-                # Top category affinity
-                _top_cat = ""
-                try:
-                    if _profile and hasattr(_profile, 'category_affinity_json') and _profile.category_affinity_json:
-                        import json as _cj
-                        _cats = _cj.loads(_profile.category_affinity_json)
-                        if isinstance(_cats, dict) and _cats:
-                            _top_cat = max(_cats, key=_cats.get)
-                        elif isinstance(_cats, list) and _cats:
-                            _top_cat = _cats[0] if isinstance(_cats[0], str) else _cats[0].get("category", "")
-                except Exception:
-                    pass
-                html = html.replace("{{top_category}}", _top_cat or "our top picks")
-
-                # Days since last purchase
-                _days_since = ""
-                try:
-                    if _profile and hasattr(_profile, 'last_order_at') and _profile.last_order_at:
-                        from datetime import datetime as _dt
-                        _dsp = (datetime.now() - _profile.last_order_at).days
-                        _days_since = str(_dsp)
-                except Exception:
-                    pass
-                html = html.replace("{{days_since_purchase}}", _days_since or "a while")
-
-                # Intent level (high/medium/low bucket from intent_score 0-100)
-                _intent = "medium"
-                try:
-                    if _profile and hasattr(_profile, 'intent_score') and _profile.intent_score is not None:
-                        if _profile.intent_score >= 70:
-                            _intent = "high"
-                        elif _profile.intent_score >= 35:
-                            _intent = "medium"
-                        else:
-                            _intent = "low"
-                except Exception:
-                    pass
-                html = html.replace("{{intent_level}}", _intent)
-
-            except Exception as _perr:
-                app.logger.warning("[FlowPersonalization] Error loading profile for %s: %s", contact.email, _perr)
-                # Fallback — clear any remaining personalization tags
-                import re as _re
-                for _tag in ["{{last_viewed_product}}", "{{recently_browsed_html}}", "{{top_products_html}}",
-                             "{{total_orders}}", "{{total_spent}}", "{{rfm_segment}}", "{{lifecycle_stage}}",
-                             "{{customer_type}}", "{{top_category}}", "{{days_since_purchase}}", "{{intent_level}}"]:
-                    html = html.replace(_tag, "")
-
-            # Wrap in email shell if template uses shell_version >= 1
-            if getattr(template, 'shell_version', 0) >= 1:
-                from email_shell import wrap_email
-                html = wrap_email(html, preview_text=template.preview_text or '', unsubscribe_url=_unsub)
-
+        # Append tracking pixel
         flow_pixel = _make_flow_tracking_pixel_url(enrollment.id, step.id, contact.id)
-        html += f'<img src="{flow_pixel}" width="1" height="1" />'
-
-        subject = step.subject_override or template.subject
-        subject = subject.replace("{{first_name}}", contact.first_name or "Friend")
-        # Personalize subject with browse/purchase data
-        try:
-            if "{{last_viewed_product}}" in subject:
-                _prof = CustomerProfile.get_or_none(CustomerProfile.contact == contact)
-                _lvp = _prof.last_viewed_product if _prof and _prof.last_viewed_product else "something great"
-                subject = subject.replace("{{last_viewed_product}}", _lvp)
-            if "{{total_orders}}" in subject:
-                _prof2 = CustomerProfile.get_or_none(CustomerProfile.contact == contact)
-                subject = subject.replace("{{total_orders}}", str(_prof2.total_orders) if _prof2 else "0")
-        except Exception:
-            subject = subject.replace("{{last_viewed_product}}", "something great")
-            subject = subject.replace("{{total_orders}}", "")
+        html += '<img src="%s" width="1" height="1" />' % flow_pixel
 
         from_email = step.from_email or os.getenv("DEFAULT_FROM_EMAIL", "")
-        from_name  = step.from_name
-        unsub_url = _make_unsubscribe_url(contact)
+        from_name = step.from_name
 
-        # ── Dedup: skip if this enrollment+step is already queued ──
+        # ── Dedup: skip if already queued ──
         _already_queued = (DeliveryQueue.select()
                            .where(DeliveryQueue.enrollment_id == enrollment.id,
                                   DeliveryQueue.step_id == step.id,
@@ -3603,7 +3453,7 @@ def _process_flow_enrollments():
             sent_contacts.add(contact.id)
             continue
 
-        # ── Log to ledger as "rendered" and enqueue ──
+        # ── Log to ledger and enqueue ──
         ledger = log_action(contact, "flow", flow.id, "rendered", RC_OK,
                             source_type=flow.name, enrollment_id=enrollment.id,
                             step_id=step.id, template_id=template.id,
@@ -3621,14 +3471,13 @@ def _process_flow_enrollments():
             from_email=from_email,
             subject=subject,
             html=html,
-            unsubscribe_url=unsub_url,
+            unsubscribe_url=_unsub,
             priority=_priority,
             ledger_id=ledger.id if ledger else 0,
         )
 
-        sent_contacts.add(contact.id)  # mark contact as enqueued this tick
+        sent_contacts.add(contact.id)
 
-        # Real-time pipeline: refresh contact intelligence after flow email queued
         try:
             from cascade import cascade_contact
             cascade_contact(contact.id, trigger="flow_email_sent")
