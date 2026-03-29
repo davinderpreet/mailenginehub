@@ -24,6 +24,20 @@ ROOT = Path(__file__).parent
 # ============================================================================
 
 FILE_DESCRIPTIONS = {
+    "flow_runtime.py": {
+        "brief": "Flow send package builder — centralizes flow render/decision logic (Phase 3)",
+        "detail": """Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
+which resolves objective, timing, products, offers, and renders via template_engine for all flow sends.
+Replaces inline rendering in _process_flow_enrollments and _pause_lower_priority_enrollments.""",
+        "key_functions": [
+            "build_flow_send_package(enrollment, step, contact, flow, template=None, trigger_context=None) → dict with status/subject/html/priority",
+            "_resolve_objective(flow, step, template) → (objective, urgency, discount_purpose)",
+            "_check_soft_timing_gate(contact, urgency) → ('ok', None) or ('deferred', next_available_at)",
+            "_resolve_products(contact, flow, enrollment, trigger_context) → list of product dicts",
+            "_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None",
+            "_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML",
+        ],
+    },
     "app.py": {
         "brief": "Flask application — all routes, scheduler, webhooks, auth",
         "detail": """Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,

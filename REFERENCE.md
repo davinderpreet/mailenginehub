@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-29 11:58. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-29 12:00. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (62 files, 39,253 lines)
+## Python Files — Detailed (62 files, 39,267 lines)
 
 ### `app.py` (7,260 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -313,7 +313,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 ### `account_manager.py` (1,693 lines)
 **Account Manager AI — autonomous nightly email campaign planning and execution via Claude**
 
-### `generate-context.py` (1,336 lines)
+### `generate-context.py` (1,350 lines)
 **Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
 
 ### `customer_intelligence.py` (1,150 lines)
@@ -503,6 +503,20 @@ Key functions:
 - `compute_quality_score(opportunity) — 0-100 multi-factor score`
 
 ### `flow_runtime.py` (777 lines)
+**Flow send package builder — centralizes flow render/decision logic (Phase 3)**
+
+Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
+which resolves objective, timing, products, offers, and renders via template_engine for all flow sends.
+Replaces inline rendering in _process_flow_enrollments and _pause_lower_priority_enrollments.
+
+Key functions:
+- `build_flow_send_package(enrollment, step, contact, flow, template=None, trigger_context=None) → dict with status/subject/html/priority`
+- `_resolve_objective(flow, step, template) → (objective, urgency, discount_purpose)`
+- `_check_soft_timing_gate(contact, urgency) → ('ok', None) or ('deferred', next_available_at)`
+- `_resolve_products(contact, flow, enrollment, trigger_context) → list of product dicts`
+- `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
+- `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
+
 ### `product_intelligence.py` (709 lines)
 **Product recommendation engine — purchase history analysis, cross-sells, upgrades, replacements, reorders**
 
