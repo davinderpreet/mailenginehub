@@ -19,21 +19,8 @@ TOKEN   = os.getenv('SHOPIFY_ACCESS_TOKEN', '')
 API_VER = '2024-01'
 BASE    = f"{STORE}/admin/api/{API_VER}"
 
-# Category inference from product title
-CATEGORY_KEYWORDS = {
-    "Bluetooth Headsets": ["headset", "earpiece", "th11", "th-11", "g10", "g7", "g3", "geforce", "trucker headset", "bluetooth head"],
-    "Dash Cams":          ["dash cam", "dashcam", "a20", "car camera", "parking mode", "dash-cam"],
-    "Phone Accessories":  ["phone case", "screen protector", "charging", "cable", "usb-c", "usb c"],
-    "Speakers":           ["speaker", "soundbar"],
-    "Smart Home":         ["smart", "wifi plug", "bulb"],
-}
-
-def infer_category(title: str) -> str:
-    t = title.lower()
-    for cat, kws in CATEGORY_KEYWORDS.items():
-        if any(kw in t for kw in kws):
-            return cat
-    return "Other Electronics"
+# Single source of category keywords — shared_constants.py
+from shared_constants import CATEGORY_KEYWORDS, infer_category
 
 
 # ── Shopify API helpers ────────────────────────────────────────────────────────

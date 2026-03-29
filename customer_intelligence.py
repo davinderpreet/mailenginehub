@@ -23,16 +23,8 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-# Reuse the same category keywords as data_enrichment.py / shopify_enrichment.py
-CATEGORY_KEYWORDS = {
-    "Bluetooth Headsets": ["headset", "earpiece", "th11", "th-11", "g10", "g7", "g3",
-                           "geforce", "trucker headset", "bluetooth head"],
-    "Dash Cams":          ["dash cam", "dashcam", "a20", "car camera", "parking mode", "dash-cam"],
-    "Phone Accessories":  ["phone case", "screen protector", "charging", "cable", "usb-c", "usb c"],
-    "Speakers":           ["speaker", "soundbar"],
-    "Smart Home":         ["smart", "wifi plug", "bulb"],
-    "Other Electronics":  [],
-}
+# Single source of category keywords — shared_constants.py
+from shared_constants import CATEGORY_KEYWORDS
 
 DOW_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 

@@ -530,6 +530,88 @@ and generates corresponding blocks_json. One-time migration tool.""",
     "search_contact.py": {
         "brief": "Contact search utility — CLI helper to find contacts by email or name",
     },
+    "shared_constants.py": {
+        "brief": "Single source of business knowledge — category keywords, product aliases, upgrade paths, reorder cycles, seasonal context",
+        "detail": """Centralizes all LDAS product domain knowledge so customer_intelligence, profit_engine,
+shopify_enrichment, and data_enrichment import from here instead of defining their own copies.
+Includes: CATEGORY_KEYWORDS (Bluetooth Headsets, Dash Cams, Ear Cushions & Parts, Cables & Chargers),
+PRODUCT_ALIASES (brand/model → canonical name), UPGRADE_PATHS (Budget→Mid→Premium tiers),
+REORDER_CYCLES (replacement intervals by category), SEEDED_RELATIONSHIPS (cross-sell/accessory/replacement
+product relationships), and seasonal_context() (holiday/season awareness).""",
+        "key_functions": [
+            "infer_category(title) — Maps product title to canonical category via keyword matching",
+            "resolve_product_alias(title) — Resolves brand/model aliases to canonical product titles",
+            "get_seasonal_context() — Returns current season/holiday info for AI prompts",
+        ],
+    },
+    "intelligence_layer.py": {
+        "brief": "Unified intelligence API — contact profiles, timing gates, discount policy, diagnostics",
+        "detail": """Phase 1 of the architecture rebuild. Single entry point for all contact intelligence.
+Aggregates data from CustomerProfile, ContactScore, MessageDecision, and product_intelligence
+into a unified schema (schema_version=1). Includes timing gate (should_contact_now) that checks
+recency, suppression, and unsubscribe status. Discount policy engine decides whether to offer
+discounts based on customer type, lifecycle stage, and product margins. Used by studio, AM, and flows.""",
+        "key_functions": [
+            "get_contact_intelligence(contact_id) — Returns unified profile dict with all intelligence sections",
+            "should_contact_now(contact_id) — Timing gate: checks recency, suppression, unsubscribe",
+            "get_discount_policy(contact_id, family, candidate_products) — Returns discount recommendation",
+            "get_next_products(contact_id) — Returns product recommendations from product_intelligence",
+            "format_intelligence_for_prompt(intel) — Formats intelligence dict for AI prompt context",
+            "diagnose_contact(contact_id) — Debug helper: returns full intelligence + timing + discount",
+        ],
+    },
+    "product_intelligence.py": {
+        "brief": "Product recommendation engine — purchase history analysis, cross-sells, upgrades, replacements, reorders",
+        "detail": """Phase 1 product intelligence. Analyzes customer purchase history against shared_constants
+knowledge (upgrade paths, reorder cycles, product relationships) to generate typed recommendations.
+Schema: replacements/reorders use product_key, cross_sells/accessories use target_key + is_product flag,
+upgrades use to_product (specific) or category (fallback). Seeds product relationships into
+ProductRelationship/ProductUpgradePath/ReorderCycle/ProductAlias tables on first run.""",
+        "key_functions": [
+            "get_customer_product_context(contact) — Returns full recommendation set per customer",
+            "seed_product_intelligence() — Seeds relationship tables from shared_constants data",
+            "resolve_product(title) — Resolves product alias and returns canonical title + category",
+        ],
+    },
+    "template_engine.py": {
+        "brief": "Shared template rendering & validation engine — single render path for all preview/send/studio/preflight",
+        "detail": """Phase 2 of the architecture rebuild. THE single public API for rendering and validating email
+templates. All preview routes, send paths, studio candidate preview, and campaign_preflight use this module.
+Delegates block rendering to block_registry.py (internal). Adds 6-category post-render validation:
+offer_consistency (discount values match across subject/blocks/rendered HTML), product_consistency
+(concrete sellable products in product blocks), structural (unsubscribe, no JS, valid URLs),
+placeholder_check (no unresolved tokens in send mode), block_structure (delegates to block_registry),
+content_completeness (subject, preview, HTML exist). Product resolution follows strict priority:
+explicit → intelligence_layer → legacy block_registry fallback.
+
+Preview text uses _enrich_preview_text() helper for single canonical enrichment path.
+Block rendering uses _TemplateProxy to avoid double-enrichment of preview_text.
+explain flag is passed through correctly (not forced True).
+_intelligence_to_products() maps Phase 1 schema keys (product_key, target_key, to_product)
+to ProductImageCache + ProductCommercial lookups.""",
+        "key_functions": [
+            "make_render_contract(template, ...) — Build structured render contract dict",
+            "render_email(contract) — THE single render entry point, returns RenderResult dict",
+            "preview_email(template, ...) — Convenience wrapper: render in preview mode + explain=True",
+            "validate_rendered_email(html, subject, ...) — Post-render 6-category validation",
+            "substitute_preview_tokens(html) — Replace send-time tokens for browser preview display",
+        ],
+    },
+    "learning_context.py": {
+        "brief": "Learning context provider — aggregates performance data for AI prompts and strategy decisions",
+    },
+    "account_manager.py": {
+        "brief": "Account Manager AI — autonomous nightly email campaign planning and execution via Claude",
+    },
+    "bootstrap_strategies.py": {
+        "brief": "Bootstrap strategy seeds — initial ContactStrategy rows for new contacts before learning data exists",
+    },
+    "email_sanitizer.py": {
+        "brief": "Email HTML sanitizer — cleans AI-generated HTML for safe email rendering",
+    },
+    "postmaster_tools.py": {
+        "brief": "Google Postmaster Tools integration — domain reputation, spam rate, authentication monitoring",
+    },
 }
 
 MODEL_DESCRIPTIONS = {
@@ -585,6 +667,17 @@ MODEL_DESCRIPTIONS = {
     "PendingTrigger": "Unprocessed behavioral trigger. trigger_type (browse/cart/checkout), trigger_data, status. Processed by _check_passive_triggers every 30s.",
     "OmnisendOrder": "Legacy Omnisend order data. Imported during migration from Omnisend. Read-only historical data.",
     "OmnisendOrderItem": "Legacy Omnisend order line item. Historical data from migration.",
+    "AutoEmail": "Auto-sent email record. Links AI/AM sends to contact + template. Tracks sent_at, opened, clicked, purpose, source_type (ai_engine/account_manager).",
+    "ProductAlias": "Product alias mapping. alias_title → canonical_title. Seeded by product_intelligence.py from shared_constants.PRODUCT_ALIASES. Used for product resolution.",
+    "ProductRelationship": "Product relationship definition. from_product/to_product with relationship_type (cross_sell/accessory/replacement). strength score 0-100. source: seeded or learned.",
+    "ProductUpgradePath": "Product upgrade path. from_product → to_product within category, tier_from → tier_to (Budget/Mid/Premium). Seeded from shared_constants.UPGRADE_PATHS.",
+    "ReorderCycle": "Reorder cycle definition per category. avg_days (expected replacement interval), min/max bounds. Used by product_intelligence for reorder recommendations.",
+    "PostmasterMetric": "Google Postmaster Tools daily metric. domain_reputation, spam_rate, authentication_rate, encryption_rate. Tracked by postmaster_tools.py.",
+    "ContactStrategy": "Per-contact communication strategy. preferred_frequency, content_preference, best_channel, risk_tolerance. Seeded by bootstrap_strategies.py, updated by strategy_optimizer.py.",
+    "AMPendingReview": "Account Manager pending review queue. AM-generated campaign awaiting human approval. Links to template candidate, target segment, send plan.",
+    "PromptVersion": "AI prompt versioning. prompt_key, version, prompt_text, performance metrics. Enables A/B testing of AI prompts.",
+    "AMRunLog": "Account Manager nightly run log. contacts_analyzed, emails_planned, emails_sent, revenue_attributed. Audit trail for AM decisions.",
+    "CompetitorProduct": "Competitor product data. brand, model, price, features, source_url. Scraped by knowledge_scraper for competitive positioning.",
 }
 
 ROUTE_GROUPS = {

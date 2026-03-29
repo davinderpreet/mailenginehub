@@ -14,25 +14,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 OMNISEND_API_KEY = os.getenv("OMNISEND_API_KEY", "")
 OMNISEND_BASE    = "https://api.omnisend.com/v3"
 
-# ── Category inference from product title keywords ────────────────────────────
-CATEGORY_KEYWORDS = {
-    "Bluetooth Headsets": ["headset", "bluetooth headset", "earpiece", "g10", "g7", "th11", "th-11", "trucker headset"],
-    "Dash Cams":          ["dash cam", "dashcam", "a20", "car camera", "parking mode"],
-    "Phone Accessories":  ["phone case", "screen protector", "charger", "cable", "usb"],
-    "Speakers":           ["speaker", "soundbar", "audio"],
-    "Smart Home":         ["smart", "wifi plug", "bulb", "automation"],
-    "Other Electronics":  [],  # fallback
-}
-
-def infer_category(product_title: str) -> str:
-    title_lower = product_title.lower()
-    for category, keywords in CATEGORY_KEYWORDS.items():
-        if category == "Other Electronics":
-            continue
-        for kw in keywords:
-            if kw in title_lower:
-                return category
-    return "Other Electronics"
+# Single source of category keywords — shared_constants.py
+from shared_constants import CATEGORY_KEYWORDS, infer_category
 
 
 # ── Omnisend API helper ────────────────────────────────────────────────────────

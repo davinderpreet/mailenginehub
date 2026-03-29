@@ -20,33 +20,8 @@ logger = logging.getLogger(__name__)
 # Constants
 # ═══════════════════════════════════════════════════════════════
 
-# Estimated margins by product_type when Shopify cost data is unavailable
-MARGIN_ESTIMATES = {
-    "Bluetooth Headsets":   0.45,
-    "Dash Cams":            0.35,
-    "Phone Accessories":    0.55,
-    "Speakers":             0.40,
-    "Smart Home":           0.35,
-    "Other Electronics":    0.40,
-    "Cables & Adapters":    0.60,
-    "Power Banks":          0.45,
-    "Screen Protectors":    0.65,
-    "Cases & Covers":       0.55,
-}
-DEFAULT_MARGIN = 0.40
-
-# Category keyword mapping (same as customer_intelligence.py)
-CATEGORY_KEYWORDS = {
-    "Bluetooth Headsets": ["headset", "headphone", "earphone", "earbud", "bluetooth", "trucker", "wireless audio"],
-    "Dash Cams":          ["dash cam", "dashcam", "dash camera", "car camera", "driving recorder"],
-    "Phone Accessories":  ["phone", "case", "charger", "cable", "screen protector", "mount", "holder"],
-    "Speakers":           ["speaker", "soundbar", "sound bar", "portable speaker", "bluetooth speaker"],
-    "Smart Home":         ["smart", "alexa", "google home", "wifi", "iot", "smart plug", "smart light"],
-    "Power Banks":        ["power bank", "battery pack", "portable charger"],
-    "Cables & Adapters":  ["cable", "adapter", "usb", "hdmi", "converter", "dongle"],
-    "Screen Protectors":  ["screen protector", "tempered glass", "film"],
-    "Cases & Covers":     ["case", "cover", "sleeve", "pouch"],
-}
+# Single source of constants — shared_constants.py
+from shared_constants import MARGIN_ESTIMATES, DEFAULT_MARGIN, CATEGORY_KEYWORDS
 
 
 def _infer_product_type(product_title, existing_type=""):

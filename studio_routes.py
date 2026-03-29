@@ -339,23 +339,37 @@ def candidate_reject(id):
 
 @studio_bp.route("/candidates/<int:id>/preview")
 def candidate_preview(id):
-    """Render candidate blocks as a full HTML email preview (raw HTML, no base.html)."""
-    from block_registry import _BLOCK_RENDERERS, BLOCK_TYPES
-    from email_shell import wrap_email
+    """Render candidate blocks as a full HTML email preview (raw HTML, no base.html).
+    Uses template_engine.py for consistent rendering with variant resolution,
+    personalization, and shell wrapping — same path as approved templates.
+    """
+    from template_engine import render_email, make_render_contract, substitute_preview_tokens
 
     candidate = TemplateCandidate.get_by_id(id)
-    blocks = json.loads(candidate.blocks_json)
 
-    inner_html = ""
-    for block in blocks:
-        bt = block.get("block_type", "")
-        renderer = _BLOCK_RENDERERS.get(bt)
-        if renderer:
-            html = renderer(block.get("content", {}))
-            if html:
-                inner_html += html
+    # Build a temporary template-like object for the engine
+    class _CandidateAsTemplate:
+        def __init__(self, c):
+            self.id = 0
+            self.name = "Candidate %d" % c.id
+            self.subject = c.subject_line or ""
+            self.preview_text = c.preview_text or ""
+            self.html_body = ""
+            self.template_format = "blocks"
+            self.blocks_json = c.blocks_json
+            self.template_family = getattr(c.job, "family", "") if c.job else ""
+            self.ai_enabled = False
+            self.block_ai_overrides = ""
 
-    return wrap_email(inner_html)
+    fake_template = _CandidateAsTemplate(candidate)
+    contract = make_render_contract(
+        template=fake_template,
+        source_system="studio",
+        mode="preview",
+    )
+    result = render_email(contract)
+    html = substitute_preview_tokens(result["html"])
+    return html
 
 
 # ─────────────────────────────────

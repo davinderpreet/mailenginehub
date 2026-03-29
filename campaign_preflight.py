@@ -195,13 +195,61 @@ def _check_suppression_coverage(contacts):
 
 
 def _check_content_compliance(template):
-    """Check template has unsubscribe link."""
-    html = template.html_body.lower()
-    if "{{unsubscribe_url}}" not in template.html_body and "unsubscribe" not in html:
-        return PreflightCheck("Content Compliance", "BLOCK",
-            "Template is missing an unsubscribe link. Add {{unsubscribe_url}} to the template.")
-    return PreflightCheck("Content Compliance", "PASS",
-        "Template contains an unsubscribe link.")
+    """Check template content using shared template engine validation.
+
+    Runs template_engine validation in send mode and maps results to
+    preflight PASS/WARN/BLOCK. Falls back to basic unsubscribe check
+    if template_engine is unavailable.
+    """
+    try:
+        from template_engine import render_email, make_render_contract
+
+        contract = make_render_contract(
+            template=template,
+            source_system="campaign",
+            mode="send",
+        )
+        result = render_email(contract)
+
+        # Critical checks that should BLOCK sending
+        critical_checks = {"structural", "offer_consistency", "placeholder_check"}
+        critical_errors = [e for e in result.get("errors", []) if e["check"] in critical_checks]
+
+        if critical_errors:
+            messages = [e["message"] for e in critical_errors[:3]]
+            return PreflightCheck("Content Compliance", "BLOCK",
+                "Template validation errors: " + "; ".join(messages),
+                {"errors": critical_errors, "full_report": result["validation_report"]})
+
+        # Non-critical errors or warnings
+        all_errors = result.get("errors", [])
+        if all_errors:
+            messages = [e["message"] for e in all_errors[:3]]
+            return PreflightCheck("Content Compliance", "WARN",
+                "Template has %d issue(s): %s" % (len(all_errors), "; ".join(messages)),
+                {"errors": all_errors, "full_report": result["validation_report"]})
+
+        warnings = result.get("warnings", [])
+        if warnings:
+            return PreflightCheck("Content Compliance", "WARN",
+                "Template has %d warning(s)" % len(warnings),
+                {"warnings": warnings, "full_report": result["validation_report"]})
+
+        return PreflightCheck("Content Compliance", "PASS",
+            "Template validated successfully.",
+            {"full_report": result["validation_report"]})
+
+    except Exception:
+        # Fallback to basic check if template_engine unavailable
+        html = (getattr(template, "html_body", "") or "").lower()
+        blocks_json = getattr(template, "blocks_json", "") or ""
+        combined = html + blocks_json.lower()
+
+        if "{{unsubscribe_url}}" not in combined and "unsubscribe" not in combined:
+            return PreflightCheck("Content Compliance", "BLOCK",
+                "Template is missing an unsubscribe link. Add {{unsubscribe_url}} to the template.")
+        return PreflightCheck("Content Compliance", "PASS",
+            "Template contains an unsubscribe link.")
 
 
 def _check_authentication(warmup):

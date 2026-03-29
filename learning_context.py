@@ -4,7 +4,22 @@ Used by Flows (app.py) and Account Manager (account_manager.py) to make
 data-driven decisions based on nightly learning outputs.
 
 No business logic here — just clean data access with safe fallbacks.
+
+NOTE (Phase 1 Intelligence Layer): This file's functions are now also available
+via intelligence_layer.py. Existing callers continue to work unchanged.
+New code should prefer intelligence_layer imports.
 """
+# Re-export from intelligence_layer for forward compatibility
+try:
+    from intelligence_layer import (
+        get_contact_intelligence,
+        get_next_products,
+        should_contact_now,
+        get_discount_policy,
+        format_intelligence_for_prompt,
+    )
+except ImportError:
+    pass  # intelligence_layer not yet available (graceful degradation)
 
 import json
 import logging

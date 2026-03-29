@@ -1318,6 +1318,9 @@ def preview_blocks_template(template_id):
       ?validate=1      — Include validation warnings in JSON response
       ?explain=1       — Include block-level explainability (variant resolution trace)
       ?family=welcome  — Override family for validation (defaults to template.template_family)
+
+    Uses template_engine.py internally for consistent render + validation.
+    External contract unchanged: HTML by default, JSON when validate/explain requested.
     """
     template = EmailTemplate.get_or_none(EmailTemplate.id == template_id)
     if not template:
@@ -1326,9 +1329,10 @@ def preview_blocks_template(template_id):
     if getattr(template, 'template_format', 'html') != 'blocks':
         return "Not a blocks-format template (template_format='%s')" % getattr(template, 'template_format', 'html'), 400
 
-    from block_registry import render_template_blocks, validate_template, BRAND_URL as _BRAND_URL
+    from template_engine import render_email, make_render_contract, substitute_preview_tokens
+    from email_shell import BRAND_URL as _BRAND_URL
 
-    # Sample products for preview (uses BRAND_URL from block_registry / email_shell)
+    # Sample products for preview (uses BRAND_URL from email_shell)
     sample_products = [
         {"title": "Bluetooth Speaker Pro", "image_url": "", "price": "49.99",
          "product_url": _BRAND_URL, "compare_price": "69.99"},
@@ -1337,44 +1341,44 @@ def preview_blocks_template(template_id):
     ]
 
     # Phase 2: Preview-as-contact — resolve variants against a real contact's profile
-    contact = None
     contact_id = request.args.get("contact_id")
     if contact_id:
         try:
-            contact = Contact.get_by_id(int(contact_id))
+            Contact.get_by_id(int(contact_id))
         except (Contact.DoesNotExist, ValueError):
             return jsonify({"error": "Contact %s not found" % contact_id}), 404
 
-    # Phase 2: Explainability — return variant resolution trace
     want_explain = request.args.get("explain") == "1"
     want_validate = request.args.get("validate") == "1"
 
-    if want_explain or want_validate:
-        html, explain_list = render_template_blocks(
-            template, contact=contact, products=sample_products, discount=None, explain=True
-        )
-    else:
-        html = render_template_blocks(
-            template, contact=contact, products=sample_products, discount=None
-        )
-        explain_list = None
+    # Render through shared template engine
+    contract = make_render_contract(
+        template=template,
+        source_system="studio",
+        contact_id=int(contact_id) if contact_id else None,
+        product_context=sample_products,
+        mode="preview",
+        explain=want_explain or want_validate,
+    )
+    engine_result = render_email(contract)
 
-    html = html.replace("{{unsubscribe_url}}", "#")
-    html = html.replace("{{discount_code}}", "PREVIEW5")
+    # Substitute preview tokens for browser display (after validation)
+    html = substitute_preview_tokens(engine_result["html"])
 
-    # If JSON response requested
+    # If JSON response requested (preserve existing external contract)
     if want_validate or want_explain:
         result = {"html": html}
 
         if want_validate:
-            family = request.args.get("family") or getattr(template, "template_family", "") or None
-            result["warnings"] = validate_template(template.blocks_json, family=family)
+            # Use engine's validation report (richer than raw validate_template)
+            result["warnings"] = engine_result["validation_report"]
 
         if want_explain:
-            result["explain"] = explain_list or []
+            result["explain"] = engine_result.get("explain") or []
             # Include contact context if previewing as a contact
-            if contact:
+            if contact_id:
                 try:
+                    contact = Contact.get_by_id(int(contact_id))
                     from condition_engine import get_contact_context
                     result["contact_context"] = get_contact_context(contact)
                     result["contact_info"] = {
@@ -1383,7 +1387,7 @@ def preview_blocks_template(template_id):
                         "first_name": contact.first_name or "",
                         "last_name": contact.last_name or "",
                     }
-                except ImportError:
+                except (ImportError, Exception):
                     pass
 
         return jsonify(result)
@@ -1836,7 +1840,9 @@ def sent_emails():
 # ─────────────────────────────────
 @app.route("/sent-emails/preview/<email_type>/<int:email_id>")
 def sent_email_preview(email_type, email_id):
-    """Return the rendered HTML of a sent email (for iframe preview)."""
+    """Return the rendered HTML of a sent email (for iframe preview).
+    Uses template_engine.py for consistent rendering.
+    """
     try:
         if email_type == "campaign":
             ce = CampaignEmail.get_by_id(email_id)
@@ -1865,18 +1871,17 @@ def sent_email_preview(email_type, email_id):
         else:
             return "Invalid email type", 400
 
-        # Render blocks-based templates through the block registry
-        if getattr(template, 'template_format', 'html') == 'blocks' and template.blocks_json:
-            from block_registry import render_template_blocks
-            html = render_template_blocks(template, contact=contact, products=[], discount=None)
-        else:
-            html = template.html_body or ""
-
-        html = html.replace("{{first_name}}", contact.first_name or "Friend")
-        html = html.replace("{{last_name}}", contact.last_name or "")
-        html = html.replace("{{email}}", contact.email or "")
-        html = html.replace("{{unsubscribe_url}}", "#")
-        html = html.replace("{{discount_code}}", "PREVIEW")
+        # Render through shared template engine
+        from template_engine import render_email, make_render_contract, substitute_preview_tokens
+        contract = make_render_contract(
+            template=template,
+            source_system="preview",
+            contact_id=contact.id if contact else None,
+            product_context=[],  # Sent email preview — no product resolution
+            mode="preview",
+        )
+        engine_result = render_email(contract)
+        html = substitute_preview_tokens(engine_result["html"])
 
         return html, 200, {"Content-Type": "text/html; charset=utf-8"}
     except Exception as e:
@@ -1949,9 +1954,9 @@ def journey_preview():
 
 @app.route("/journey-preview/render/<int:template_id>")
 def journey_preview_render(template_id):
-    """Render a single template with a test contact for iframe preview."""
-    from block_registry import render_template_blocks
-
+    """Render a single template with a test contact for iframe preview.
+    Uses template_engine.py for consistent rendering.
+    """
     template = EmailTemplate.get_or_none(EmailTemplate.id == template_id)
     if not template:
         return "<html><body><p style='padding:40px;color:#666;'>Template not found</p></body></html>", 200
@@ -1969,33 +1974,17 @@ def journey_preview_render(template_id):
     if not test_contact:
         test_contact = Contact.select().first()
 
-    # Get products for product blocks
-    products = []
+    # Render through shared template engine (products + offer auto-resolved)
     try:
-        from database import ShopifyProduct
-        products = list(ShopifyProduct.select().where(ShopifyProduct.status == "active").limit(6))
-    except Exception:
-        pass
-
-    # Get discount for discount blocks
-    discount = None
-    try:
-        from discount_engine import get_or_create_discount, get_discount_display
-        discount = get_discount_display(get_or_create_discount(test_contact.email, "preview"))
-    except Exception:
-        pass
-
-    # Render
-    try:
-        if getattr(template, 'template_format', 'html') == 'blocks' and template.blocks_json:
-            html = render_template_blocks(template, contact=test_contact, products=products, discount=discount)
-        else:
-            html = template.html_body or "<p>No content</p>"
-
-        # Personalize
-        first = test_contact.first_name or "Friend" if test_contact else "Friend"
-        html = html.replace("{{first_name}}", first)
-        html = html.replace("{{last_name}}", test_contact.last_name or "" if test_contact else "")
+        from template_engine import render_email, make_render_contract, substitute_preview_tokens
+        contract = make_render_contract(
+            template=template,
+            source_system="preview",
+            contact_id=test_contact.id if test_contact else None,
+            mode="preview",
+        )
+        engine_result = render_email(contract)
+        html = substitute_preview_tokens(engine_result["html"])
     except Exception as e:
         html = "<html><body><p style='padding:40px;color:#666;'>Render error: %s</p></body></html>" % str(e)
 
@@ -7269,6 +7258,20 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
                        id="profit_scoring", replace_existing=True)
     _scheduler.add_job(_run_nightly_activity_sync, "cron", hour=3, minute=0,
                        id="activity_sync_nightly", replace_existing=True)
+
+    # Product intelligence — runs after profit_engine, needs fresh ProductCommercial data
+    def _run_nightly_product_intelligence():
+        try:
+            import sys as _spi; _spi.path.insert(0, APP_DIR)
+            from product_intelligence import run_nightly
+            app.logger.info("Nightly product intelligence starting...")
+            run_nightly()
+            app.logger.info("Product intelligence complete")
+        except Exception as _e:
+            app.logger.error(f"Product intelligence failed: {_e}")
+
+    _scheduler.add_job(_run_nightly_product_intelligence, "cron", hour=4, minute=50,
+                       id="product_intelligence", replace_existing=True)
 
     # Update WarmupLog daily at 11:55 PM with all email stats
     def _run_warmup_log_update():

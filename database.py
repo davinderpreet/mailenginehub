@@ -788,7 +788,8 @@ def init_db():
          KnowledgeEntry, AIModelConfig, StudioJob, TemplateCandidate, TemplatePerformance,
          OutcomeLog, ActionPerformance, TemplateSegmentPerformance, ModelWeights, LearningConfig,
          ScrapeSource, ScrapeLog, RejectionLog, PostmasterMetric,
-         ContactStrategy, AMPendingReview, PromptVersion, CompetitorProduct, AMRunLog],
+         ContactStrategy, AMPendingReview, PromptVersion, CompetitorProduct, AMRunLog,
+         ProductAlias, ProductRelationship, ProductUpgradePath, ReorderCycle],
         safe=True
     )
     _migrate_contact_columns()
@@ -1393,6 +1394,85 @@ class ProductCommercial(BaseModel):
 
     class Meta:
         table_name = "product_commercial"
+
+
+# ═══════════════════════════════════════════════════════════════
+# Intelligence Layer — Product Knowledge Tables
+# ═══════════════════════════════════════════════════════════════
+
+class ProductAlias(BaseModel):
+    """Maps variant titles / abbreviations to a canonical product key.
+    Supports both exact product IDs and fuzzy title matches."""
+    alias            = CharField(index=True)                # lowercase alias: "g7", "blueparrott g7"
+    canonical_title  = CharField()                          # "BlueParrott G7"
+    product_id       = CharField(default="")                # Shopify product_id (if known)
+    category         = CharField(default="")                # "Bluetooth Headsets"
+    source           = CharField(default="seeded")          # seeded | learned
+    created_at       = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "product_aliases"
+        indexes = (
+            (("alias",), False),
+        )
+
+
+class ProductRelationship(BaseModel):
+    """Structured product-to-product intelligence.
+    Supports both category-level (Bluetooth Headsets → Ear Cushions) and
+    exact product-level (BlueParrott G7 → BlueParrott G10) relationships."""
+    source_key           = CharField(index=True)            # category OR exact product title
+    target_key           = CharField(index=True)            # category OR exact product title
+    source_is_product    = BooleanField(default=False)      # True = exact product, False = category
+    target_is_product    = BooleanField(default=False)
+    relationship_type    = CharField()                      # upgrade | accessory | replacement | cross_sell | bundle
+    strength             = IntegerField(default=50)         # 0-100 relevance score
+    typical_delay_days   = IntegerField(null=True)          # 180 for ear cushion replacement
+    reason               = CharField(default="")            # "Ear cushions wear out after ~6 months"
+    source_origin        = CharField(default="seeded")      # seeded | learned — learned rows never overwrite seeded
+    evidence_count       = IntegerField(default=0)          # co-purchase observations (for learned)
+    is_active            = BooleanField(default=True)
+    created_at           = DateTimeField(default=datetime.now)
+
+    class Meta:
+        table_name = "product_relationships"
+        indexes = (
+            (("source_key", "target_key", "relationship_type"), True),
+        )
+
+
+class ProductUpgradePath(BaseModel):
+    """Tier-based upgrade paths within a category."""
+    category             = CharField(index=True)            # "Bluetooth Headsets"
+    tier_order           = IntegerField()                   # 1=budget, 2=mid, 3=pro, 4=premium
+    tier_name            = CharField()                      # "Budget", "Mid", "Pro", "Premium"
+    price_range_low      = FloatField()                     # 30.00
+    price_range_high     = FloatField()                     # 50.00
+    typical_products     = TextField(default="[]")          # JSON: product titles typical of this tier
+    upgrade_trigger_days = IntegerField(default=180)        # suggest upgrade after N days
+    source_origin        = CharField(default="seeded")      # seeded | learned
+
+    class Meta:
+        table_name = "product_upgrade_paths"
+        indexes = (
+            (("category", "tier_order"), True),
+        )
+
+
+class ReorderCycle(BaseModel):
+    """Expected replacement/reorder timing per product type or specific product."""
+    product_key          = CharField(unique=True, index=True)  # category OR exact product title
+    is_product           = BooleanField(default=False)         # True = exact product, False = category
+    typical_cycle_days   = IntegerField()                      # 180
+    cycle_variance_days  = IntegerField(default=30)            # +/- 30 days
+    reminder_offset_days = IntegerField(default=14)            # remind 14 days before due
+    consumable           = BooleanField(default=True)          # True = wears out, False = durable
+    source_origin        = CharField(default="seeded")         # seeded | learned
+    learned_cycle_days   = IntegerField(null=True)             # observed from order data (null = no data)
+    learned_sample_size  = IntegerField(default=0)
+
+    class Meta:
+        table_name = "reorder_cycles"
 
 
 # ═══════════════════════════════════════════════════════════════
