@@ -66,7 +66,7 @@ def build_flow_send_package(enrollment, step, contact, flow,
 4. **`_resolve_offer(contact, purpose, candidate_products)`** — intelligence-backed discount policy
 5. **`_build_legacy_token_context(contact, flow, trigger_context, products, offer)`** — for legacy HTML templates
 6. **`_render_via_template_engine(template, contact, objective, products, offer, mode="send")`** — template_engine contract + render
-7. Return the assembled package
+7. Return the assembled package; when status is `"deferred"`, pack `next_available_at` into `metadata`
 
 ### 1.3 Trigger Urgency Map
 
@@ -95,6 +95,8 @@ TRIGGER_OBJECTIVE = {
     "tag_added":          "engagement",
 }
 ```
+
+**Override rule:** If `template.template_family` is set and maps to a known objective (e.g. `cart_recovery` → `checkout_recovery`, `welcome` → `welcome`), use that instead of the trigger-based mapping. This applies to both objective and discount purpose. Template family is more specific than trigger type.
 
 ### 1.5 Trigger Alias Policy
 
@@ -149,8 +151,10 @@ Calls `intelligence_layer.should_contact_now(contact.id)` and interprets the res
 | Urgency | Behavior |
 |---------|----------|
 | **urgent** | Skip soft timing entirely. Checkout/browse/cart recovery is time-sensitive. Always returns `"ok"`. |
-| **medium** | Respect `should_contact_now()` only for `reason == "weekly_cap"`. Ignore `"too_soon"` — welcome/order emails are expected. |
+| **medium** | Respect `should_contact_now()` only when reason starts with `"weekly_cap"`. Ignore reasons starting with `"too_soon"` — welcome/order emails are expected. |
 | **lower** | Fully respect `should_contact_now()`. If it says no, return `"deferred"` with `next_available_at`. |
+
+**Important:** `should_contact_now()` returns formatted reason strings like `"too_soon (sent 6h ago, need 48h gap)"` and `"weekly_cap (5 emails in last 7 days)"`. Use `reason.startswith("too_soon")` / `reason.startswith("weekly_cap")` — never exact string equality.
 
 ### 2.3 What It Does NOT Check
 
@@ -187,8 +191,9 @@ When `_check_soft_timing_gate` returns `"deferred"`:
 ### 3.2 Per-Trigger Product Resolution
 
 **Checkout/cart recovery** (`checkout_abandoned`, `cart_abandonment`):
-- If `trigger_context` has `cart_items`: use those directly
+- If `trigger_context` has `cart_items`: use those (normalize to standard product dict format)
 - Else: query `AbandonedCheckout` for latest unrecovered checkout → extract `line_items_json`
+- Note: Shopify cart line items use `{title, quantity, price, variant_id}` — `_resolve_products()` must normalize these into `{product_title, product_url, image_url, price}` using ProductImageCache lookups where available
 - Else: query `CustomerActivity` for recent `viewed_product` events as cart proxy
 - Never replace cart-specific products with generic intelligence recs
 
@@ -283,7 +288,7 @@ def _build_legacy_token_context(contact, flow, trigger_context,
 | `{{top_category}}` | Top category from `category_affinity_json` | `"our top picks"` |
 | `{{days_since_purchase}}` | Days since `CustomerProfile.last_order_at` | `"a while"` |
 | `{{intent_level}}` | Bucketed from `CustomerProfile.intent_score` (high/medium/low) | `"medium"` |
-| `{{unsubscribe_url}}` | Left for template_engine / shell to resolve | *(not replaced here)* |
+| `{{unsubscribe_url}}` | `_make_unsubscribe_url(contact)` — resolved by flow_runtime before enqueue | *(always resolved)* |
 
 ### 5.3 Application
 
@@ -292,10 +297,11 @@ For block-based templates (`template_format == "blocks"`):
 - template_engine handles all personalization through the render contract
 
 For legacy HTML templates (`template_format != "blocks"`):
-- `_build_legacy_token_context()` builds the map
-- Tokens are applied to `html_body` before passing to `template_engine.make_render_contract()`
-- Or: applied after `render_email()` returns the HTML, before enqueue
-- Implementation detail: whichever path avoids double-substitution and keeps template_engine as the validation authority
+- `_build_legacy_token_context()` builds the full token map
+- Tokens are applied to `template.html_body` BEFORE passing to template_engine
+- Then shell wrapping is applied by flow_runtime (if `shell_version >= 1`)
+- Then `template_engine.validate_rendered_email()` validates the final HTML
+- This order ensures: tokens resolved → shell wrapped → validation catches any remaining issues
 
 ### 5.4 Cart Items HTML Rendering
 
@@ -340,8 +346,10 @@ Subject comes from `step.subject_override or template.subject`. Token substituti
 ### 6.4 Tracking Pixel + Shell
 
 - Tracking pixel appended by flow_runtime after render (same `_make_flow_tracking_pixel_url()` call)
-- Email shell wrapping applied by flow_runtime if `template.shell_version >= 1`
-- These happen after template_engine render, before final packaging
+- **Shell wrapping responsibility:**
+  - Block-based templates: template_engine handles shell wrapping internally during `render_email()` — flow_runtime does NOT wrap again
+  - Legacy HTML templates: flow_runtime applies `email_shell.wrap_email(html, preview_text=..., unsubscribe_url=_unsub)` after token substitution, before validation — matching current behavior at app.py ~L3568
+- These happen after template_engine render (for blocks) or after token substitution (for legacy), before final packaging
 
 ---
 
@@ -387,6 +395,18 @@ elif package["status"] in ("suppressed", "invalid"):
     # ledger: suppressed/invalid with package["reason"]
     # cancel if suppressed
 ```
+
+**Trigger context assembly** (stays in caller, app.py):
+
+A small helper `_build_trigger_context_from_enrollment()` extracts explicit trigger data from the database:
+
+| Trigger Type | Context Keys | Source |
+|-------------|-------------|--------|
+| `checkout_abandoned` / `cart_abandonment` | `{"cart_items": [...], "checkout_url": str}` | `AbandonedCheckout` record for the contact |
+| `browse_abandonment` | `{"viewed_products": [...]}` | Recent `CustomerActivity` `viewed_product` events |
+| `contact_created` / `order_placed` / `no_purchase_days` / `tag_added` | `None` or `{}` | No explicit trigger context needed |
+
+Returns `None` when no trigger-specific context is available. `build_flow_send_package` then resolves from the database itself via `_resolve_products()`.
 
 **Preserved in caller:** frequency cap check, dedup check, one-send-per-tick gating, learning swap resolution, cascade_contact() post-enqueue, ActionLedger writes, unsubscribe pre-check.
 
@@ -446,7 +466,7 @@ New file: `tests/test_flow_runtime.py`
 
 Uses existing conftest.py fixtures (in_memory_db, make_contact). Mocks intelligence_layer, template_engine, discount_engine, delivery_engine at function boundaries.
 
-### Test Cases
+### Test Cases (12 tests)
 
 | # | Test | Verifies |
 |---|------|----------|
@@ -460,6 +480,8 @@ Uses existing conftest.py fixtures (in_memory_db, make_contact). Mocks intellige
 | 8 | `test_flow_am_ownership` | Enrolling in flow pauses AM; flow completion triggers maybe_handover_from_flow() |
 | 9 | `test_paused_flow_resumes_after_completion` | Higher-priority flow completes → paused lower-priority enrollment resumes with status="active" |
 | 10 | `test_purchase_after_enrollment_cancels_recovery` | Order placed after enrollment → delivery_engine guard cancels the queued recovery email |
+| 11 | `test_legacy_token_context_resolves_all_tokens` | For a checkout_abandoned enrollment with CustomerProfile + ContactScore, all 17 tokens resolve to non-default values; cart_items renders as inline HTML |
+| 12 | `test_trigger_alias_same_package` | `cart_abandonment` trigger enrollment produces same objective, urgency, and discount purpose as `checkout_abandoned` |
 
 ### Test Strategy
 
