@@ -24,6 +24,20 @@ ROOT = Path(__file__).parent
 # ============================================================================
 
 FILE_DESCRIPTIONS = {
+    "am_runtime.py": {
+        "brief": "AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)",
+        "detail": """Phase 4 Account Manager decision engine. Provides build_am_decision() for structured
+action decisions (reorder, cross_sell, winback, loyalty, education, wait) and execute_am_decision()
+for AI copy generation + template_engine rendering. Replaces inline logic in run_account_manager().""",
+        "key_functions": [
+            "build_am_decision(contact, strategy, intelligence=None) → decision dict with action_type/products/offer/timing",
+            "execute_am_decision(contact, strategy, decision, template=None) → rendered subject/html or invalid",
+            "_normalize_strategy(strategy_json_dict, current_phase) → executable strategy state",
+            "_evaluate_candidates(strategy_state, intel) → (action_type, score, reasoning)",
+            "_check_preconditions(contact) → ('ok','') or ('skipped', reason)",
+            "_check_timing(contact, intelligence) → ('ok', scheduled_at) or ('wait', wait_until)",
+        ],
+    },
     "flow_runtime.py": {
         "brief": "Flow send package builder — centralizes flow render/decision logic (Phase 3)",
         "detail": """Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
