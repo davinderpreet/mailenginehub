@@ -721,6 +721,8 @@ def generate_am_email_from_template(contact, purpose, strategy_context=""):
 
     Returns: {subject, preheader, body_html, template_id} or None
     """
+    # DEPRECATED (Phase 4): replaced by am_runtime.execute_am_decision()
+    # Kept for backward compatibility but no longer called by run_account_manager()
     from database import EmailTemplate, init_db
     from block_registry import render_template_blocks
     from discount_engine import get_or_create_discount, get_discount_display
@@ -972,9 +974,11 @@ def run_account_manager():
     """
     from database import (ContactStrategy, AMPendingReview, Contact,
                           SuppressionEntry, LearningConfig, DeliveryQueue,
-                          ContactScore, FlowEnrollment, init_db)
+                          ContactScore, FlowEnrollment, AutoEmail, init_db)
     from delivery_engine import enqueue_email
     from action_ledger import log_action
+    from datetime import date
+    import am_runtime
     init_db()
 
     # Master switch
@@ -1035,84 +1039,121 @@ def run_account_manager():
 
             processed += 1
 
-            # Use the pre-populated strategy to determine email purpose
-            purpose = cs.next_action_type or "education"
-            strategy_data = {}
-            try:
-                strategy_data = json.loads(cs.strategy_json) if cs.strategy_json and cs.strategy_json != "{}" else {}
-            except Exception:
-                pass
+            # Build decision via am_runtime
+            decision = am_runtime.build_am_decision(contact, cs)
 
-            strategy_context = "Phase: %s. Strategy: %s" % (
-                cs.current_phase or "unknown",
-                strategy_data.get("overall_goal", "")
-            )
+            if decision["status"] == "wait":
+                cs.next_action_date = decision["wait_until"]
+                _retry_db_op(lambda: cs.save())
+                try:
+                    log_action(contact, "auto", 0, "deferred", "RC_AM_WAIT",
+                               source_type="account_manager",
+                               reason_detail="AM wait: %s" % decision.get("reasoning", ""))
+                except Exception:
+                    pass
+                continue
 
-            # Generate email via block template + Claude (one API call per contact)
-            api_start = time.time()
-            result = generate_am_email_from_template(contact, purpose, strategy_context)
-            api_elapsed = time.time() - api_start
+            if decision["status"] == "skipped":
+                skipped += 1
+                continue
 
-            if result:
-                total_input_tokens  += result.get("input_tokens", 0)
-                total_output_tokens += result.get("output_tokens", 0)
-                if cs.autonomous:
-                    send_at = _get_optimal_send_time(contact)
-                    _unsub = "https://mailenginehub.com/unsubscribe?email=%s" % contact.email
-                    ledger = _retry_db_op(lambda: log_action(
-                        contact, "auto", 0, "rendered", "RC_ACCOUNT_MANAGER",
-                        source_type="account_manager",
-                        subject=result["subject"],
-                        html=result["body_html"], priority=60,
-                        reason_detail="AM auto: %s, scheduled %s" % (purpose, send_at.strftime('%H:%M'))
-                    ))
-                    _tpl_id = result.get("template_id", 0)
-                    _retry_db_op(lambda: enqueue_email(
-                        contact=contact,
-                        email_type="auto",
-                        source_id=0, enrollment_id=0, step_id=0, template_id=_tpl_id,
-                        from_name="LDAS Electronics",
-                        from_email="hello@news.ldaselectronics.com",
-                        subject=result["subject"],
-                        html=result["body_html"],
-                        unsubscribe_url=_unsub,
-                        priority=60,
-                        ledger_id=ledger.id if ledger else 0,
-                        scheduled_at=send_at,
-                    ))
-                    emails_generated += 1
-                else:
-                    _retry_db_op(lambda: AMPendingReview.create(
-                        contact=contact,
-                        strategy=cs,
-                        subject=result["subject"],
-                        preheader=result.get("preheader", ""),
-                        body_html=result["body_html"],
-                        reasoning=strategy_context,
-                        strategy_context=strategy_context,
-                        status="pending",
-                        action_type=purpose,
-                        created_at=datetime.now()
-                    ))
-                    emails_generated += 1
+            # Execute the decision (includes Claude API call)
+            _api_start = time.time()
+            result = am_runtime.execute_am_decision(contact, cs, decision)
+            api_elapsed = time.time() - _api_start
 
-            # Advance next_action_date (7-14 days based on strategy phase)
-            next_gap = 10  # default
-            phases = strategy_data.get("phases", [])
-            for i, ph in enumerate(phases):
-                if ph.get("name") == cs.current_phase and i + 1 < len(phases):
-                    # Move to next phase
-                    cs.current_phase = phases[i + 1]["name"]
-                    cs.current_phase_num = i + 2
-                    next_gap = 14
-                    break
+            if not result or result["status"] == "invalid":
+                cs.next_action_date = datetime.now() + timedelta(days=1)
+                _retry_db_op(lambda: cs.save())
+                continue
+
+            # Successful render — route to autonomous or review
+            _decision_snapshot = {k: v for k, v in decision.items()
+                                  if k not in ("render_result",)}
+            _decision_json_str = json.dumps(_decision_snapshot, default=str)
+
+            if cs.autonomous:
+                # Pre-create AutoEmail with frozen metadata
+                ae = _retry_db_op(lambda: AutoEmail.create(
+                    contact=contact,
+                    template=result.get("template_id"),
+                    subject=result["subject"],
+                    status="queued",
+                    auto_run_date=date.today(),
+                    action_type=decision["action_type"],
+                    decision_json=_decision_json_str,
+                ))
+                send_at = decision.get("scheduled_at") or _get_optimal_send_time(contact)
+                _unsub = "https://mailenginehub.com/unsubscribe?email=%s" % contact.email
+                ledger = _retry_db_op(lambda: log_action(
+                    contact, "auto", 0, "rendered", "RC_ACCOUNT_MANAGER",
+                    source_type="account_manager",
+                    subject=result["subject"],
+                    html=result["html"], priority=60,
+                    reason_detail="AM auto: %s, scheduled %s" % (
+                        decision["action_type"],
+                        send_at.strftime('%H:%M') if send_at else "now")))
+                _retry_db_op(lambda: enqueue_email(
+                    contact=contact,
+                    email_type="auto",
+                    source_id=0, enrollment_id=0, step_id=0,
+                    template_id=result.get("template_id", 0),
+                    from_name="LDAS Electronics",
+                    from_email="hello@news.ldaselectronics.com",
+                    subject=result["subject"],
+                    html=result["html"],
+                    unsubscribe_url=_unsub,
+                    priority=60,
+                    ledger_id=ledger.id if ledger else 0,
+                    scheduled_at=send_at,
+                    auto_email_id=ae.id if ae else 0,
+                ))
+                emails_generated += 1
             else:
-                next_gap = random.randint(7, 14)
+                # Review mode
+                _retry_db_op(lambda: AMPendingReview.create(
+                    contact=contact,
+                    strategy=cs,
+                    subject=result["subject"],
+                    preheader=result.get("preheader", ""),
+                    body_html=result["html"],
+                    reasoning=decision.get("reasoning", ""),
+                    strategy_context="Phase: %s. Action: %s" % (
+                        decision.get("strategy_phase", ""), decision["action_type"]),
+                    action_type=decision["action_type"],
+                    template_id=result.get("template_id", 0),
+                    decision_json=_decision_json_str,
+                    status="pending",
+                    created_at=datetime.now(),
+                ))
+                emails_generated += 1
 
-            cs.next_action_date = datetime.now() + timedelta(days=next_gap)
-            cs.last_reviewed_at = datetime.now()
-            cs.updated_at = datetime.now()
-            _retry_db_op(lambda: cs.save())
+            # Track tokens for cost
+            ai_tokens = result.get("ai_tokens", {})
+            total_input_tokens += ai_tokens.get("input", 0)
+            total_output_tokens += ai_tokens.get("output", 0)
+
+            # Advance strategy with cadence policy
+            try:
+                strategy_state = am_runtime._normalize_strategy(
+                    json.loads(cs.strategy_json) if cs.strategy_json and cs.strategy_json != "{}" else {},
+                    current_phase=cs.current_phase or "",
+                )
+                cadence = strategy_state.get("cadence_policy", {"preferred_gap_days": 7})
+                gap_days = cadence.get("preferred_gap_days", 7)
+                cs.next_action_date = datetime.now() + timedelta(days=gap_days)
+                cs.next_action_type = am_runtime._suggest_next_action(strategy_state, decision)
+                cs.last_reviewed_at = datetime.now()
+                cs.updated_at = datetime.now()
+
+                # Write back normalized strategy if it was legacy
+                raw = json.loads(cs.strategy_json) if cs.strategy_json and cs.strategy_json != "{}" else {}
+                if "allowed_actions" not in raw:
+                    cs.strategy_json = json.dumps(strategy_state)
+
+                _retry_db_op(lambda: cs.save())
+            except Exception as e:
+                logger.warning("[AM] Strategy advance failed for %s: %s", contact.email, e)
 
             # Adaptive pacing
             sleep_time = max(0.2, 1.0 - api_elapsed)
@@ -1220,9 +1261,10 @@ def _get_optimal_send_time(contact):
 
 def approve_email(pending_id):
     """Approve a pending email — move it to DeliveryQueue."""
-    from database import AMPendingReview, ContactStrategy, DeliveryQueue, Contact, init_db
+    from database import AMPendingReview, ContactStrategy, DeliveryQueue, Contact, AutoEmail, init_db
     from delivery_engine import enqueue_email
     from action_ledger import log_action
+    from datetime import date
     init_db()
 
     pe = AMPendingReview.get_or_none(AMPendingReview.id == pending_id)
@@ -1261,6 +1303,33 @@ def approve_email(pending_id):
         ledger_id=ledger.id if ledger else 0,
         scheduled_at=send_at,
     )
+
+    # Create AutoEmail with frozen metadata from pending review
+    ae = None
+    try:
+        ae = AutoEmail.create(
+            contact=contact,
+            template=pe.template_id if hasattr(pe, 'template_id') and pe.template_id else None,
+            subject=subject,
+            status="queued",
+            auto_run_date=date.today(),
+            action_type=pe.action_type or "",
+            decision_json=pe.decision_json if hasattr(pe, 'decision_json') and pe.decision_json else "{}",
+        )
+    except Exception as e:
+        logger.warning("[AM] Failed to create AutoEmail on approval: %s", e)
+
+    # Link the DeliveryQueue item to the AutoEmail
+    if ae:
+        try:
+            DeliveryQueue.update(auto_email_id=ae.id).where(
+                DeliveryQueue.contact == contact,
+                DeliveryQueue.email_type == "auto",
+                DeliveryQueue.status == "queued",
+                DeliveryQueue.subject == subject,
+            ).execute()
+        except Exception:
+            pass
 
     pe.status = "approved"
     pe.reviewed_at = datetime.now()

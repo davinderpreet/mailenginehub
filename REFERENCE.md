@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-29 15:47. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-29 15:52. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 40,310 lines)
+## Python Files — Detailed (63 files, 40,392 lines)
 
 ### `app.py` (7,302 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -310,7 +310,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 (5) AI/Studio: KnowledgeEntry, StudioJob, TemplateCandidate, AIModelConfig
 (6) Learning: OutcomeLog, ActionPerformance, TemplatePerformance, ModelWeights, LearningConfig
 
-### `account_manager.py` (1,693 lines)
+### `account_manager.py` (1,762 lines)
 **Account Manager AI — autonomous nightly email campaign planning and execution via Claude**
 
 ### `generate-context.py` (1,350 lines)
@@ -661,6 +661,15 @@ Key functions:
 - `compute_action_effectiveness() — Action type performance per segment`
 - `compute_optimal_frequency() — Personalized send gap per contact`
 
+### `outcome_tracker.py` (428 lines)
+**Nightly outcome collection — opened/clicked/purchased/revenue attribution for learning**
+
+Nightly (5:00 UTC). Queries CampaignEmail + FlowEmail from last 48h.
+Attributes purchases via last-touch within 72h window. Computes hours_to_open, hours_to_purchase.
+Writes OutcomeLog entries (email_type, email_id, contact, template_id, action_type, segment,
+opened, clicked, purchased, revenue, send_gap_hours). Re-checks 72h window for older emails
+to catch delayed purchases. Data feeds into learning_engine.py for performance computation.
+
 ### `bootstrap_strategies.py` (427 lines)
 **Bootstrap strategy seeds — initial ContactStrategy rows for new contacts before learning data exists**
 
@@ -680,15 +689,6 @@ get_or_create_discount(email, purpose) returns a unique discount code for a cont
 Creates Shopify price rule + discount code via API if none exists. Tracks in GeneratedDiscount table.
 get_discount_display(discount_info) formats for email insertion (code, expiry, value display).
 Supports percentage and fixed-amount discounts with configurable expiry.
-
-### `outcome_tracker.py` (415 lines)
-**Nightly outcome collection — opened/clicked/purchased/revenue attribution for learning**
-
-Nightly (5:00 UTC). Queries CampaignEmail + FlowEmail from last 48h.
-Attributes purchases via last-touch within 72h window. Computes hours_to_open, hours_to_purchase.
-Writes OutcomeLog entries (email_type, email_id, contact, template_id, action_type, segment,
-opened, clicked, purchased, revenue, send_gap_hours). Re-checks 72h window for older emails
-to catch delayed purchases. Data feeds into learning_engine.py for performance computation.
 
 ### `system_map_data.py` (414 lines)
 **System architecture visualization — 65+ nodes, relationships, stats for D3.js force graph**

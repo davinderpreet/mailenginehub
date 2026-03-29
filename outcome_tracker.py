@@ -81,8 +81,19 @@ def _get_contact_segment(contact_id):
         return "unknown"
 
 
-def _get_action_type(contact_id):
-    """Get the action_type for a contact from AM strategy or flow enrollment."""
+def _get_action_type(contact_id, auto_email_id=None):
+    """Get action_type — prefers frozen AutoEmail.action_type over mutable strategy."""
+    # 1. Frozen metadata from AutoEmail (most trustworthy)
+    if auto_email_id:
+        try:
+            from database import AutoEmail
+            ae = AutoEmail.get_or_none(AutoEmail.id == auto_email_id)
+            if ae and hasattr(ae, 'action_type') and ae.action_type:
+                return ae.action_type
+        except Exception:
+            pass
+
+    # 2. Fall back to ContactStrategy (legacy path)
     try:
         from database import ContactStrategy
         cs = ContactStrategy.get_or_none(ContactStrategy.contact == contact_id)
@@ -90,6 +101,8 @@ def _get_action_type(contact_id):
             return cs.next_action_type
     except Exception:
         pass
+
+    # 3. Fall back to flow
     try:
         from database import FlowEnrollment
         fe = (FlowEnrollment.select()
@@ -97,7 +110,7 @@ def _get_action_type(contact_id):
               .order_by(FlowEnrollment.enrolled_at.desc())
               .first())
         if fe and fe.flow:
-            return fe.flow.flow_type or "flow"
+            return getattr(fe.flow, 'flow_type', '') or "flow"
     except Exception:
         pass
     return ""
@@ -325,7 +338,7 @@ def _process_auto_emails(lookback_hours=48):
             )
 
             segment = _get_contact_segment(contact.id)
-            action_type = _get_action_type(contact.id)
+            action_type = _get_action_type(contact.id, auto_email_id=ae.id)
             template_id = ae.template_id if ae.template_id else 0
             subject_line = ae.subject or ""
             if not subject_line:
