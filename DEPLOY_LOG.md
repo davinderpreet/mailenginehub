@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-29 14:29 -- `644ee89`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-03-29 15:13 -- `800e963`
 
 **feat: Phase 1 (Intelligence Layer) + Phase 2 (Template Engine) architecture rebuild**
