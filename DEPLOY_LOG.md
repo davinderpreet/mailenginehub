@@ -4,6 +4,16 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-29 15:13 -- `800e963`
+
+**feat: Phase 1 (Intelligence Layer) + Phase 2 (Template Engine) architecture rebuild**
+
+New files: shared_constants.py, intelligence_layer.py, product_intelligence.py, template_engine.py
+Modified: app.py, campaign_preflight.py, studio_routes.py, customer_intelligence.py, data_enrichment.py, database.py, profit_engine.py, shopify_enrichment.py, generate-context.py
+Tests: 35 template_engine + 38 intelligence_layer = 73 total
+
+---
+
 ### 2026-03-28 12:46 -- `66ed4b9`
 
 **fix: resolve timezone-aware vs naive datetime comparison crashing all profile pages**
