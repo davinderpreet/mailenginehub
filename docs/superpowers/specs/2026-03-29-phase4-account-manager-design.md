@@ -186,6 +186,8 @@ When `_normalize_strategy()` encounters a legacy strategy_json:
 
 Normalization is idempotent — running it twice produces the same output.
 
+**Write-back policy:** `_normalize_strategy()` is a pure function (returns a dict, no side effects). The caller (`run_account_manager`) writes back the normalized state to `ContactStrategy.strategy_json` after the first normalization of a legacy row. This means legacy strategies are permanently upgraded on first AM run, avoiding repeated runtime normalization cost.
+
 ### 3.3 Strategy Update on Wait
 
 When AM decides `wait`:
@@ -195,9 +197,13 @@ When AM decides `wait`:
 
 When AM decides to act:
 - After execution, advance strategy:
-  - Update `next_action_type` based on cadence policy and action ranking
+  - Update `next_action_type` via `_suggest_next_action(strategy_state, decision)` (see Section 10.3)
   - Update `next_action_date` based on `cadence_policy.preferred_gap_days`
   - Update `last_outcome_summary` with what was sent
+- If render is invalid (execute_am_decision returns status="invalid"):
+  - Defer `next_action_date` by 1 day (not the full gap)
+  - Do NOT advance `next_action_type`
+  - Log render failure in ActionLedger
 
 ---
 
@@ -220,7 +226,7 @@ AM_ACTION_TO_FAMILY = {
 }
 ```
 
-Template is selected by action_type. Learning swap (get_best_template_for_family) applied if available.
+Template is selected by action_type. The tuple is `(template_name, template_family)`. `build_am_decision` returns `template_family` as the family string (e.g. `"post_purchase"`, `"winback"`, `"promo"`) for use with `make_render_contract(objective=...)`. `execute_am_decision` uses the template_name (e.g. `"AM: Education"`) to look up the EmailTemplate, then applies learning swap (get_best_template_for_family) if available.
 
 ### 4.3 AI Copy Generation
 
@@ -285,19 +291,26 @@ template_id    = IntegerField(default=0)   # template used for this email
 decision_json  = TextField(default="{}")   # AM decision snapshot (optional, "" for flows/campaigns)
 ```
 
-### 5.3 Autonomous Send Flow
+### 5.3 What `decision_json` Stores
+
+`decision_json` stores a **snapshot of the full decision dict** (not just `metadata`). This includes `action_type`, `objective`, `expected_value`, `confidence`, `reasoning`, `candidate_products`, and `offer_context`. The full context is needed for learning/debugging — the outcome_tracker uses `AutoEmail.action_type` as the primary key, but the rest of the decision is valuable for analytics.
+
+### 5.4 Autonomous Send Flow
 
 For autonomous AM sends, pre-create the AutoEmail record with frozen metadata:
 
 ```python
+# Snapshot the decision (exclude render_result to keep size reasonable)
+_decision_snapshot = {k: v for k, v in decision.items() if k != "render_result"}
+
 auto_email = AutoEmail.create(
     contact=contact,
     template=template,
     subject=result["subject"],
     status="queued",
     auto_run_date=date.today(),
-    action_type=decision["action_type"],         # frozen
-    decision_json=json.dumps(decision["metadata"]),  # frozen
+    action_type=decision["action_type"],               # frozen
+    decision_json=json.dumps(_decision_snapshot, default=str),  # frozen
 )
 
 enqueue_email(
@@ -309,28 +322,56 @@ enqueue_email(
 )
 ```
 
+Note: `DeliveryQueue.decision_json` is available but NOT populated for autonomous sends — the AutoEmail record is the authoritative source. The DeliveryQueue field exists for potential future use or debugging but is not part of the primary metadata chain.
+
 This way the exact AM decision survives approval, queueing, send, and outcome tracking.
 
-### 5.4 Review Send Flow
+### 5.5 Review Send Flow
 
 For review-mode AM sends:
 
 ```python
+_decision_snapshot = {k: v for k, v in decision.items() if k != "render_result"}
+
 AMPendingReview.create(
     contact=contact,
     strategy=strategy,
     subject=result["subject"],
     body_html=result["html"],
-    action_type=decision["action_type"],
-    template_id=result["template_id"],
-    decision_json=json.dumps(decision["metadata"]),
+    action_type=decision["action_type"],      # already exists on AMPendingReview
+    template_id=result["template_id"],        # new field
+    decision_json=json.dumps(_decision_snapshot, default=str),  # new field
     status="pending",
 )
 ```
 
-On approval, `approve_email()` creates the AutoEmail with frozen action_type from the pending review record.
+**New behavior in `approve_email()`:** The current `approve_email()` logs to ActionLedger and enqueues directly — it does NOT create an AutoEmail record. Phase 4 adds AutoEmail creation on approval:
 
-### 5.5 Outcome Tracker Update
+```python
+def approve_email(pending_id):
+    # ... existing logic ...
+    pending = AMPendingReview.get(pending_id)
+
+    # NEW: Create AutoEmail with frozen metadata from the pending review
+    auto_email = AutoEmail.create(
+        contact=pending.contact,
+        template=pending.template_id,
+        subject=final_subject,
+        status="queued",
+        auto_run_date=date.today(),
+        action_type=pending.action_type,           # frozen from decision time
+        decision_json=pending.decision_json,       # frozen from decision time
+    )
+
+    enqueue_email(
+        ...
+        auto_email_id=auto_email.id,  # links delivery to AutoEmail
+    )
+```
+
+This ensures approved emails have the same trustworthy metadata chain as autonomous sends.
+
+### 5.6 Outcome Tracker Update
 
 Update `outcome_tracker._get_action_type()` to prefer frozen metadata:
 
@@ -350,6 +391,14 @@ def _get_action_type(contact_id, auto_email_id=None):
     # 3. Fall back to flow
     ...
 ```
+
+**How outcome_tracker obtains `auto_email_id`:** The chain is:
+1. SES sends open/click/bounce webhook → outcome_tracker receives `ses_message_id`
+2. outcome_tracker finds `DeliveryQueue` by `ses_message_id` (or via contact matching)
+3. `DeliveryQueue.auto_email_id` links to the pre-created `AutoEmail` record
+4. outcome_tracker passes `auto_email_id` to `_get_action_type()`
+
+Existing callers of `_get_action_type(contact_id)` (without `auto_email_id`) continue to work via the ContactStrategy fallback. Callers in the auto-email tracking path (`_process_auto_emails`) should be updated to pass the available `auto_email_id`.
 
 ### 5.6 Backward Compatibility
 
@@ -435,7 +484,22 @@ def _resolve_offer(contact, action_type, candidate_products):
 
 ---
 
-## 9. Flow Ownership — Preserved
+## 9. ActionLedger Logging Conventions
+
+AM decisions are logged to ActionLedger for traceability:
+
+| Decision | `source_type` | `status` | `reason_code` | `reason_detail` |
+|----------|--------------|----------|---------------|-----------------|
+| Wait | `"account_manager"` | `"deferred"` | `"RC_AM_WAIT"` | `"weak opportunity: best score 0.22"` |
+| Skipped (flows) | `"account_manager"` | `"suppressed"` | `"RC_AM_FLOW_ACTIVE"` | `"active flow: Welcome Series"` |
+| Skipped (unsub/suppressed) | `"account_manager"` | `"suppressed"` | `"RC_UNSUBSCRIBED"` / `"RC_SUPPRESSED_ENTRY"` | reason |
+| Skipped (timing) | `"account_manager"` | `"deferred"` | `"RC_AM_TIMING"` | `"should_contact_now: too_soon"` |
+| Rendered + queued | `"account_manager"` | `"rendered"` | `"RC_ACCOUNT_MANAGER"` | `"action=cross_sell, template=AM: Cross-Sell"` |
+| Invalid render | `"account_manager"` | `"suppressed"` | `"RC_RENDER_INVALID"` | error detail |
+
+---
+
+## 10. Flow Ownership — Preserved
 
 ### 9.1 Precondition Check
 
@@ -456,7 +520,7 @@ On handover, the new/resharpened strategy is normalized into executable state. `
 
 ---
 
-## 10. run_account_manager() Refactored
+## 11. run_account_manager() Refactored
 
 ### 10.1 New Flow
 
@@ -512,11 +576,17 @@ cs.last_reviewed_at = datetime.now()
 cs.save()
 ```
 
-`_suggest_next_action()` picks the next action based on strategy phase and what was just sent — avoids repeating the same action type consecutively unless the strategy demands it.
+`_suggest_next_action(strategy_state, decision)` picks the next action type:
+1. Get `allowed_actions` from strategy state
+2. Remove the action that was just executed (avoid consecutive repeats)
+3. If the decision had a second-highest-scored candidate, prefer that
+4. Otherwise rotate through allowed_actions in order
+5. If only one action is allowed, keep it
+6. Returns the chosen next action_type string
 
 ---
 
-## 11. Preserved Surfaces
+## 12. Preserved Surfaces
 
 No changes to:
 - AM dashboard routes (`/account-manager`, `/account-manager/settings`, etc.)
@@ -528,15 +598,17 @@ No changes to:
 - `_recalculate_confidence()` — unchanged
 - AM prompt management routes
 
-`approve_email()` gets one small update: when creating AutoEmail on approval, copy `action_type` and `decision_json` from the AMPendingReview record.
+`approve_email()` gets a substantive update: it now creates an AutoEmail record on approval (it did not before), copying `action_type` and `decision_json` from AMPendingReview. See Section 5.5 for details.
+
+**Autonomous vs review routing:** `build_am_decision` does not determine send mode — the caller (`run_account_manager`) reads `ContactStrategy.autonomous` to decide. If `autonomous == True`, the caller pre-creates AutoEmail and enqueues. If `autonomous == False`, the caller creates AMPendingReview. This is an orchestration concern, not a decision concern.
 
 ---
 
-## 12. Tests
+## 13. Tests
 
 New file: `tests/test_am_runtime.py`
 
-### Test Cases (11 tests)
+### Test Cases (19 tests)
 
 | # | Test | Verifies |
 |---|------|----------|
@@ -555,6 +627,10 @@ New file: `tests/test_am_runtime.py`
 | 13 | `test_legacy_strategy_normalized` | Old narrative-only strategy_json normalized to executable state without crash |
 | 14 | `test_wait_updates_next_action_date` | Wait decision writes back wait_until to ContactStrategy.next_action_date |
 | 15 | `test_performance_data_ignored_below_sample_threshold` | ActionPerformance with sample_size < 20 not used for scoring |
+| 16 | `test_invalid_render_defers_not_advances` | Invalid render defers next_action_date by 1 day, does NOT advance next_action_type |
+| 17 | `test_autonomous_routes_to_auto_email` | ContactStrategy.autonomous=True → AutoEmail pre-created + enqueue; False → AMPendingReview |
+| 18 | `test_normalize_strategy_idempotent` | Running _normalize_strategy twice on same input produces identical output |
+| 19 | `test_cadence_policy_drives_advancement` | After send, next_action_date uses preferred_gap_days from strategy, not hardcoded default |
 
 ### Test Strategy
 
@@ -566,7 +642,7 @@ New file: `tests/test_am_runtime.py`
 
 ---
 
-## 13. What Gets Deprecated
+## 14. What Gets Deprecated
 
 | Old Code | Replaced By |
 |----------|------------|
@@ -579,7 +655,7 @@ New file: `tests/test_am_runtime.py`
 
 `generate_am_email_from_template()` and `gather_contact_profile()` remain in account_manager.py with deprecation comments. They are no longer called by the main nightly run but preserved for any external callers.
 
-## 14. What Stays for Campaigns Later
+## 15. What Stays for Campaigns Later
 
 | Code | Phase | Notes |
 |------|-------|-------|
@@ -588,7 +664,7 @@ New file: `tests/test_am_runtime.py`
 | Campaign send in delivery_engine | Phase 5 | Untouched |
 | Campaign outcome tracking | Phase 5 | Untouched |
 
-## 15. Files Changed Summary
+## 16. Files Changed Summary
 
 | File | Change Type | Scope |
 |------|------------|-------|
@@ -598,6 +674,6 @@ New file: `tests/test_am_runtime.py`
 | `delivery_engine.py` | **MODIFIED** | Add optional decision_json="" to enqueue_email signature |
 | `outcome_tracker.py` | **MODIFIED** | _get_action_type prefers AutoEmail.action_type over ContactStrategy |
 | `generate-context.py` | **MODIFIED** | Add am_runtime.py description |
-| `tests/test_am_runtime.py` | **NEW** | 15 test cases |
+| `tests/test_am_runtime.py` | **NEW** | 19 test cases |
 
 No changes to: `template_engine.py`, `intelligence_layer.py`, `flow_runtime.py`, `block_registry.py`, routes (except approve_email internals).
