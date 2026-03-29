@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-29 11:11. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-29 11:49. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (61 files, 38,627 lines)
+## Python Files — Detailed (62 files, 39,404 lines)
 
 ### `app.py` (7,411 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -502,6 +502,7 @@ Key functions:
 - `simulate_preflight(campaign) — Check warmup headroom, fatigue, complaints`
 - `compute_quality_score(opportunity) — 0-100 multi-factor score`
 
+### `flow_runtime.py` (777 lines)
 ### `product_intelligence.py` (709 lines)
 **Product recommendation engine — purchase history analysis, cross-sells, upgrades, replacements, reorders**
 
