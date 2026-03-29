@@ -264,41 +264,102 @@ def _resolve_viewed_from_db(contact, limit=5):
 
 
 def _get_intelligence_products(contact, limit=4):
-    """Get recommended products from intelligence_layer."""
+    """Get recommended products from intelligence_layer.
+
+    Resolves intelligence schema keys (product_key, target_key, to_product)
+    into concrete ProductImageCache-backed product dicts, matching the same
+    resolution pattern used by template_engine._intelligence_to_products().
+    """
     try:
         intel = intelligence_layer.get_next_products(contact.id)
-        candidates = []
-
-        # Prefer top_pick first
-        top = intel.get("top_pick")
-        if top:
-            candidates.append({
-                "product_title": top.get("product_title") or top.get("title") or "",
-                "product_url": top.get("product_url") or "https://ldas.ca",
-                "image_url": top.get("image_url") or "",
-                "price": str(top.get("price") or "0.00"),
-            })
-
-        for key in ("cross_sells", "reorders", "upgrades", "replacements", "accessories"):
-            for prod in (intel.get(key) or []):
-                if len(candidates) >= limit:
-                    break
-                title = prod.get("product_title") or prod.get("title") or ""
-                if not title:
-                    continue
-                candidates.append({
-                    "product_title": title,
-                    "product_url": prod.get("product_url") or "https://ldas.ca",
-                    "image_url": prod.get("image_url") or "",
-                    "price": str(prod.get("price") or "0.00"),
-                })
-            if len(candidates) >= limit:
-                break
-
-        return candidates[:limit]
     except Exception as exc:
         logger.warning("[flow_runtime] intelligence products error for contact %s: %s", contact.id, exc)
         return []
+
+    # Extract candidate keys from intelligence output (ordered by priority)
+    # Each entry: (key_string, is_product_level)
+    candidates = []
+    seen = set()
+
+    def _add(key, is_product=False):
+        if key and key not in seen:
+            seen.add(key)
+            candidates.append((key, is_product))
+
+    # top_pick first (highest priority)
+    top_pick = intel.get("top_pick") or {}
+    if top_pick.get("product_key"):
+        _add(top_pick["product_key"], is_product=True)
+
+    # replacements: product_key is a specific product title
+    for item in (intel.get("replacements") or []):
+        _add(item.get("product_key"), is_product=True)
+
+    # reorders: product_key is a specific product title
+    for item in (intel.get("reorders") or []):
+        _add(item.get("product_key"), is_product=True)
+
+    # cross_sells / accessories: target_key
+    for key in ("cross_sells", "accessories"):
+        for item in (intel.get(key) or []):
+            is_prod = item.get("is_product", False)
+            _add(item.get("target_key"), is_product=is_prod)
+
+    # upgrades: to_product when present, otherwise category-level fallback
+    for item in (intel.get("upgrades") or []):
+        if item.get("to_product"):
+            _add(item["to_product"], is_product=True)
+        elif item.get("category"):
+            _add(item["category"], is_product=False)
+
+    if not candidates:
+        return []
+
+    # Resolve candidate keys into concrete ProductImageCache-backed dicts
+    products = []
+    try:
+        from database import ProductImageCache
+    except ImportError:
+        logger.warning("[flow_runtime] ProductImageCache not available")
+        return []
+
+    for key, is_product in candidates[:limit * 2]:  # check extra candidates
+        if len(products) >= limit:
+            break
+
+        matched = None
+        if is_product:
+            try:
+                matched = ProductImageCache.get_or_none(
+                    ProductImageCache.product_title == key
+                )
+            except Exception:
+                pass
+
+        if not matched:
+            try:
+                matched = (ProductImageCache.select()
+                           .where(ProductImageCache.product_type == key)
+                           .first())
+            except Exception:
+                pass
+
+        if not matched:
+            logger.debug("[flow_runtime] No ProductImageCache match for key=%s is_product=%s", key, is_product)
+            continue
+
+        products.append({
+            "product_title": matched.product_title,
+            "product_url": matched.product_url or "",
+            "image_url": matched.image_url or "",
+            "price": str(matched.price or "0.00"),
+        })
+
+    if not products and candidates:
+        logger.info("[flow_runtime] Intelligence recommended %d candidates but no concrete products resolved",
+                    len(candidates))
+
+    return products
 
 
 def _legacy_product_fallback(contact):

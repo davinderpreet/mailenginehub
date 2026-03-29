@@ -2960,7 +2960,18 @@ def _pause_lower_priority_enrollments(contact, new_flow):
             ).exists()
 
         # If Step 1 hasn't sent yet, force-send it now before pausing
-        if first_step and not step1_sent and contact.subscribed:
+        # Also check DeliveryQueue — FlowEmail compat records are only created
+        # later by delivery_engine, so a queued-but-unsent Step 1 wouldn't show
+        # up in FlowEmail yet.
+        _step1_already_queued = False
+        if first_step and not step1_sent:
+            _step1_already_queued = (DeliveryQueue.select()
+                .where(DeliveryQueue.enrollment_id == enrollment.id,
+                       DeliveryQueue.step_id == first_step.id,
+                       DeliveryQueue.status.in_(["queued", "sending"]))
+                .exists())
+
+        if first_step and not step1_sent and not _step1_already_queued and contact.subscribed:
             try:
                 import flow_runtime
                 _unsub = _make_unsubscribe_url(contact)
@@ -3417,14 +3428,45 @@ def _process_flow_enrollments():
                        reason_detail="Soft timing gate: %s" % package["reason"])
             continue
 
-        if package["status"] in ("suppressed", "invalid"):
-            log_action(contact, "flow", flow.id, "suppressed", "RC_RENDER_INVALID",
+        if package["status"] == "suppressed":
+            log_action(contact, "flow", flow.id, "suppressed", "RC_RENDER_SUPPRESSED",
                        source_type=flow.name, enrollment_id=enrollment.id,
                        priority=_priority,
                        reason_detail=package["reason"])
-            if package["status"] == "suppressed":
+            enrollment.status = "cancelled"
+            enrollment.save()
+            continue
+
+        if package["status"] == "invalid":
+            # Track consecutive render failures to avoid infinite retry loops.
+            # Cancel after 3 consecutive failures (deterministic template issue).
+            # Otherwise back off next_send_at by 1 hour per failure.
+            _fail_count = (ActionLedger.select()
+                           .where(ActionLedger.contact == contact,
+                                  ActionLedger.source_type == flow.name,
+                                  ActionLedger.enrollment_id == enrollment.id,
+                                  ActionLedger.reason_code == "RC_RENDER_INVALID")
+                           .count()) + 1  # +1 for this failure
+
+            log_action(contact, "flow", flow.id, "suppressed", "RC_RENDER_INVALID",
+                       source_type=flow.name, enrollment_id=enrollment.id,
+                       priority=_priority,
+                       reason_detail="render failure %d/3: %s" % (_fail_count, package["reason"]))
+
+            if _fail_count >= 3:
                 enrollment.status = "cancelled"
                 enrollment.save()
+                app.logger.warning(
+                    "[FlowRender] Cancelled enrollment %d after %d consecutive render failures: %s"
+                    % (enrollment.id, _fail_count, package["reason"]))
+                _resume_paused_enrollments(enrollment.flow_id)
+            else:
+                # Back off: 1 hour per failure
+                enrollment.next_send_at = now + timedelta(hours=_fail_count)
+                enrollment.save()
+                app.logger.info(
+                    "[FlowRender] Render failure %d/3 for enrollment %d, retrying in %dh"
+                    % (_fail_count, enrollment.id, _fail_count))
             continue
 
         # package["status"] == "ready"
