@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-29 13:11. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-29 14:12. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (62 files, 39,370 lines)
+## Python Files — Detailed (62 files, 39,396 lines)
 
 ### `app.py` (7,302 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -401,7 +401,7 @@ Key functions:
 - `scrape_competitor(source) — Extracts product/pricing from competitor pages`
 - `classify_content(text, source_type) — AI classifies and scores relevance`
 
-### `flow_runtime.py` (838 lines)
+### `flow_runtime.py` (864 lines)
 **Flow send package builder — centralizes flow render/decision logic (Phase 3)**
 
 Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()

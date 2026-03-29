@@ -815,7 +815,15 @@ class TestDuplicateStep1QueueGuard:
     """Fix 1: force-send Step 1 must not enqueue a duplicate if already queued."""
 
     def test_no_duplicate_enqueue_when_step1_already_queued(self, in_memory_db, make_contact, make_flow):
+        """Requires Flask — skipped cleanly if unavailable."""
         from database import FlowStep, FlowEnrollment, DeliveryQueue, ActionLedger
+
+        # Guard: skip explicitly if Flask/app cannot be imported
+        flask = pytest.importorskip("flask", reason="Flask not installed — skipping app integration test")
+        try:
+            from app import _pause_lower_priority_enrollments
+        except Exception as exc:
+            pytest.skip("Cannot import app._pause_lower_priority_enrollments: %s" % exc)
 
         contact = make_contact()
         low_flow = make_flow("contact_created", steps=2, priority=10)
@@ -865,11 +873,7 @@ class TestDuplicateStep1QueueGuard:
                 "errors": [], "warnings": [],
             }
 
-            try:
-                from app import _pause_lower_priority_enrollments
-                _pause_lower_priority_enrollments(contact, high_flow)
-            except Exception:
-                pass  # Flask import issues on local
+            _pause_lower_priority_enrollments(contact, high_flow)
 
             # enqueue_email should NOT have been called — Step 1 already queued
             mock_enqueue.assert_not_called()
@@ -987,6 +991,55 @@ class TestIntelligenceProductResolution:
 
         assert len(products) >= 1
         assert products[0]["product_title"] == "USB-C Hub Max"
+
+    def test_skips_out_of_stock_products(self, in_memory_db, make_contact):
+        """Out-of-stock products in ProductCommercial must be filtered out."""
+        from flow_runtime import _get_intelligence_products
+        from database import ProductImageCache, ProductCommercial
+
+        contact = make_contact()
+
+        # Two products in same category — one in stock, one out
+        ProductImageCache.create(
+            product_id="OOS1", product_title="Discontinued Hub",
+            image_url="https://cdn.ldas.ca/disc.jpg",
+            product_url="https://ldas.ca/products/disc-hub",
+            price="39.99", product_type="Hubs", handle="disc-hub",
+        )
+        ProductImageCache.create(
+            product_id="IS1", product_title="Available Hub",
+            image_url="https://cdn.ldas.ca/avail.jpg",
+            product_url="https://ldas.ca/products/avail-hub",
+            price="49.99", product_type="Hubs", handle="avail-hub",
+        )
+
+        # Mark first one as out of stock
+        ProductCommercial.create(
+            product_id="OOS1", product_title="Discontinued Hub",
+            stock_pressure="out_of_stock",
+        )
+        ProductCommercial.create(
+            product_id="IS1", product_title="Available Hub",
+            stock_pressure="in_stock",
+        )
+
+        with patch("flow_runtime.intelligence_layer") as mock_intel:
+            mock_intel.get_next_products.return_value = {
+                "schema_version": 1,
+                "top_pick": {"product_key": "Discontinued Hub", "reason": "was popular"},
+                "cross_sells": [{"target_key": "Hubs", "is_product": False}],
+                "replacements": [],
+                "reorders": [],
+                "upgrades": [],
+                "accessories": [],
+            }
+
+            products = _get_intelligence_products(contact, limit=4)
+
+        # Discontinued Hub should be skipped; Available Hub picked via category fallback
+        titles = [p["product_title"] for p in products]
+        assert "Discontinued Hub" not in titles
+        assert "Available Hub" in titles
 
     def test_empty_intelligence_returns_empty(self, in_memory_db, make_contact):
         from flow_runtime import _get_intelligence_products

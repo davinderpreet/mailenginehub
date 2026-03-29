@@ -316,43 +316,69 @@ def _get_intelligence_products(contact, limit=4):
         return []
 
     # Resolve candidate keys into concrete ProductImageCache-backed dicts
+    # Filter out-of-stock via ProductCommercial (mirrors template_engine)
     products = []
     try:
-        from database import ProductImageCache
+        from database import ProductImageCache, ProductCommercial
     except ImportError:
-        logger.warning("[flow_runtime] ProductImageCache not available")
+        logger.warning("[flow_runtime] ProductImageCache/ProductCommercial not available")
         return []
+
+    # Build out-of-stock set
+    out_of_stock = set()
+    try:
+        for pc in ProductCommercial.select(ProductCommercial.product_title).where(
+            ProductCommercial.stock_pressure == "out_of_stock"
+        ):
+            out_of_stock.add(pc.product_title)
+    except Exception:
+        pass
 
     for key, is_product in candidates[:limit * 2]:  # check extra candidates
         if len(products) >= limit:
             break
 
-        matched = None
+        matches = []
         if is_product:
             try:
-                matched = ProductImageCache.get_or_none(
+                m = ProductImageCache.get_or_none(
                     ProductImageCache.product_title == key
                 )
+                if m:
+                    matches = [m]
             except Exception:
                 pass
 
-        if not matched:
+        if not matches:
+            # Category-level or product not found: find all by product_type
             try:
-                matched = (ProductImageCache.select()
-                           .where(ProductImageCache.product_type == key)
-                           .first())
+                matches = list(ProductImageCache.select()
+                               .where(ProductImageCache.product_type == key)
+                               .limit(5))
             except Exception:
                 pass
 
-        if not matched:
+        if not matches:
             logger.debug("[flow_runtime] No ProductImageCache match for key=%s is_product=%s", key, is_product)
             continue
 
+        # Pick the first in-stock match
+        picked = None
+        for m in matches:
+            if m.product_title in out_of_stock:
+                logger.debug("[flow_runtime] Skipping out-of-stock product: %s", m.product_title)
+                continue
+            picked = m
+            break
+
+        if not picked:
+            continue
+
         products.append({
-            "product_title": matched.product_title,
-            "product_url": matched.product_url or "",
-            "image_url": matched.image_url or "",
-            "price": str(matched.price or "0.00"),
+            "product_title": picked.product_title,
+            "product_url": picked.product_url or "",
+            "image_url": picked.image_url or "",
+            "price": str(picked.price or "0.00"),
         })
 
     if not products and candidates:
