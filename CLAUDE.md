@@ -1,6 +1,6 @@
 # MailEngineHub — Project Context
 > Email marketing platform for LDAS Electronics. Flask + SQLite (Peewee) + Amazon SES + Gunicorn.
-> 62 files, 39,396 lines. For full detail: read `REFERENCE.md`
+> 63 files, 40,310 lines. For full detail: read `REFERENCE.md`
 
 ## Deployment
 - **Repo**: `C:\Users\davin\Claude Work Folder\mailenginehub-repo\`
@@ -23,14 +23,13 @@ Studio: knowledge + performance -> studio_skills(6 AI skills) -> candidate -> ap
 |------|-------|------|
 | `app.py` | 7,302 | Flask application — all routes, scheduler, webhooks, auth |
 | `block_registry.py` | 2,476 | Email template block rendering engine — 26 block types, validation, personalization |
-| `database.py` | 1,967 | All 53 Peewee ORM models + init_db() + migration helpers |
+| `database.py` | 1,993 | All 53 Peewee ORM models + init_db() + migration helpers |
 | `account_manager.py` | 1,693 | Account Manager AI — autonomous nightly email campaign planning and execution via Claude |
 | `generate-context.py` | 1,350 | Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file) |
 | `customer_intelligence.py` | 1,150 | Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV |
 | `identity_resolution.py` | 1,084 | Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching |
 | `template_engine.py` | 1,031 | Shared template rendering & validation engine — single render path for all preview/send/studio/preflight |
 | `knowledge_scraper.py` | 952 | Auto-enrichment pipeline — scrapes products, blogs, competitors, FAQs into knowledge base |
-| `flow_runtime.py` | 864 | Flow send package builder — centralizes flow render/decision logic (Phase 3) |
 
 ## Gotchas
 - `LearningConfig`: use `get_val(key, default)` / `set_val(key, value)` — NOT field access

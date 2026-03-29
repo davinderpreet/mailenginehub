@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-29 14:28. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-29 15:47. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -48,219 +48,219 @@ Per-step flow email send record. FK to enrollment + step + contact. Tracks statu
 
 ### `AutoEmail` (line 205)
 Auto-sent email record. Links AI/AM sends to contact + template. Tracks sent_at, opened, clicked, purpose, source_type (ai_engine/account_manager).
-- **Fields**: contact, template, subject, status, error_msg, opened, clicked, sent_at, opened_at, clicked_at, ses_message_id, auto_run_date
+- **Fields**: contact, template, subject, status, error_msg, opened, clicked, sent_at, opened_at, clicked_at, ses_message_id, auto_run_date, action_type, decision_json
 
-### `AbandonedCheckout` (line 224)
+### `AbandonedCheckout` (line 226)
 Shopify abandoned checkout. shopify_checkout_id, email, checkout_url, total_price, line_items_json, recovered (bool), recovery timestamps.
 - **Fields**: shopify_checkout_id, email, contact, checkout_url, total_price, currency, line_items_json, recovered, recovered_at, abandoned_at, enrolled_in_flow, created_at
 
-### `AgentMessage` (line 243)
+### `AgentMessage` (line 245)
 IT Agent chat history. role (user/assistant/system), content, tool_calls JSON. Powers /agent chat interface.
 - **Fields**: role, content, tool_calls, created_at
 
-### `OmnisendOrder` (line 282)
+### `OmnisendOrder` (line 284)
 Legacy Omnisend order data. Imported during migration from Omnisend. Read-only historical data.
 - **Fields**: contact, email, order_id, order_number, order_total, currency, payment_status, fulfillment_status, discount_code, discount_amount, shipping_city, shipping_province, ordered_at, created_at
 
-### `OmnisendOrderItem` (line 303)
+### `OmnisendOrderItem` (line 305)
 Legacy Omnisend order line item. Historical data from migration.
 - **Fields**: order, product_id, product_title, variant_title, sku, quantity, unit_price, discount, vendor
 
-### `CustomerProfile` (line 319)
+### `CustomerProfile` (line 321)
 Intelligence profile per contact (50+ fields). Computed nightly by customer_intelligence.py. Includes: lifecycle_stage, customer_type, intent_score, churn_risk, reorder_likelihood, category_affinity_json, next_purchase_category, preferred_send_hour, preferred_send_day, channel_preference, intelligence_summary, LTV estimate, and confidence scores for each.
 - **Fields**: contact, email, total_orders, total_spent, avg_order_value, first_order_at, last_order_at, days_since_last_order, avg_days_between_orders, top_products, top_categories, all_products_bought, price_tier, has_used_discount, discount_sensitivity, total_items_bought, city, province, profile_summary, last_computed_at, checkout_abandonment_count, last_active_at, total_page_views, total_product_views, website_engagement_score, last_viewed_product, churn_risk, predicted_next_order_date, predicted_ltv, product_recommendations, lifecycle_stage, customer_type, intent_score, reorder_likelihood, category_affinity_json, next_purchase_category, preferred_send_hour, preferred_send_dow, channel_preference, confidence_lifecycle, confidence_intent, confidence_reorder, confidence_category, confidence_send_window, confidence_channel, confidence_discount, churn_risk_score, confidence_churn, intelligence_summary, last_intelligence_at, refresh_scheduled_at, last_refresh_trigger
 
-### `ShopifyOrder` (line 406)
+### `ShopifyOrder` (line 408)
 Shopify order record. Full order data: order_total, subtotal, discount, tax, line items via ShopifyOrderItem FK. Synced via webhook + nightly.
 - **Fields**: contact, shopify_order_id, order_number, email, first_name, last_name, order_total, subtotal, total_tax, total_discounts, currency, financial_status, fulfillment_status, discount_codes, shipping_city, shipping_province, source_name, tags, ordered_at, created_at
 
-### `ShopifyOrderItem` (line 433)
+### `ShopifyOrderItem` (line 435)
 Line item within a ShopifyOrder. product_id, variant_id, sku, quantity, unit_price, discount, product_type.
 - **Fields**: order, shopify_line_id, product_id, variant_id, product_title, variant_title, sku, quantity, unit_price, total_discount, vendor, product_type
 
-### `ShopifyCustomer` (line 452)
+### `ShopifyCustomer` (line 454)
 Shopify customer record. shopify_id, orders_count, total_spent, tags, accepts_marketing. FK to Contact.
 - **Fields**: contact, shopify_id, email, first_name, last_name, phone, orders_count, total_spent, tags, city, province, country, accepts_marketing, shopify_created_at, last_order_at, last_synced_at
 
-### `CustomerActivity` (line 476)
+### `CustomerActivity` (line 478)
 Behavioral event log. event_type (page_view, product_view, add_to_cart, search, checkout_start, etc.), event_data JSON, session_id, timestamps.
 - **Fields**: contact, email, event_type, event_data, source, source_ref, session_id, checkout_token, cart_token, shopify_customer_id, occurred_at, created_at, stitched_at, stitched_by
 
-### `ProductImageCache` (line 519)
+### `ProductImageCache` (line 521)
 Product image cache for email templates. product_id, image_url, product_url, price. Synced by shopify_products.py.
 - **Fields**: product_id, product_title, image_url, product_url, price, compare_price, product_type, handle, last_synced
 
-### `GeneratedDiscount` (line 535)
+### `GeneratedDiscount` (line 537)
 Per-contact discount code. code, purpose, value, Shopify price_rule_id, expiry. Created by discount_engine.py.
 - **Fields**: contact, email, code, purpose, discount_type, value, shopify_price_rule_id, shopify_discount_id, expires_at, used, used_at, created_at
 
-### `SuppressionEntry` (line 555)
+### `SuppressionEntry` (line 557)
 Email suppression list. reason (bounce/complaint/manual), source, detail. Checked before every send.
 - **Fields**: email, reason, source, detail, created_at
 
-### `BounceLog` (line 567)
+### `BounceLog` (line 569)
 Detailed bounce analysis. event_type (Bounce/Complaint), sub_type, diagnostic, recipient_domain. Used for deliverability scoring.
 - **Fields**: email, event_type, sub_type, diagnostic, campaign_id, timestamp, recipient_domain, template_id, subject_family, ses_message_id
 
-### `PreflightLog` (line 586)
+### `PreflightLog` (line 588)
 Campaign preflight results. overall (PASS/WARN/BLOCK), checks_json with per-check details.
 - **Fields**: campaign_id, overall, checks_json, created_at
 
-### `ContactScore` (line 1181)
+### `ContactScore` (line 1204)
 RFM scoring per contact. rfm_segment (new/champion/loyal/potential/at_risk/lapsed), engagement_score (0-100), recency_days, frequency_rate, monetary_value, optimal_gap_hours (learned send frequency).
 - **Fields**: contact, rfm_segment, recency_days, frequency_rate, monetary_value, engagement_score, last_scored_at, optimal_gap_hours, sunset_score, sunset_executed, sunset_executed_at
 
-### `PendingTrigger` (line 1200)
+### `PendingTrigger` (line 1223)
 Unprocessed behavioral trigger. trigger_type (browse/cart/checkout), trigger_data, status. Processed by _check_passive_triggers every 30s.
 - **Fields**: email, contact, trigger_type, trigger_data, detected_at, status, enrolled_at, processed_at
 
-### `AIGeneratedEmail` (line 1215)
+### `AIGeneratedEmail` (line 1238)
 History of AI-generated emails. purpose, subject, body, reasoning, profile_snapshot. Audit trail for AI sends.
 - **Fields**: email, contact, purpose, subject, body_text, body_html, reasoning, profile_snapshot, generated_at, sent, sent_at
 
-### `AIMarketingPlan` (line 1234)
+### `AIMarketingPlan` (line 1257)
 Nightly AI plan. plan_json (array of actions), total_sends, status, ai_summary. Generated by ai_engine.py.
 - **Fields**: plan_date, plan_json, total_sends, status, ai_summary, created_at
 
-### `AIDecisionLog` (line 1247)
+### `AIDecisionLog` (line 1270)
 Per-action audit for AI plan execution. plan FK, contact, template_id, segment, status (sent/skipped/failed).
 - **Fields**: plan, contact, template_id, segment, subject_used, status, sent_at, created_at
 
-### `MessageDecision` (line 1262)
+### `MessageDecision` (line 1285)
 Per-contact next-best-message decision. action_type (reorder_reminder/cross_sell/etc.), action_score, reason, ranked_actions_json (all 10 actions scored), rejections_json (why each was rejected).
 - **Fields**: contact, email, action_type, action_score, action_reason, action_email_purpose, ranked_actions_json, rejections_json, lifecycle_stage, fatigue_score, emails_received_7d, churn_risk_score, intent_score, reorder_likelihood, discount_sensitivity, days_since_last_order, suppression_active, risk_level, suppression_reason, decided_at, expires_at
 
-### `MessageDecisionHistory` (line 1290)
+### `MessageDecisionHistory` (line 1313)
 Audit log of MessageDecision executions. Adds decision_date, execution status, outcome tracking.
 - **Fields**: contact, email, decision_date, action_type, action_score, action_reason, action_email_purpose, ranked_actions_json, rejections_json, was_executed, executed_at, lifecycle_stage, fatigue_score, churn_risk_score, intent_score, reorder_likelihood, decided_at
 
-### `SuggestedCampaign` (line 1317)
+### `SuggestedCampaign` (line 1340)
 Campaign opportunity from planner. campaign_type, quality_score (0-100), urgency, segment_size, eligible_contacts_json, predicted revenue, subject_line_angles.
 - **Fields**: scan_date, campaign_type, campaign_name, target_description, segment_size, eligible_contacts_json, quality_score, urgency, recommended_send_window, recommended_channel, recommended_offer_type, predicted_revenue, predicted_conversions, predicted_complaint_risk, safe_send_volume, preflight_status, preflight_warnings_json, brief_text, status, accepted_at, executed_at, metrics_json, predicted_margin_pct, predicted_profit, discount_cost, net_profit, top_products_json, margin_warning, deliverability_risk_score, created_at
 
-### `OpportunityScanLog` (line 1354)
+### `OpportunityScanLog` (line 1377)
 Nightly opportunity scan results. opportunities_found, total_eligible_contacts, scan_duration.
 - **Fields**: scan_date, opportunities_found, total_eligible_contacts, scan_duration_seconds, created_at
 
-### `ProductCommercial` (line 1366)
+### `ProductCommercial` (line 1389)
 Product profitability data. current_price, cost_per_unit, margin_pct, inventory, sales_velocity, promotion_eligibility. Synced from Shopify.
 - **Fields**: product_id, product_title, sku, product_type, current_price, compare_price, cost_per_unit, margin_pct, margin_source, inventory_level, inventory_location, days_of_stock, stock_pressure, units_sold_30d, units_sold_90d, revenue_30d, revenue_90d, profit_30d, profit_90d, return_rate, avg_discount_given, promotion_eligible, promotion_reason, profitability_score, last_synced, last_computed
 
-### `ProductAlias` (line 1403)
+### `ProductAlias` (line 1426)
 Product alias mapping. alias_title → canonical_title. Seeded by product_intelligence.py from shared_constants.PRODUCT_ALIASES. Used for product resolution.
 - **Fields**: alias, canonical_title, product_id, category, source, created_at
 
-### `ProductRelationship` (line 1420)
+### `ProductRelationship` (line 1443)
 Product relationship definition. from_product/to_product with relationship_type (cross_sell/accessory/replacement). strength score 0-100. source: seeded or learned.
 - **Fields**: source_key, target_key, source_is_product, target_is_product, relationship_type, strength, typical_delay_days, reason, source_origin, evidence_count, is_active, created_at
 
-### `ProductUpgradePath` (line 1444)
+### `ProductUpgradePath` (line 1467)
 Product upgrade path. from_product → to_product within category, tier_from → tier_to (Budget/Mid/Premium). Seeded from shared_constants.UPGRADE_PATHS.
 - **Fields**: category, tier_order, tier_name, price_range_low, price_range_high, typical_products, upgrade_trigger_days, source_origin
 
-### `ReorderCycle` (line 1462)
+### `ReorderCycle` (line 1485)
 Reorder cycle definition per category. avg_days (expected replacement interval), min/max bounds. Used by product_intelligence for reorder recommendations.
 - **Fields**: product_key, is_product, typical_cycle_days, cycle_variance_days, reminder_offset_days, consumable, source_origin, learned_cycle_days, learned_sample_size
 
-### `SystemConfig` (line 1482)
+### `SystemConfig` (line 1505)
 Global system config. delivery_mode: live/shadow/sandbox. Controls whether emails actually send.
 - **Fields**: delivery_mode, updated_at
 
-### `ActionLedger` (line 1491)
+### `ActionLedger` (line 1514)
 Audit trail for every system action. trigger_type, source_type, source_id, status, reason_code, template_id. Comprehensive logging.
 - **Fields**: contact, email, trigger_type, source_type, source_id, enrollment_id, step_id, status, reason_code, reason_detail, template_id, subject, preview_text, generated_html, ses_message_id, priority, created_at
 
-### `DeliveryQueue` (line 1531)
+### `DeliveryQueue` (line 1554)
 Email staging queue. Priority-based (checkout_abandoned=10 highest). Drained every 30s by delivery_engine respecting warmup limits.
-- **Fields**: contact, email, email_type, source_id, enrollment_id, step_id, template_id, from_name, from_email, subject, html, unsubscribe_url, priority, status, error_msg, ledger_id, campaign_id, auto_email_id, created_at, sent_at, scheduled_at
+- **Fields**: contact, email, email_type, source_id, enrollment_id, step_id, template_id, from_name, from_email, subject, html, unsubscribe_url, priority, status, error_msg, ledger_id, campaign_id, auto_email_id, decision_json, created_at, sent_at, scheduled_at
 
-### `IdentityJob` (line 1572)
+### `IdentityJob` (line 1596)
 Durable job queue for identity resolution. dedupe_key prevents duplicates, status (pending/processing/done/failed), result JSON.
 - **Fields**: contact_id, email, source, dedupe_key, job_type, job_data, status, result, attempts, max_attempts, error_msg, created_at, started_at, completed_at
 
-### `AIRenderLog` (line 1593)
+### `AIRenderLog` (line 1617)
 AI content rendering telemetry. template_id, block_index, field_name, render_ms, fallback_used. Powers /telemetry dashboard.
 - **Fields**: template_id, contact_id, block_index, field_name, generated_text, fallback_used, render_ms, model_name, error_summary, created_at
 
-### `KnowledgeEntry` (line 1616)
+### `KnowledgeEntry` (line 1640)
 AI knowledge base. entry_type: product_catalog, brand_copy, blog_post, competitor_intel, faq, testimonial, email_design_intel. metadata_json holds source_url, relevance_score, image_urls, reasoning. is_active=False means staged for review.
 - **Fields**: entry_type, title, content, metadata_json, is_active, is_rejected, created_at, updated_at
 
-### `AIModelConfig` (line 1632)
+### `AIModelConfig` (line 1656)
 AI provider configuration. provider (anthropic/openai/openrouter), model_id, api_key_env (env var name), max_tokens, is_default flag. Queried by ai_provider.get_provider().
 - **Fields**: provider, model_id, display_name, api_key_env, max_tokens, is_default, is_active, created_at
 
-### `StudioJob` (line 1647)
+### `StudioJob` (line 1671)
 AI template generation job. status: pending/running/done/error. family (welcome/cart_recovery/etc.), input_json (product_focus, tone), FK to AIModelConfig.
 - **Fields**: job_type, status, family, input_json, model_config, error_message, created_at, completed_at
 
-### `TemplateCandidate` (line 1662)
+### `TemplateCandidate` (line 1686)
 AI-generated template awaiting review. blocks_json (standard format), subject_line, preview_text, reasoning (AI explanation), status: pending/approved/rejected. FK to StudioJob, optional FK to EmailTemplate (set on approval).
 - **Fields**: job, blocks_json, subject_line, preview_text, reasoning, metadata_json, status, approved_at, template, created_at
 
-### `TemplatePerformance` (line 1679)
+### `TemplatePerformance` (line 1703)
 Rolling template metrics. sends, opens, clicks, open_rate, click_rate, revenue_total, revenue_per_send. Computed nightly by learning_engine.py.
 - **Fields**: template, sends, opens, clicks, open_rate, click_rate, revenue_total, revenue_per_send, conversion_rate, sample_size, learning_flag, last_computed
 
-### `OutcomeLog` (line 1698)
+### `OutcomeLog` (line 1722)
 Email outcome for learning. email_type (campaign/flow), opened, clicked, purchased (bool), revenue (float), send_gap_hours. Feeds into learning_engine.py.
 - **Fields**: email_type, email_id, contact, template_id, action_type, segment, opened, clicked, purchased, unsubscribed, revenue, hours_to_open, hours_to_purchase, sent_at, subject_line, send_gap_hours, created_at
 
-### `ActionPerformance` (line 1725)
+### `ActionPerformance` (line 1749)
 Action type effectiveness per segment. sample_size, open_rate, click_rate, conversion_rate, revenue_per_send. Computed by learning_engine.py.
 - **Fields**: action_type, segment, sample_size, open_rate, click_rate, conversion_rate, revenue_per_send, avg_score, last_computed
 
-### `TemplateSegmentPerformance` (line 1744)
+### `TemplateSegmentPerformance` (line 1768)
 Template performance broken down by contact segment. Enables segment-specific template recommendations.
 - **Fields**: template, segment, sample_size, open_rate, click_rate, conversion_rate, revenue_per_send, last_computed
 
-### `ModelWeights` (line 1762)
+### `ModelWeights` (line 1786)
 Computed optimal RFM weights. recency/frequency/monetary weights, evaluation_score, sample_size, phase. Updated by learning_engine.py.
 - **Fields**: recency_weight, frequency_weight, monetary_weight, evaluation_score, sample_size, phase, created_at
 
-### `LearningConfig` (line 1776)
+### `LearningConfig` (line 1800)
 Key-value config store. IMPORTANT: Use LearningConfig.get_val(key, default) / set_val(key, value). NOT direct field access. Controls learning phases, kill switches, thresholds.
 - **Fields**: key, value, updated_at
 
-### `ScrapeSource` (line 1804)
+### `ScrapeSource` (line 1828)
 Knowledge enrichment source. source_type (shopify_products/blog/competitor/etc.), URL, scrape_frequency, is_active, last_scraped_at, config_json.
 - **Fields**: source_type, source_name, url, scrape_frequency, is_active, last_scraped_at, config_json, created_at
 
-### `ScrapeLog` (line 1817)
+### `ScrapeLog` (line 1841)
 Scrape run audit log. items_found, items_staged, items_skipped, items_errored, error_message. FK to ScrapeSource.
 - **Fields**: source, started_at, completed_at, status, items_found, items_staged, items_skipped, items_errored, error_message
 
-### `RejectionLog` (line 1831)
+### `RejectionLog` (line 1855)
 Rejected knowledge entries. Tracks what was rejected and why, prevents re-processing same content.
 - **Fields**: original_entry_type, source, title, content_snippet, source_url, content_hash, created_at
 
-### `PostmasterMetric` (line 1844)
+### `PostmasterMetric` (line 1868)
 Google Postmaster Tools daily metric. domain_reputation, spam_rate, authentication_rate, encryption_rate. Tracked by postmaster_tools.py.
 - **Fields**: date, domain, spam_rate, ip_reputation, domain_reputation, spf_success_rate, dkim_success_rate, dmarc_success_rate, inbound_encryption_rate, outbound_encryption_rate, delivery_error_rate, raw_json, fetched_at
 
-### `ContactStrategy` (line 1865)
+### `ContactStrategy` (line 1889)
 Per-contact communication strategy. preferred_frequency, content_preference, best_channel, risk_tolerance. Seeded by bootstrap_strategies.py, updated by strategy_optimizer.py.
 - **Fields**: contact, strategy_json, current_phase, current_phase_num, next_action_date, next_action_type, total_approved, total_rejected, total_edited, rejection_reasons, confidence_score, autonomous, enrolled, strategy_version, created_at, updated_at, last_reviewed_at
 
-### `AMPendingReview` (line 1889)
+### `AMPendingReview` (line 1913)
 Account Manager pending review queue. AM-generated campaign awaiting human approval. Links to template candidate, target segment, send plan.
-- **Fields**: contact, strategy, subject, preheader, body_html, reasoning, strategy_context, status, reviewer_notes, edited_html, edited_subject, action_type, send_at, created_at, reviewed_at
+- **Fields**: contact, strategy, subject, preheader, body_html, reasoning, strategy_context, status, reviewer_notes, edited_html, edited_subject, action_type, decision_json, template_id, send_at, created_at, reviewed_at
 
-### `PromptVersion` (line 1911)
+### `PromptVersion` (line 1937)
 AI prompt versioning. prompt_key, version, prompt_text, performance metrics. Enables A/B testing of AI prompts.
 - **Fields**: prompt_key, version, content, change_note, is_active, created_at
 
-### `AMRunLog` (line 1924)
+### `AMRunLog` (line 1950)
 Account Manager nightly run log. contacts_analyzed, emails_planned, emails_sent, revenue_attributed. Audit trail for AM decisions.
 - **Fields**: run_date, ran_at, contacts_processed, emails_generated, skipped, api_errors, fatal_errors, input_tokens, output_tokens, cost_usd, model, status
 
-### `CompetitorProduct` (line 1943)
+### `CompetitorProduct` (line 1969)
 Competitor product data. brand, model, price, features, source_url. Scraped by knowledge_scraper for competitive positioning.
 - **Fields**: brand, product_name, price, key_features, weaknesses, ldas_product_id, comparison_summary, source_url, last_scraped
 
 ---
 
-## Python Files — Detailed (62 files, 39,396 lines)
+## Python Files — Detailed (63 files, 40,310 lines)
 
 ### `app.py` (7,302 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -298,7 +298,7 @@ Key functions:
 - `render_block(block_dict, contact) — Single block -> HTML <tr>`
 - `_sanitize_html(text) — XSS prevention for user content`
 
-### `database.py` (1,967 lines)
+### `database.py` (1,993 lines)
 **All 53 Peewee ORM models + init_db() + migration helpers**
 
 SQLite database via Peewee ORM. All models inherit BaseModel which sets the database.
@@ -401,6 +401,7 @@ Key functions:
 - `scrape_competitor(source) — Extracts product/pricing from competitor pages`
 - `classify_content(text, source_type) — AI classifies and scores relevance`
 
+### `am_runtime.py` (886 lines)
 ### `flow_runtime.py` (864 lines)
 **Flow send package builder — centralizes flow render/decision logic (Phase 3)**
 
@@ -593,7 +594,7 @@ Updates CampaignEmail / FlowEmail with opened, opened_at, clicked, clicked_at ti
 Processes both SES webhook notifications and tracking pixel hits. Nightly (3:00 UTC) batch
 reconciliation ensures no events missed.
 
-### `delivery_engine.py` (604 lines)
+### `delivery_engine.py` (606 lines)
 **Email delivery queue — priority-based, warmup-compliant, shadow/sandbox/live modes**
 
 Separates email generation from sending via DeliveryQueue model. enqueue_email() stages

@@ -216,6 +216,8 @@ class AutoEmail(BaseModel):
     clicked_at     = DateTimeField(null=True)
     ses_message_id = CharField(default="")
     auto_run_date  = DateField(null=True)
+    action_type    = CharField(default="")       # frozen AM action at decision time
+    decision_json  = TextField(default="{}")     # snapshot of AM decision package
 
     class Meta:
         table_name = "auto_emails"
@@ -813,6 +815,7 @@ def init_db():
     _migrate_template_ai_controls()
     _migrate_knowledge_entry_fields()
     _migrate_delivery_queue_auto_email_id()
+    migrate_am_phase4()
     _backfill_auto_emails()
     _seed_example_templates()
     _seed_starter_flows()
@@ -830,6 +833,26 @@ def _migrate_delivery_queue_auto_email_id():
             print("[MIGRATE] Added auto_email_id to delivery_queue")
     except Exception as e:
         print(f"[MIGRATE] delivery_queue auto_email_id: {e}")
+
+
+def migrate_am_phase4():
+    """Add Phase 4 AM runtime columns to AutoEmail, AMPendingReview, DeliveryQueue."""
+    _migrations = [
+        ("auto_emails",       "action_type",   "ALTER TABLE auto_emails ADD COLUMN action_type TEXT DEFAULT ''"),
+        ("auto_emails",       "decision_json", "ALTER TABLE auto_emails ADD COLUMN decision_json TEXT DEFAULT '{}'"),
+        ("am_pending_reviews", "decision_json", "ALTER TABLE am_pending_reviews ADD COLUMN decision_json TEXT DEFAULT '{}'"),
+        ("am_pending_reviews", "template_id",   "ALTER TABLE am_pending_reviews ADD COLUMN template_id INTEGER DEFAULT 0"),
+        ("delivery_queue",    "decision_json", "ALTER TABLE delivery_queue ADD COLUMN decision_json TEXT DEFAULT '{}'"),
+    ]
+    for table, col_name, alter_sql in _migrations:
+        try:
+            cursor = db.execute_sql(f"PRAGMA table_info({table})")
+            cols = [row[1] for row in cursor.fetchall()]
+            if col_name not in cols:
+                db.execute_sql(alter_sql)
+                print(f"  [migrate] Added {col_name} to {table}")
+        except Exception as e:
+            print(f"  [migrate] Skipped {col_name} on {table}: {e}")
 
 
 def _backfill_auto_emails():
@@ -1559,6 +1582,7 @@ class DeliveryQueue(BaseModel):
     ledger_id     = IntegerField(default=0)        # ActionLedger.id
     campaign_id   = IntegerField(default=0)        # for CampaignEmail backward compat
     auto_email_id = IntegerField(default=0)        # links to AutoEmail.id for auto-pilot sends
+    decision_json = TextField(default="{}")        # AM decision snapshot (optional)
 
     # Timestamps
     created_at    = DateTimeField(default=datetime.now, index=True)
@@ -1900,6 +1924,8 @@ class AMPendingReview(BaseModel):
     edited_html      = TextField(default="")
     edited_subject   = CharField(default="")
     action_type      = CharField()
+    decision_json    = TextField(default="{}")     # snapshot of AM decision package
+    template_id      = IntegerField(default=0)     # template used for this email
     send_at          = DateTimeField(null=True)
     created_at       = DateTimeField(default=datetime.now)
     reviewed_at      = DateTimeField(null=True)

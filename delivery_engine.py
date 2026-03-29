@@ -92,7 +92,7 @@ def _increment_warmup_counter():
 def enqueue_email(contact, email_type, source_id, enrollment_id, step_id,
                   template_id, from_name, from_email, subject, html,
                   unsubscribe_url, priority, ledger_id, campaign_id=0,
-                  scheduled_at=None, auto_email_id=0):
+                  scheduled_at=None, auto_email_id=0, decision_json=""):
     """Add an email to the delivery queue and update the linked ledger entry.
 
     Args:
@@ -137,6 +137,8 @@ def enqueue_email(contact, email_type, source_id, enrollment_id, step_id,
         _create_kwargs["scheduled_at"] = scheduled_at
     if auto_email_id:
         _create_kwargs["auto_email_id"] = auto_email_id
+    if decision_json:
+        _create_kwargs["decision_json"] = decision_json
     item = DeliveryQueue.create(**_create_kwargs)
 
     # Update ledger to "queued"
