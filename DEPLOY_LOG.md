@@ -4,6 +4,23 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-30 12:54 -- `750eba7`
+
+**fix: commercial-grade template/validation/approve fixes**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+account_manager.py
+app.py
+flow_runtime.py
+migrate_templates.py
+tests/test_flow_runtime.py
+```
+
+---
+
 ### 2026-03-30 11:59 -- `ae1a3d7`
 
 **fix: restore strict validation, fix offer/product consistency properly**
