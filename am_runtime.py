@@ -128,8 +128,30 @@ def _normalize_strategy(strategy_json_dict, current_phase=""):
     # ── allowed_actions ──
     if not strat.get("allowed_actions"):
         # Try to extract from phases -> current_phase -> tactic
+        # Supports both phase shapes:
+        #   - list of objects: [{"name": "Phase 1", "tactic": "education"}, ...]
+        #   - dict keyed by name: {"Phase 1": {"tactic": "education"}, ...}
         phases = strat.get("phases", {})
-        phase_data = phases.get(current_phase, {}) if current_phase else {}
+        phase_data = {}
+
+        if isinstance(phases, list):
+            # List-based (standard repo format): find matching phase by name
+            if current_phase:
+                for ph in phases:
+                    if isinstance(ph, dict) and ph.get("name") == current_phase:
+                        phase_data = ph
+                        break
+            # Fallback: use first phase if no match or no current_phase
+            if not phase_data and phases:
+                first = phases[0]
+                if isinstance(first, dict):
+                    phase_data = first
+        elif isinstance(phases, dict):
+            # Dict-based: look up by key
+            phase_data = phases.get(current_phase, {}) if current_phase else {}
+            if not phase_data and phases:
+                phase_data = next(iter(phases.values()), {})
+
         tactic = phase_data.get("tactic", "")
         if tactic and tactic in _TACTIC_TO_ACTIONS:
             strat["allowed_actions"] = list(_TACTIC_TO_ACTIONS[tactic])
@@ -561,20 +583,44 @@ def _suggest_next_action(strategy_state, decision):
 # Main decision entry point
 # ==================================================================
 
+def _extract_strategy(strategy):
+    """Extract strategy dict + current_phase from various input types.
+
+    Handles:
+        - ContactStrategy model instance → parse .strategy_json, use .current_phase
+        - dict → use directly
+        - JSON string → parse
+        - None/empty → return ({}, "")
+    """
+    # ContactStrategy model instance (has strategy_json attribute)
+    if hasattr(strategy, 'strategy_json'):
+        raw = strategy.strategy_json
+        current_phase = getattr(strategy, 'current_phase', '') or ''
+        strat_dict = _safe_json(raw, {})
+        return strat_dict, current_phase
+
+    # Plain dict
+    if isinstance(strategy, dict):
+        return strategy, strategy.get("current_phase_name", "")
+
+    # JSON string
+    strat_dict = _safe_json(strategy, {})
+    return strat_dict, strat_dict.get("current_phase_name", "")
+
+
 def build_am_decision(contact, strategy, intelligence=None):
     """Build a complete AM decision package for a contact.
 
     Args:
         contact: Contact instance
-        strategy: strategy JSON dict or string
+        strategy: ContactStrategy model, strategy JSON dict, or JSON string
         intelligence: pre-fetched intel dict (optional, auto-fetched if None)
 
     Returns:
         dict with should_act, status, action_type, and full decision context
     """
-    # Parse strategy
-    strat_dict = _safe_json(strategy, {})
-    current_phase = strat_dict.get("current_phase_name", "")
+    # Parse strategy — supports model instance, dict, or string
+    strat_dict, current_phase = _extract_strategy(strategy)
     strategy_state = _normalize_strategy(strat_dict, current_phase)
 
     base = {

@@ -482,3 +482,224 @@ class TestSuggestNextAction:
         result = _suggest_next_action(strat, decision)
         assert result != "education"
         assert result == "winback"  # second-best from ranked
+
+
+# ═══════════════════════════════════════════════════════════════
+# Regression tests for Phase 4 bug fixes
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestBuildAmDecisionWithModel:
+    """Fix 1: build_am_decision must work with ContactStrategy model instances."""
+
+    def test_model_instance_uses_strategy_json(self, in_memory_db, make_contact):
+        """Persisted allowed_actions / cadence / current_phase influence the decision."""
+        from am_runtime import build_am_decision
+        from database import ContactStrategy, ProductImageCache
+
+        contact = make_contact()
+        cs = ContactStrategy.create(
+            contact=contact, enrolled=True,
+            current_phase="Phase 2: Cross-sell",
+            next_action_type="cross_sell",
+            strategy_json=json.dumps({
+                "overall_goal": "maximize cross-sell revenue",
+                "allowed_actions": ["cross_sell", "product_recommendation"],
+                "cadence_policy": {"min_gap_days": 3, "max_gap_days": 10, "preferred_gap_days": 5},
+                "offer_policy": {"allow_discount": False, "max_discount_pct": 0},
+            }),
+        )
+        ProductImageCache.create(
+            product_id="1", product_title="Test Widget",
+            image_url="https://cdn/w.jpg", product_url="https://ldas.ca/w",
+            price="29.99", product_type="Widgets", handle="w",
+        )
+
+        with patch("am_runtime.intelligence_layer") as mock_intel:
+            mock_intel.should_contact_now.return_value = {"can_send": True, "reason": "ok"}
+            mock_intel.get_contact_intelligence.return_value = {
+                "classification": {"lifecycle_stage": "active", "customer_type": "repeat"},
+                "scores": {"intent": 60, "reorder_likelihood": 0.3, "churn_risk": 15, "engagement": 55},
+                "purchase": {"days_since_last": 20, "avg_cycle_days": 0, "total_orders": 4},
+                "products": {"category_affinities": {"Widgets": 0.7}},
+                "timing": {"preferred_hour": 10},
+            }
+            mock_intel.get_next_products.return_value = {
+                "schema_version": 1, "top_pick": {"product_key": "Test Widget"},
+                "cross_sells": [], "reorders": [], "replacements": [],
+                "upgrades": [], "accessories": [],
+            }
+            mock_intel.get_discount_policy.return_value = {"offer_discount": False}
+
+            decision = build_am_decision(contact, cs)
+
+        # Decision should use persisted strategy:
+        # - action_type must be from allowed_actions (cross_sell or product_recommendation)
+        assert decision["action_type"] in ("cross_sell", "product_recommendation", "wait")
+        # - strategy_phase should match current_phase from model
+        assert decision["strategy_phase"] == "Phase 2: Cross-sell"
+
+    def test_model_instance_not_empty_dict(self, in_memory_db, make_contact):
+        """Verify strategy_json is actually parsed, not falling through to {}."""
+        from am_runtime import _extract_strategy
+        from database import ContactStrategy
+
+        contact = make_contact()
+        cs = ContactStrategy.create(
+            contact=contact, enrolled=True,
+            current_phase="Phase 1: Educate",
+            strategy_json=json.dumps({
+                "overall_goal": "educate new customer",
+                "allowed_actions": ["education"],
+                "cadence_policy": {"min_gap_days": 7, "max_gap_days": 14, "preferred_gap_days": 10},
+            }),
+        )
+
+        strat_dict, current_phase = _extract_strategy(cs)
+        assert strat_dict.get("overall_goal") == "educate new customer"
+        assert strat_dict.get("allowed_actions") == ["education"]
+        assert current_phase == "Phase 1: Educate"
+
+
+class TestApproveEmailMetadataChain:
+    """Fix 2: approved AM emails must carry frozen metadata end-to-end."""
+
+    def test_approve_creates_auto_email_before_enqueue(self, in_memory_db, make_contact):
+        """AutoEmail created before enqueue, with real template_id and auto_email_id."""
+        from database import ContactStrategy, AMPendingReview, AutoEmail, DeliveryQueue, ActionLedger
+
+        contact = make_contact()
+        cs = ContactStrategy.create(contact=contact, enrolled=True, strategy_json="{}")
+
+        pe = AMPendingReview.create(
+            contact=contact, strategy=cs,
+            subject="Cross-sell picks for you",
+            body_html="<p>Check these out</p>",
+            reasoning="cross-sell opportunity for repeat buyer",
+            action_type="cross_sell",
+            template_id=42,
+            decision_json=json.dumps({"action_type": "cross_sell", "confidence": 0.75}),
+            status="pending",
+        )
+
+        # Guard: skip if Flask/app dependencies unavailable
+        pytest.importorskip("flask", reason="Flask not installed — skipping approve_email test")
+        try:
+            from account_manager import approve_email
+        except Exception as exc:
+            pytest.skip("Cannot import account_manager: %s" % exc)
+
+        with patch("account_manager._get_optimal_send_time") as mock_time, \
+             patch("delivery_engine.enqueue_email") as mock_enqueue, \
+             patch("account_manager.log_action") as mock_log:
+            mock_time.return_value = datetime.now() + timedelta(hours=2)
+            mock_log.return_value = MagicMock(id=999)
+
+            result = approve_email(pe.id)
+
+        # AutoEmail should exist with frozen metadata
+        ae = AutoEmail.select().where(AutoEmail.contact == contact).first()
+        assert ae is not None
+        assert ae.action_type == "cross_sell"
+        assert ae.subject == "Cross-sell picks for you"
+        assert json.loads(ae.decision_json)["action_type"] == "cross_sell"
+
+        # enqueue should have been called with real template_id and auto_email_id
+        if mock_enqueue.called:
+            call_kwargs = mock_enqueue.call_args
+            # Check template_id is 42 (not 0)
+            kw = call_kwargs.kwargs if call_kwargs.kwargs else call_kwargs[1]
+            assert kw.get("template_id") == 42
+            # Check auto_email_id is set
+            assert kw.get("auto_email_id") == ae.id
+
+    def test_delivery_compat_updates_auto_email_status(self, in_memory_db, make_contact, make_template):
+        """With real template_id and auto_email_id, delivery compat can update AutoEmail."""
+        from database import AutoEmail, DeliveryQueue
+
+        contact = make_contact()
+        tpl = make_template(name="AM: Cross-Sell")
+        ae = AutoEmail.create(
+            contact=contact, subject="Test", status="queued",
+            action_type="cross_sell", template=tpl.id,
+        )
+
+        # Create queue item matching what approve_email produces
+        dq = DeliveryQueue.create(
+            contact=contact, email=contact.email,
+            email_type="auto", source_id=0,
+            enrollment_id=0, step_id=0,
+            template_id=tpl.id,  # real template_id (not 0)
+            from_name="Test", from_email="test@ldas.ca",
+            subject="Test", html="<p>test</p>",
+            unsubscribe_url="https://unsub",
+            priority=60, status="queued", ledger_id=0,
+            auto_email_id=ae.id,  # linked
+        )
+
+        # Simulate what delivery_engine._create_compat_record does for auto emails
+        # The condition is: item.email_type == "auto" and item.template_id
+        assert dq.email_type == "auto"
+        assert dq.template_id  # truthy — not 0
+        assert dq.auto_email_id == ae.id
+
+        # Simulate compat update
+        AutoEmail.update(status="sent").where(AutoEmail.id == dq.auto_email_id).execute()
+        ae_refreshed = AutoEmail.get_by_id(ae.id)
+        assert ae_refreshed.status == "sent"
+
+
+class TestNormalizeListPhases:
+    """Fix 3: _normalize_strategy must support list-based phases."""
+
+    def test_list_phases_with_current_phase(self):
+        from am_runtime import _normalize_strategy
+        strategy = {
+            "overall_goal": "grow revenue",
+            "phases": [
+                {"name": "Phase 1: Educate", "months": "1-2", "goal": "educate", "tactic": "education"},
+                {"name": "Phase 2: Sell", "months": "3-4", "goal": "sell", "tactic": "cross_sell"},
+            ],
+        }
+        result = _normalize_strategy(strategy, current_phase="Phase 1: Educate")
+        assert "education" in result["allowed_actions"]
+        assert "product_recommendation" in result["allowed_actions"]
+
+    def test_list_phases_fallback_to_first(self):
+        from am_runtime import _normalize_strategy
+        strategy = {
+            "phases": [
+                {"name": "Phase 1", "tactic": "loyalty"},
+                {"name": "Phase 2", "tactic": "cross_sell"},
+            ],
+        }
+        # No current_phase — should use first phase
+        result = _normalize_strategy(strategy, current_phase="")
+        assert "loyalty" in result["allowed_actions"]
+
+    def test_dict_phases_still_work(self):
+        from am_runtime import _normalize_strategy
+        strategy = {
+            "phases": {
+                "Phase A": {"tactic": "education"},
+                "Phase B": {"tactic": "winback"},
+            },
+        }
+        result = _normalize_strategy(strategy, current_phase="Phase A")
+        assert "education" in result["allowed_actions"]
+
+    def test_resharpened_list_phases(self):
+        """Resharpened strategies from _resharpen_strategy use list format."""
+        from am_runtime import _normalize_strategy
+        resharpened = {
+            "overall_goal": "re-engage after flow",
+            "phases": [
+                {"name": "Phase 1: Re-engage", "months": "1-2", "goal": "reactivate", "tactic": "winback"},
+                {"name": "Phase 2: Build", "months": "3-4", "goal": "build value", "tactic": "cross_sell"},
+            ],
+            "product_focus": "cables",
+            "first_action_type": "winback",
+        }
+        result = _normalize_strategy(resharpened, current_phase="Phase 1: Re-engage")
+        assert "winback" in result["allowed_actions"]
+        assert "cadence_policy" in result

@@ -1281,6 +1281,25 @@ def approve_email(pending_id):
     send_at = _get_optimal_send_time(contact)
 
     _unsub = f"https://mailenginehub.com/unsubscribe?email={contact.email}"
+
+    # Resolve real template_id from pending review (not 0)
+    _tpl_id = getattr(pe, 'template_id', 0) or 0
+
+    # Create AutoEmail FIRST with frozen metadata — before enqueue so we have ae.id
+    ae = None
+    try:
+        ae = AutoEmail.create(
+            contact=contact,
+            template=_tpl_id if _tpl_id else None,
+            subject=subject,
+            status="queued",
+            auto_run_date=date.today(),
+            action_type=pe.action_type or "",
+            decision_json=getattr(pe, 'decision_json', '{}') or "{}",
+        )
+    except Exception as e:
+        logger.warning("[AM] Failed to create AutoEmail on approval: %s", e)
+
     ledger = log_action(contact, "auto", 0, "rendered", "RC_ACCOUNT_MANAGER",
                         source_type="account_manager",
                         subject=subject,
@@ -1293,7 +1312,7 @@ def approve_email(pending_id):
         source_id=0,
         enrollment_id=0,
         step_id=0,
-        template_id=0,
+        template_id=_tpl_id,
         from_name="LDAS Electronics",
         from_email="hello@news.ldaselectronics.com",
         subject=subject,
@@ -1302,34 +1321,8 @@ def approve_email(pending_id):
         priority=60,
         ledger_id=ledger.id if ledger else 0,
         scheduled_at=send_at,
+        auto_email_id=ae.id if ae else 0,
     )
-
-    # Create AutoEmail with frozen metadata from pending review
-    ae = None
-    try:
-        ae = AutoEmail.create(
-            contact=contact,
-            template=pe.template_id if hasattr(pe, 'template_id') and pe.template_id else None,
-            subject=subject,
-            status="queued",
-            auto_run_date=date.today(),
-            action_type=pe.action_type or "",
-            decision_json=pe.decision_json if hasattr(pe, 'decision_json') and pe.decision_json else "{}",
-        )
-    except Exception as e:
-        logger.warning("[AM] Failed to create AutoEmail on approval: %s", e)
-
-    # Link the DeliveryQueue item to the AutoEmail
-    if ae:
-        try:
-            DeliveryQueue.update(auto_email_id=ae.id).where(
-                DeliveryQueue.contact == contact,
-                DeliveryQueue.email_type == "auto",
-                DeliveryQueue.status == "queued",
-                DeliveryQueue.subject == subject,
-            ).execute()
-        except Exception:
-            pass
 
     pe.status = "approved"
     pe.reviewed_at = datetime.now()

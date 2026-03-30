@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-29 15:53. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-30 10:38. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 40,406 lines)
+## Python Files — Detailed (63 files, 40,445 lines)
 
 ### `app.py` (7,302 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -310,7 +310,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 (5) AI/Studio: KnowledgeEntry, StudioJob, TemplateCandidate, AIModelConfig
 (6) Learning: OutcomeLog, ActionPerformance, TemplatePerformance, ModelWeights, LearningConfig
 
-### `account_manager.py` (1,762 lines)
+### `account_manager.py` (1,755 lines)
 **Account Manager AI — autonomous nightly email campaign planning and execution via Claude**
 
 ### `generate-context.py` (1,364 lines)
@@ -401,7 +401,7 @@ Key functions:
 - `scrape_competitor(source) — Extracts product/pricing from competitor pages`
 - `classify_content(text, source_type) — AI classifies and scores relevance`
 
-### `am_runtime.py` (886 lines)
+### `am_runtime.py` (932 lines)
 **AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)**
 
 Phase 4 Account Manager decision engine. Provides build_am_decision() for structured
