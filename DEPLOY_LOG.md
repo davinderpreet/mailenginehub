@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-30 11:07 -- `41e1aaf`
+
+**fix: timezone-naive vs aware datetime comparison in discount block rendering**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+block_registry.py
+```
+
+---
+
 ### 2026-03-30 11:03 -- `4ad4121`
 
 **fix: add missing ActionLedger import in _process_flow_enrollments**
