@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-30 11:13 -- `1754b6e`
+
+**fix: treat offer/product consistency as non-fatal for flow renders**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+flow_runtime.py
+```
+
+---
+
 ### 2026-03-30 11:07 -- `41e1aaf`
 
 **fix: timezone-naive vs aware datetime comparison in discount block rendering**
