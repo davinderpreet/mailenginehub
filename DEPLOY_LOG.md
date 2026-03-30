@@ -4,6 +4,21 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-30 14:43 -- `ac809b5`
+
+**feat: merchandising quality upgrades — merch enrichment, multi-product expansion, smarter offer ladder**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+flow_runtime.py
+intelligence_layer.py
+tests/test_flow_runtime.py
+```
+
+---
+
 ### 2026-03-30 13:44 -- `6482a8b`
 
 **Auto-update CLAUDE.md before deploy**
