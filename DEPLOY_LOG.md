@@ -4,6 +4,23 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-30 11:59 -- `ae1a3d7`
+
+**fix: restore strict validation, fix offer/product consistency properly**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+block_registry.py
+flow_runtime.py
+migrate_templates.py
+template_engine.py
+tests/test_flow_runtime.py
+```
+
+---
+
 ### 2026-03-30 11:13 -- `1754b6e`
 
 **fix: treat offer/product consistency as non-fatal for flow renders**
