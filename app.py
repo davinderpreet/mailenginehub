@@ -3277,7 +3277,7 @@ def _process_flow_enrollments():
     from action_ledger import log_action, RC_COOLDOWN_ACTIVE, RC_UNSUBSCRIBED, \
         RC_SUPPRESSED_ENTRY, RC_NO_STEP, RC_WARMUP_LIMIT, RC_OK
     from delivery_engine import enqueue_email, get_priority_for_trigger
-    from database import CustomerProfile, ContactScore, CustomerActivity
+    from database import CustomerProfile, ContactScore, CustomerActivity, ActionLedger
 
     now = datetime.now()
     pending = (FlowEnrollment.select(FlowEnrollment, Flow, Contact)
