@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-30 11:01. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-30 11:06. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 40,445 lines)
+## Python Files — Detailed (63 files, 40,452 lines)
 
 ### `app.py` (7,302 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -280,7 +280,7 @@ Key functions:
 - `_process_flow_enrollments() — Every 60s: advance flow steps, send scheduled emails`
 - `_process_delivery_queue_wrapper() — Every 30s: drain queue respecting warmup limits`
 
-### `block_registry.py` (2,476 lines)
+### `block_registry.py` (2,483 lines)
 **Email template block rendering engine — 26 block types, validation, personalization**
 
 Defines BLOCK_TYPES registry (26 types) with schema (required/optional fields, defaults, label, category).

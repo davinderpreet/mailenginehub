@@ -2073,7 +2073,14 @@ def render_template_blocks(template, contact=None, products=None, discount=None,
     if discount and discount.get("code") and discount.get("expires_at"):
         from datetime import datetime as _dt, timezone as _tz
         _expires_at = discount["expires_at"]
-        if hasattr(_expires_at, 'isoformat') and _expires_at > _dt.now(_tz.utc):
+        # Safely compare — _expires_at may be naive or aware
+        try:
+            _now_utc = _dt.now(_tz.utc)
+            _exp_aware = _expires_at if _expires_at.tzinfo else _expires_at.replace(tzinfo=_tz.utc)
+            _is_future = _exp_aware > _now_utc
+        except Exception:
+            _is_future = True  # assume valid if comparison fails
+        if hasattr(_expires_at, 'isoformat') and _is_future:
             _now = _dt.now(_tz.utc)
             offer_meta = {
                 "description": discount.get("display_text", ""),
