@@ -32,6 +32,48 @@ logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════
+# LDAS Product Merchandising — curated blurbs + expansion rules
+# ═══════════════════════════════════════════════════════════════
+
+LDAS_PRODUCT_BLURBS = {
+    "LDAS Trucker Bluetooth Headset TH11": "Professional trucker headset with 36-hour battery and dual-mic noise cancellation.",
+    "LDAS Bluetooth Headset G10": "40-hour Bluetooth headset with ENC dual-mic clarity for driving professionals.",
+    "LDAS Bluetooth Headset G7": "Lightweight over-ear headset with all-day comfort and clear hands-free calls.",
+    "LDAS Bluetooth Headset G3": "Budget-friendly Bluetooth headset with solid noise cancellation for everyday driving.",
+    "LDAS Bluetooth Earpiece F910": "Lightweight single-ear headset with 24-hour talk time and Bluetooth 5.2.",
+    "LDAS Bluetooth Headset G1": "Compact wireless headset for clear calls and comfortable all-day wear.",
+    "LDAS Bluetooth Headset F900": "Reliable wireless headset designed for professional hands-free communication.",
+    "LDAS Office Bluetooth Headset G40": "Premium office headset with superior sound for conference calls and video meetings.",
+    "LDAS Dash Cam for Cars Front and Rear and SD Card Included": "Dual-camera dash cam with front and rear recording — SD card included.",
+    "LDAS A20 Dash Cam WiFi , 2.5K Car Camera, Dash Cam with APP, Night Vision, WDR, G-sensor, Loop Recording, 24H Parking Mode, Free 128GB SD Card": "2.5K WiFi dash cam with night vision, parking mode, and free 128GB SD card.",
+    "LDAS Dash Cam Front 2.5K: Mini Dash Cam for Cars, 1440P Car Camera with APP, WiFi, WDR Night Vision, 24H Parking Monitor, 160\u00b0 Wide Angle, G-sensor": "Mini 2.5K front dash cam with WiFi app control and 160-degree wide-angle recording.",
+    "LDAS Computer Speakers for Desktop Monitor, USB/USB-C Powered PC Speakers with Loud Stereo Sound and Headphone Input": "USB-powered desktop speakers with loud stereo sound and headphone input.",
+    "LDAS USB C Car Charger, 30W iPhone Car Charger Fast Charging Mini Metal USB C Car Adapter": "Fast 30W USB-C car charger that keeps phones powered through long hauls.",
+    "Dash Cam Hardwire Kit, Type-C USB C Hard Wire Kit, 12V-24V to 5V Low Voltage Protection, 13ft Cord": "Hardwire kit for permanent dash cam power — fits 12V-24V vehicles.",
+    "LDAS Phone Mount for Truck, Truck Phone Holder, Heavy Duty Suction Cup Phone Mount for Dashboard Windshield": "Heavy-duty suction cup phone mount built for semi trucks and rough roads.",
+}
+
+# Upgrade ladder: each headset's natural next step
+LDAS_UPGRADE_LADDER = {
+    "F910": "G3",
+    "G3": "G7",
+    "G1": "G3",
+    "F900": "G3",
+    "G7": "G10",
+    "G10": "TH11",
+    "TH11": "G10",  # down-tier alternative when hero is top
+}
+
+# Complementary product type → product title substrings to try
+LDAS_COMPLEMENTARY = {
+    "Bluetooth Headset": ["Dash Cam", "Car Charger", "Phone Mount"],
+    "Dash Cam": ["Hardwire Kit", "Phone Mount", "TH11"],
+    "Computer Speaker": ["Car Charger", "Phone Mount"],
+    "Power Adapter & Charger A": ["Phone Mount", "Dash Cam"],
+}
+
+
+# ═══════════════════════════════════════════════════════════════
 # Trigger → metadata maps
 # ═══════════════════════════════════════════════════════════════
 
@@ -385,76 +427,93 @@ def _get_intelligence_products(contact, limit=4):
         logger.info("[flow_runtime] Intelligence recommended %d candidates but no concrete products resolved",
                     len(candidates))
 
-    # ── Expansion: fill to 3 products when catalog has enough ──
-    if len(products) < 3:
+    # ── Curated expansion: upgrade ladder → complementary → diverse fallback ──
+    if products and len(products) < limit:
         try:
             selected_titles = {p["product_title"] for p in products}
+            hero_title = products[0].get("product_title", "")
 
-            # First pass: same product_type as existing products
-            existing_types = set()
-            for p in products:
-                cached = ProductImageCache.get_or_none(ProductImageCache.product_title == p["product_title"])
-                if cached and cached.product_type:
-                    existing_types.add(cached.product_type)
+            def _try_add(search_term):
+                """Try to add a product matching search_term. Returns True if added."""
+                try:
+                    match = (ProductImageCache.select()
+                             .where(ProductImageCache.product_title.contains(search_term))
+                             .first())
+                    if match and match.product_title not in selected_titles and match.product_title not in out_of_stock:
+                        products.append({
+                            "product_title": match.product_title,
+                            "product_url": match.product_url or "",
+                            "image_url": match.image_url or "",
+                            "price": str(match.price or "0.00"),
+                        })
+                        selected_titles.add(match.product_title)
+                        return True
+                except Exception:
+                    pass
+                return False
 
-            if existing_types:
-                for ptype in list(existing_types):
-                    if len(products) >= 3:
+            # Slot 2: upgrade/alternative from LDAS ladder
+            if len(products) < limit:
+                for ladder_key, ladder_target in LDAS_UPGRADE_LADDER.items():
+                    if ladder_key in hero_title:
+                        _try_add(ladder_target)
                         break
+
+            # Slot 3: complementary from different category
+            if len(products) < limit:
+                hero_type = ""
+                try:
+                    hero_cache = ProductImageCache.get_or_none(
+                        ProductImageCache.product_title == hero_title)
+                    if hero_cache:
+                        hero_type = hero_cache.product_type or ""
+                except Exception:
+                    pass
+
+                for comp_key in LDAS_COMPLEMENTARY.get(hero_type, []):
+                    if len(products) >= limit:
+                        break
+                    _try_add(comp_key)
+
+            # Fallback: top promotable with category diversity
+            if len(products) < limit:
+                selected_types = set()
+                for p in products:
                     try:
-                        type_matches = (ProductImageCache.select()
-                                        .where(ProductImageCache.product_type == ptype)
-                                        .limit(10))
-                        for m in type_matches:
-                            if len(products) >= 3:
-                                break
-                            if m.product_title in selected_titles:
-                                continue
-                            if m.product_title in out_of_stock:
-                                continue
-                            # Check promotion_eligible via ProductCommercial
-                            pc = ProductCommercial.get_or_none(
-                                ProductCommercial.product_title == m.product_title
-                            )
-                            if pc and not pc.promotion_eligible:
-                                continue
-                            products.append({
-                                "product_title": m.product_title,
-                                "product_url": m.product_url or "",
-                                "image_url": m.image_url or "",
-                                "price": str(m.price or "0.00"),
-                            })
-                            selected_titles.add(m.product_title)
+                        pc = ProductImageCache.get_or_none(
+                            ProductImageCache.product_title == p.get("product_title", ""))
+                        if pc and pc.product_type:
+                            selected_types.add(pc.product_type)
                     except Exception:
                         pass
 
-            # Second pass: top promotable by profitability_score
-            if len(products) < 3:
                 try:
-                    top_commercial = (ProductCommercial.select()
-                                      .where(
-                                          ProductCommercial.promotion_eligible == True,
-                                          ProductCommercial.stock_pressure != "out_of_stock",
-                                      )
-                                      .order_by(ProductCommercial.profitability_score.desc())
-                                      .limit(20))
-                    for pc in top_commercial:
-                        if len(products) >= 3:
+                    top_promo = (ProductCommercial.select()
+                        .where(ProductCommercial.promotion_eligible == True,
+                               ProductCommercial.stock_pressure != "out_of_stock")
+                        .order_by(ProductCommercial.profitability_score.desc())
+                        .limit(20))
+                    for pc in top_promo:
+                        if len(products) >= limit:
                             break
                         if pc.product_title in selected_titles:
                             continue
-                        cached = ProductImageCache.get_or_none(
-                            ProductImageCache.product_title == pc.product_title
-                        )
-                        if not cached:
+                        # Category diversity: skip same type as existing
+                        if pc.product_type and pc.product_type in selected_types:
+                            continue
+                        pic = ProductImageCache.get_or_none(
+                            ProductImageCache.product_title == pc.product_title)
+                        if not pic:
                             continue
                         products.append({
-                            "product_title": cached.product_title,
-                            "product_url": cached.product_url or "",
-                            "image_url": cached.image_url or "",
-                            "price": str(cached.price or "0.00"),
+                            "product_title": pic.product_title,
+                            "product_url": pic.product_url or "",
+                            "image_url": pic.image_url or "",
+                            "price": str(pic.price or "0.00"),
                         })
-                        selected_titles.add(cached.product_title)
+                        selected_titles.add(pic.product_title)
+                        if pic.product_type:
+                            selected_types.add(pic.product_type)
                 except Exception:
                     pass
         except Exception as expand_exc:
@@ -489,14 +548,12 @@ def _legacy_product_fallback(contact):
 def enrich_products_for_merch(products):
     """Enrich product dicts with compare_price and short_description for merch display.
 
-    For each product dict, looks up ProductImageCache (for compare_price) and
-    ProductCommercial (for richer description data).  Modifies the dicts in place
-    and returns the enriched list.
-
-    Priority for short_description:
-    1. ProductCommercial exists → build blurb from product_type + savings info
-    2. ProductImageCache only → build from product_type + price
-    3. Fallback → generic title-based blurb
+    Priority for short_description (benefit-oriented, NEVER price-only):
+    1. LDAS_PRODUCT_BLURBS — curated copy for known products
+    2. Fuzzy match in LDAS_PRODUCT_BLURBS (title contains key or vice versa)
+    3. KnowledgeEntry product_catalog — real product descriptions
+    4. Benefit-oriented fallback from product_type
+    5. Last resort — simple title-based description
     """
     try:
         from database import ProductImageCache, ProductCommercial
@@ -508,64 +565,87 @@ def enrich_products_for_merch(products):
         if not title:
             continue
 
-        # Look up cache entry
+        # Look up cache entry for compare_price
         cached = None
         try:
             cached = ProductImageCache.get_or_none(ProductImageCache.product_title == title)
         except Exception:
             pass
 
-        # Add compare_price if not already present
         if not prod.get("compare_price") and cached and getattr(cached, "compare_price", ""):
             prod["compare_price"] = str(cached.compare_price)
 
-        # Skip if short_description already present
         if prod.get("short_description"):
             continue
 
-        # Look up commercial data
-        pc = None
-        try:
-            pc = ProductCommercial.get_or_none(ProductCommercial.product_title == title)
-        except Exception:
-            pass
-
         blurb = ""
-        if pc:
-            ptype = (pc.product_type or "").strip() or (cached.product_type if cached else "") or ""
-            current_price = pc.current_price or 0.0
-            compare = pc.compare_price or 0.0
-            if not compare and cached:
-                try:
-                    compare = float(cached.compare_price or 0)
-                except (ValueError, TypeError):
-                    compare = 0.0
 
-            if ptype and compare and compare > current_price:
-                savings = compare - current_price
-                blurb = "%s. Save $%g — was $%g." % (
-                    ptype,
-                    round(savings, 2),
-                    round(compare, 2),
+        # 1. Exact match in LDAS_PRODUCT_BLURBS
+        if title in LDAS_PRODUCT_BLURBS:
+            blurb = LDAS_PRODUCT_BLURBS[title]
+
+        # 2. Fuzzy match (title contains a known key or vice versa)
+        if not blurb:
+            for known_title, known_blurb in LDAS_PRODUCT_BLURBS.items():
+                if known_title in title or title in known_title:
+                    blurb = known_blurb
+                    break
+
+        # 3. KnowledgeEntry product_catalog lookup
+        if not blurb:
+            try:
+                from database import KnowledgeEntry
+                ke = KnowledgeEntry.get_or_none(
+                    KnowledgeEntry.entry_type == "product_catalog",
+                    KnowledgeEntry.is_active == True,
+                    KnowledgeEntry.title.contains(title[:30]),
                 )
-            elif ptype and current_price:
-                blurb = "%s — premium quality at $%g." % (ptype, round(current_price, 2))
-            elif ptype:
-                blurb = "%s — great value for your home." % ptype
-            # Trim to 100 chars
-            if len(blurb) > 100:
-                blurb = blurb[:97] + "..."
-        elif cached:
-            ptype = (getattr(cached, "product_type", "") or "").strip()
-            price_str = prod.get("price") or str(getattr(cached, "price", "") or "")
-            if ptype and price_str:
-                blurb = "%s — premium quality at $%s." % (ptype, price_str)
-            elif ptype:
-                blurb = "%s — quality electronics." % ptype
-            if len(blurb) > 100:
-                blurb = blurb[:97] + "..."
+                if ke and ke.content:
+                    # Extract first sentence, max 100 chars
+                    content = ke.content.strip()
+                    # Skip the title prefix if present
+                    if content.startswith(title):
+                        content = content[len(title):].lstrip(" -–—")
+                    first_sentence = content.split(".")[0].strip()
+                    if first_sentence and len(first_sentence) > 15:
+                        blurb = first_sentence[:97] + "." if len(first_sentence) > 97 else first_sentence + "."
+            except Exception:
+                pass
+
+        # 4. Benefit-oriented fallback from product_type
+        if not blurb:
+            ptype = ""
+            if cached:
+                ptype = (getattr(cached, "product_type", "") or "").strip()
+            if not ptype:
+                try:
+                    pc = ProductCommercial.get_or_none(ProductCommercial.product_title == title)
+                    if pc:
+                        ptype = (pc.product_type or "").strip()
+                except Exception:
+                    pass
+
+            if ptype:
+                # Benefit-oriented, not price-oriented
+                _type_benefits = {
+                    "Bluetooth Headset": "Professional Bluetooth headset built for clear hands-free calls.",
+                    "Dash Cam": "Reliable dash cam for on-road safety and peace of mind.",
+                    "Computer Speaker": "Quality desktop speakers for clear audio at work or home.",
+                    "Power Adapter & Charger A": "Reliable charger that keeps your devices powered on the go.",
+                }
+                blurb = _type_benefits.get(ptype, "Quality %s for professionals on the go." % ptype)
+
+        # 5. Last resort — title-based
+        if not blurb and title:
+            # Extract core product identity from title
+            short_title = title.split(",")[0].strip()
+            if len(short_title) > 60:
+                short_title = short_title[:57] + "..."
+            blurb = "%s — built for reliability." % short_title
 
         if blurb:
+            if len(blurb) > 100:
+                blurb = blurb[:97] + "..."
             prod["short_description"] = blurb
 
     return products
@@ -642,7 +722,11 @@ def _resolve_offer(contact, discount_purpose, candidate_products):
         if not policy.get("offer_discount", False):
             return None
 
-        discount_info = discount_engine.get_or_create_discount(contact.email, discount_purpose)
+        discount_info = discount_engine.get_or_create_discount(
+            contact.email, discount_purpose,
+            override_value=str(policy.get("discount_value", "")),
+            override_type=policy.get("discount_type"),
+        )
         if not discount_info:
             return None
 

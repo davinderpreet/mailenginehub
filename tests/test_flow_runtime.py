@@ -1760,10 +1760,248 @@ class TestDBRepairSetsRuntimeMode:
         assert disc["content"]["mode"] == "runtime"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TestMerchEnrichment
-# ─────────────────────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# LDAS Merchandising Quality Tests
+# ═══════════════════════════════════════════════════════════════
 
+
+class TestLDASOfferPolicy:
+    """LDAS owner business rules for discount strategy."""
+
+    def test_welcome_always_5pct_new_subscriber(self, in_memory_db, make_contact):
+        """True new subscriber: ALWAYS 5% percentage for first-sale conversion."""
+        from database import CustomerProfile, ContactScore
+        contact = make_contact()
+        CustomerProfile.create(contact=contact, email=contact.email,
+                               total_orders=0, discount_sensitivity=0,
+                               has_used_discount=False, lifecycle_stage="new")
+        ContactScore.create(contact=contact, email=contact.email, rfm_segment="new")
+
+        with patch("intelligence_layer._compute_engagement_score") as mock_eng:
+            mock_eng.return_value = {"score": 0, "signals": []}
+            from intelligence_layer import get_discount_policy
+            result = get_discount_policy(contact.id, "welcome")
+
+        assert result["offer_discount"] is True
+        assert result["discount_type"] == "percentage"
+        assert result["discount_value"] == "5"
+
+    def test_post_purchase_never_discounts(self, in_memory_db, make_contact):
+        """Post-purchase: ALWAYS no discount per LDAS policy."""
+        from database import CustomerProfile, ContactScore
+        contact = make_contact()
+        CustomerProfile.create(contact=contact, email=contact.email,
+                               total_orders=3, lifecycle_stage="active")
+        ContactScore.create(contact=contact, email=contact.email, rfm_segment="loyal")
+
+        with patch("intelligence_layer._compute_engagement_score") as mock_eng:
+            mock_eng.return_value = {"score": 10, "signals": ["email_clicks", "product_views"]}
+            from intelligence_layer import get_discount_policy
+            result = get_discount_policy(contact.id, "post_purchase")
+
+        assert result["offer_discount"] is False
+
+    def test_browse_escalation_with_engagement(self, in_memory_db, make_contact):
+        """Browse abandonment: escalate from free shipping to 10% with strong engagement."""
+        from database import CustomerProfile, ContactScore
+        contact = make_contact()
+        CustomerProfile.create(contact=contact, email=contact.email,
+                               total_orders=0, lifecycle_stage="new")
+        ContactScore.create(contact=contact, email=contact.email, rfm_segment="new")
+
+        with patch("intelligence_layer._compute_engagement_score") as mock_eng:
+            mock_eng.return_value = {"score": 8, "signals": ["email_clicks", "product_views", "cart_activity"]}
+            from intelligence_layer import get_discount_policy
+            result = get_discount_policy(contact.id, "browse_abandonment")
+
+        assert result["offer_discount"] is True
+        assert result["discount_value"] == "10"
+
+    def test_winback_short_lapse_5pct(self, in_memory_db, make_contact):
+        """Winback: short lapse (<=60d) gets 5%."""
+        from database import CustomerProfile, ContactScore
+        contact = make_contact()
+        CustomerProfile.create(contact=contact, email=contact.email,
+                               total_orders=2, days_since_last_order=45,
+                               lifecycle_stage="at_risk")
+        ContactScore.create(contact=contact, email=contact.email, rfm_segment="at_risk")
+
+        with patch("intelligence_layer._compute_engagement_score") as mock_eng:
+            mock_eng.return_value = {"score": 4, "signals": ["prior_purchases"]}
+            from intelligence_layer import get_discount_policy
+            result = get_discount_policy(contact.id, "winback")
+
+        assert result["offer_discount"] is True
+        assert result["discount_value"] == "5"
+
+    def test_sub60_discount_cap(self, in_memory_db, make_contact):
+        """Products under $60 never exceed 10% discount."""
+        from database import CustomerProfile, ContactScore, ProductImageCache
+        contact = make_contact()
+        CustomerProfile.create(contact=contact, email=contact.email,
+                               total_orders=2, days_since_last_order=90,
+                               lifecycle_stage="at_risk")
+        ContactScore.create(contact=contact, email=contact.email, rfm_segment="at_risk")
+        ProductImageCache.create(product_id="1", product_title="Cheap Headset",
+                                 price="49.99", product_type="Bluetooth Headset",
+                                 handle="cheap")
+
+        with patch("intelligence_layer._compute_engagement_score") as mock_eng:
+            mock_eng.return_value = {"score": 8, "signals": ["email_clicks", "cart_activity"]}
+            from intelligence_layer import get_discount_policy
+            result = get_discount_policy(contact.id, "winback", ["Cheap Headset"])
+
+        # Winback at 90d lapse would normally be 10%, but sub-$60 cap applies
+        assert result["offer_discount"] is True
+        val = int(result["discount_value"])
+        assert val <= 10
+
+
+class TestLDASMerchBlurbs:
+    """Product card descriptions must be benefit-oriented, not price-only."""
+
+    def test_ldas_curated_blurb_used(self, in_memory_db):
+        from flow_runtime import enrich_products_for_merch, LDAS_PRODUCT_BLURBS
+        from database import ProductImageCache
+        title = "LDAS Bluetooth Headset G10"
+        ProductImageCache.create(product_id="1", product_title=title,
+                                 image_url="https://cdn/g10.jpg",
+                                 product_url="https://ldas.ca/g10",
+                                 price="65.99", product_type="Bluetooth Headset",
+                                 handle="g10")
+        products = [{"product_title": title, "price": "65.99"}]
+        enriched = enrich_products_for_merch(products)
+        assert enriched[0]["short_description"] == LDAS_PRODUCT_BLURBS[title]
+
+    def test_merch_blurb_not_price_only(self, in_memory_db):
+        from flow_runtime import enrich_products_for_merch
+        from database import ProductImageCache
+        ProductImageCache.create(product_id="1", product_title="Test Widget",
+                                 image_url="https://cdn/t.jpg",
+                                 product_url="https://ldas.ca/t",
+                                 price="49.99", compare_price="79.99",
+                                 product_type="Bluetooth Headset", handle="t")
+        products = [{"product_title": "Test Widget", "price": "49.99"}]
+        enriched = enrich_products_for_merch(products)
+        desc = enriched[0].get("short_description", "")
+        assert "Save $" not in desc
+        assert "was $" not in desc
+        assert "premium quality at" not in desc
+
+    def test_fuzzy_match_blurb(self, in_memory_db):
+        """Products with slightly different titles still get curated blurbs."""
+        from flow_runtime import enrich_products_for_merch, LDAS_PRODUCT_BLURBS
+        from database import ProductImageCache
+        # Use a title that contains a key from LDAS_PRODUCT_BLURBS
+        ProductImageCache.create(product_id="1",
+                                 product_title="LDAS Bluetooth Headset G10 - Special Edition",
+                                 image_url="https://cdn/g10.jpg",
+                                 product_url="https://ldas.ca/g10",
+                                 price="65.99", product_type="Bluetooth Headset",
+                                 handle="g10se")
+        products = [{"product_title": "LDAS Bluetooth Headset G10 - Special Edition", "price": "65.99"}]
+        enriched = enrich_products_for_merch(products)
+        desc = enriched[0].get("short_description", "")
+        # Should get the G10 blurb via fuzzy match
+        assert "40-hour" in desc or "ENC" in desc or "Bluetooth headset" in desc.lower()
+
+
+class TestLDASProductExpansion:
+    """Product expansion should use upgrade ladder + complementary, not redundant same-type."""
+
+    def test_expansion_uses_upgrade_ladder(self, in_memory_db, make_contact):
+        from flow_runtime import _get_intelligence_products
+        from database import ProductImageCache, ProductCommercial
+        # G7 as hero — should add G10 as upgrade
+        for pid, title, ptype, price in [
+            ("1", "LDAS Bluetooth Headset G7", "Bluetooth Headset", "54.99"),
+            ("2", "LDAS Bluetooth Headset G10", "Bluetooth Headset", "65.99"),
+            ("3", "LDAS USB C Car Charger, 30W iPhone Car Charger Fast Charging Mini Metal USB C Car Adapter",
+             "Power Adapter & Charger A", "12.99"),
+        ]:
+            ProductImageCache.create(product_id=pid, product_title=title,
+                image_url="https://cdn/%s.jpg" % pid, product_url="https://ldas.ca/%s" % pid,
+                price=price, product_type=ptype, handle="p%s" % pid)
+            ProductCommercial.create(product_id=pid, product_title=title,
+                margin_pct=0.45, stock_pressure="overstocked",
+                profitability_score=80, promotion_eligible=True)
+
+        contact = make_contact()
+        with patch("flow_runtime.intelligence_layer") as mock_intel:
+            mock_intel.get_next_products.return_value = {
+                "schema_version": 1,
+                "top_pick": {"product_key": "LDAS Bluetooth Headset G7"},
+                "cross_sells": [], "reorders": [], "replacements": [],
+                "upgrades": [], "accessories": [],
+            }
+            products = _get_intelligence_products(contact, limit=3)
+
+        titles = [p["product_title"] for p in products]
+        assert "LDAS Bluetooth Headset G7" in titles
+        # G10 should be added as upgrade
+        assert any("G10" in t for t in titles), "Expected G10 upgrade, got: %s" % titles
+
+    def test_expansion_avoids_3_same_type(self, in_memory_db, make_contact):
+        from flow_runtime import _get_intelligence_products
+        from database import ProductImageCache, ProductCommercial
+        for pid, title, ptype in [
+            ("1", "Headset A", "Bluetooth Headset"),
+            ("2", "Headset B", "Bluetooth Headset"),
+            ("3", "Headset C", "Bluetooth Headset"),
+            ("4", "Headset D", "Bluetooth Headset"),
+            ("5", "LDAS Dash Cam X", "Dash Cam"),
+        ]:
+            ProductImageCache.create(product_id=pid, product_title=title,
+                image_url="https://cdn/%s.jpg" % pid, product_url="https://ldas.ca/%s" % pid,
+                price="59.99", product_type=ptype, handle="p%s" % pid)
+            ProductCommercial.create(product_id=pid, product_title=title,
+                margin_pct=0.45, stock_pressure="overstocked",
+                profitability_score=80, promotion_eligible=True)
+
+        contact = make_contact()
+        with patch("flow_runtime.intelligence_layer") as mock_intel:
+            mock_intel.get_next_products.return_value = {
+                "schema_version": 1,
+                "top_pick": {"product_key": "Headset A"},
+                "cross_sells": [], "reorders": [], "replacements": [],
+                "upgrades": [], "accessories": [],
+            }
+            products = _get_intelligence_products(contact, limit=3)
+
+        if len(products) >= 3:
+            types = set()
+            for p in products:
+                try:
+                    pic = ProductImageCache.get_or_none(ProductImageCache.product_title == p["product_title"])
+                    if pic and pic.product_type:
+                        types.add(pic.product_type)
+                except Exception:
+                    pass
+            assert len(types) > 1, "3 products should span multiple categories"
+
+
+class TestDiscountCodeManagement:
+    """One active code per person; old code expired on new issue."""
+
+    def test_expire_active_codes(self, in_memory_db):
+        pytest.importorskip("requests", reason="requests not installed")
+        from discount_engine import _expire_active_codes
+        from database import GeneratedDiscount
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        GeneratedDiscount.create(
+            email="test@example.com", code="OLD123", purpose="welcome",
+            discount_type="percentage", value="5",
+            shopify_price_rule_id="pr_123", shopify_discount_id="d_123",
+            expires_at=now + timedelta(hours=24), used=False,
+        )
+        count = _expire_active_codes("test@example.com")
+        assert count == 1
+        code = GeneratedDiscount.get(GeneratedDiscount.code == "OLD123")
+        assert code.used is True
+
+
+# Keep old test class name for backward compatibility
 class TestMerchEnrichment:
     """Product cards should have usable descriptions."""
 
@@ -1914,8 +2152,8 @@ class TestOfferLadder:
         assert policy["offer_discount"] is True
         assert policy["discount_type"] == "free_shipping"
 
-    def test_welcome_high_intent_gets_free_shipping(self, in_memory_db, make_contact):
-        """High intent new subscriber should get free shipping, not 5%."""
+    def test_welcome_always_5pct_per_ldas_rules(self, in_memory_db, make_contact):
+        """LDAS rule: welcome = ALWAYS 5% for new subscribers regardless of intent."""
         from intelligence_layer import get_discount_policy
         from database import CustomerProfile
 
@@ -1930,7 +2168,8 @@ class TestOfferLadder:
 
         policy = get_discount_policy(contact.id, "welcome")
         assert policy["offer_discount"] is True
-        assert policy["discount_type"] == "free_shipping"
+        assert policy["discount_type"] == "percentage"
+        assert policy["discount_value"] == "5"
 
     def test_welcome_low_intent_gets_percentage(self, in_memory_db, make_contact):
         """Low intent new subscriber should get 5% discount."""
@@ -1951,8 +2190,8 @@ class TestOfferLadder:
         assert policy["discount_type"] == "percentage"
         assert policy["discount_value"] == "5"
 
-    def test_winback_recent_lapse_gets_free_shipping(self, in_memory_db, make_contact):
-        """Recently lapsed winback (30-60 days) should get free shipping."""
+    def test_winback_recent_lapse_gets_5pct_per_ldas(self, in_memory_db, make_contact):
+        """LDAS rule: winback short lapse (<=60d) gets 5% percentage."""
         from intelligence_layer import get_discount_policy
         from database import CustomerProfile
 
@@ -1967,7 +2206,8 @@ class TestOfferLadder:
 
         policy = get_discount_policy(contact.id, "winback")
         assert policy["offer_discount"] is True
-        assert policy["discount_type"] == "free_shipping"
+        assert policy["discount_type"] == "percentage"
+        assert policy["discount_value"] == "5"
 
     def test_winback_long_lapse_gets_percentage(self, in_memory_db, make_contact):
         """Long lapsed winback (60-120 days) should get 10%."""

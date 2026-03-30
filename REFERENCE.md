@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-30 14:41. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-30 16:45. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 40,907 lines)
+## Python Files — Detailed (63 files, 41,112 lines)
 
 ### `app.py` (7,312 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -316,7 +316,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 ### `generate-context.py` (1,364 lines)
 **Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
 
-### `flow_runtime.py` (1,196 lines)
+### `flow_runtime.py` (1,280 lines)
 **Flow send package builder — centralizes flow render/decision logic (Phase 3)**
 
 Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
@@ -398,6 +398,23 @@ Key functions:
 - `validate_rendered_email(html, subject, ...) — Post-render 6-category validation`
 - `substitute_preview_tokens(html) — Replace send-time tokens for browser preview display`
 
+### `intelligence_layer.py` (994 lines)
+**Unified intelligence API — contact profiles, timing gates, discount policy, diagnostics**
+
+Phase 1 of the architecture rebuild. Single entry point for all contact intelligence.
+Aggregates data from CustomerProfile, ContactScore, MessageDecision, and product_intelligence
+into a unified schema (schema_version=1). Includes timing gate (should_contact_now) that checks
+recency, suppression, and unsubscribe status. Discount policy engine decides whether to offer
+discounts based on customer type, lifecycle stage, and product margins. Used by studio, AM, and flows.
+
+Key functions:
+- `get_contact_intelligence(contact_id) — Returns unified profile dict with all intelligence sections`
+- `should_contact_now(contact_id) — Timing gate: checks recency, suppression, unsubscribe`
+- `get_discount_policy(contact_id, family, candidate_products) — Returns discount recommendation`
+- `get_next_products(contact_id) — Returns product recommendations from product_intelligence`
+- `format_intelligence_for_prompt(intel) — Formats intelligence dict for AI prompt context`
+- `diagnose_contact(contact_id) — Debug helper: returns full intelligence + timing + discount`
+
 ### `knowledge_scraper.py` (952 lines)
 **Auto-enrichment pipeline — scrapes products, blogs, competitors, FAQs into knowledge base**
 
@@ -430,23 +447,6 @@ Key functions:
 - `_evaluate_candidates(strategy_state, intel) → (action_type, score, reasoning)`
 - `_check_preconditions(contact) → ('ok','') or ('skipped', reason)`
 - `_check_timing(contact, intelligence) → ('ok', scheduled_at) or ('wait', wait_until)`
-
-### `intelligence_layer.py` (915 lines)
-**Unified intelligence API — contact profiles, timing gates, discount policy, diagnostics**
-
-Phase 1 of the architecture rebuild. Single entry point for all contact intelligence.
-Aggregates data from CustomerProfile, ContactScore, MessageDecision, and product_intelligence
-into a unified schema (schema_version=1). Includes timing gate (should_contact_now) that checks
-recency, suppression, and unsubscribe status. Discount policy engine decides whether to offer
-discounts based on customer type, lifecycle stage, and product margins. Used by studio, AM, and flows.
-
-Key functions:
-- `get_contact_intelligence(contact_id) — Returns unified profile dict with all intelligence sections`
-- `should_contact_now(contact_id) — Timing gate: checks recency, suppression, unsubscribe`
-- `get_discount_policy(contact_id, family, candidate_products) — Returns discount recommendation`
-- `get_next_products(contact_id) — Returns product recommendations from product_intelligence`
-- `format_intelligence_for_prompt(intel) — Formats intelligence dict for AI prompt context`
-- `diagnose_contact(contact_id) — Debug helper: returns full intelligence + timing + discount`
 
 ### `ai_engine.py` (836 lines)
 **Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution**
@@ -675,6 +675,14 @@ Key functions:
 - `compute_action_effectiveness() — Action type performance per segment`
 - `compute_optimal_frequency() — Personalized send gap per contact`
 
+### `discount_engine.py` (457 lines)
+**Dynamic discount generation — per-contact codes via Shopify price rules**
+
+get_or_create_discount(email, purpose) returns a unique discount code for a contact.
+Creates Shopify price rule + discount code via API if none exists. Tracks in GeneratedDiscount table.
+get_discount_display(discount_info) formats for email insertion (code, expiry, value display).
+Supports percentage and fixed-amount discounts with configurable expiry.
+
 ### `outcome_tracker.py` (428 lines)
 **Nightly outcome collection — opened/clicked/purchased/revenue attribution for learning**
 
@@ -695,14 +703,6 @@ checkout create) with HMAC SHA256 signature verification. (2) Nightly (2:00 UTC)
 via Shopify REST API — fetches all customers and orders, upserts ShopifyCustomer + ShopifyOrder
 + ShopifyOrderItem + Contact. Enriches Contact with total_orders, total_spent, first/last order dates.
 Also incremental sync every 2s for recent changes.
-
-### `discount_engine.py` (415 lines)
-**Dynamic discount generation — per-contact codes via Shopify price rules**
-
-get_or_create_discount(email, purpose) returns a unique discount code for a contact.
-Creates Shopify price rule + discount code via API if none exists. Tracks in GeneratedDiscount table.
-get_discount_display(discount_info) formats for email insertion (code, expiry, value display).
-Supports percentage and fixed-amount discounts with configurable expiry.
 
 ### `system_map_data.py` (414 lines)
 **System architecture visualization — 65+ nodes, relationships, stats for D3.js force graph**

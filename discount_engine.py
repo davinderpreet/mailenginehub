@@ -69,7 +69,43 @@ def _shopify_delete(endpoint):
     return resp
 
 
-def generate_discount_code(email, purpose, override_value=None):
+def _expire_active_codes(email):
+    """Expire all active discount codes for this email.
+
+    Enforces one-active-code-per-person rule per LDAS policy.
+    Marks existing unused/unexpired codes as used and tries to delete
+    the Shopify price rule.
+    """
+    now = datetime.now(timezone.utc)
+    try:
+        active = list(GeneratedDiscount.select().where(
+            GeneratedDiscount.email == email,
+            GeneratedDiscount.used == False,
+            GeneratedDiscount.expires_at > now,
+        ))
+        expired_count = 0
+        for code in active:
+            try:
+                code.used = True
+                code.used_at = now
+                code.save()
+                expired_count += 1
+                if code.shopify_price_rule_id:
+                    try:
+                        _shopify_delete("price_rules/%s.json" % code.shopify_price_rule_id)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        if expired_count:
+            logger.info("[DiscountEngine] Expired %d active codes for %s", expired_count, email)
+        return expired_count
+    except Exception as e:
+        logger.warning("[DiscountEngine] expire_active_codes error: %s", e)
+        return 0
+
+
+def generate_discount_code(email, purpose, override_value=None, override_type=None):
     """
     Create a unique Shopify discount code for a customer.
 
@@ -102,7 +138,7 @@ def generate_discount_code(email, purpose, override_value=None):
             logger.error("Could not generate unique code after 10 attempts")
             return None
 
-    discount_type = strategy["type"]
+    discount_type = override_type or strategy["type"]
     value = override_value or strategy["value"]
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(hours=strategy["expires_hours"])
@@ -212,11 +248,12 @@ def generate_discount_code(email, purpose, override_value=None):
         return None
 
 
-def get_or_create_discount(email, purpose):
+def get_or_create_discount(email, purpose, override_value=None, override_type=None):
     """
     Get an existing active discount code, or create a new one.
     Prevents duplicate codes for the same customer + purpose.
     Only returns codes that were successfully synced to Shopify.
+    Expires old active codes before creating new one (one-code-per-person rule).
 
     Returns:
         dict: {code, value, discount_type, expires_at} or None
@@ -243,8 +280,13 @@ def get_or_create_discount(email, purpose):
             "expires_at": existing.expires_at,
         }
 
-    # Create new discount
-    return generate_discount_code(email, purpose)
+    # Expire any active codes for this person before creating new one
+    _expire_active_codes(email)
+
+    # Create new discount with policy overrides
+    return generate_discount_code(email, purpose,
+                                  override_value=override_value,
+                                  override_type=override_type)
 
 
 def get_active_discount(email, purpose=None):

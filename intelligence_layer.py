@@ -464,6 +464,88 @@ def should_contact_now(contact_id):
 # Business Rules
 # ═══════════════════════════════════════════════════════════════
 
+
+def _compute_engagement_score(contact_id):
+    """Score engagement signals for LDAS discount escalation decisions.
+
+    Uses existing DB fields only — no schema changes needed.
+    Scoring per LDAS owner rules:
+    - Email clicks: +3 (strong signal)
+    - Product views: +2 (strong signal)
+    - Cart/checkout activity: +3 (strong signal)
+    - Repeat visits (page_views > 3): +2 (strong signal)
+    - Prior purchases: +2 (strong signal)
+    - AI confidence: +1 per 25pts over 50 (strong signal)
+    - Website engagement: +1 (supportive)
+    - Opens alone: 0 (explicitly excluded)
+
+    Returns: {"score": int, "signals": list}
+    """
+    score = 0
+    signals = []
+
+    try:
+        from database import CustomerProfile, FlowEmail, AutoEmail
+        profile = CustomerProfile.get_or_none(CustomerProfile.contact == contact_id)
+
+        if not profile:
+            return {"score": 0, "signals": ["no_profile"]}
+
+        # Email clicks (any recent): +3
+        try:
+            clicked_flow = FlowEmail.select().where(
+                FlowEmail.contact == contact_id, FlowEmail.clicked == True
+            ).exists()
+            clicked_auto = AutoEmail.select().where(
+                AutoEmail.contact == contact_id, AutoEmail.clicked == True
+            ).exists()
+            if clicked_flow or clicked_auto:
+                score += 3
+                signals.append("email_clicks")
+        except Exception:
+            pass
+
+        # Product views: +2
+        if getattr(profile, 'total_product_views', 0) and profile.total_product_views > 0:
+            score += 2
+            signals.append("product_views")
+
+        # Cart/checkout activity: +3
+        if getattr(profile, 'checkout_abandonment_count', 0) and profile.checkout_abandonment_count > 0:
+            score += 3
+            signals.append("cart_activity")
+
+        # Repeat visits (page_views > 3): +2
+        if getattr(profile, 'total_page_views', 0) and profile.total_page_views > 3:
+            score += 2
+            signals.append("repeat_visits")
+
+        # Prior purchases: +2
+        if getattr(profile, 'total_orders', 0) and profile.total_orders > 0:
+            score += 2
+            signals.append("prior_purchases")
+
+        # AI confidence: +1 per 25pts over 50
+        conf = getattr(profile, 'confidence_discount', 0) or 0
+        if conf > 50:
+            bonus = int((conf - 50) / 25)
+            if bonus > 0:
+                score += bonus
+                signals.append("confidence_%d" % conf)
+
+        # Website engagement: +1
+        if getattr(profile, 'website_engagement_score', 0) and profile.website_engagement_score > 0:
+            score += 1
+            signals.append("website_engagement")
+
+        # Opens alone: explicitly 0 (not counted per LDAS rules)
+
+    except Exception as e:
+        logger.warning("[IntelligenceLayer] engagement score error: %s", e)
+
+    return {"score": score, "signals": signals}
+
+
 def get_discount_policy(contact_id, purpose, candidate_products=None):
     """Should we offer a discount? If so, what kind?
 
@@ -539,159 +621,156 @@ def get_discount_policy(contact_id, purpose, candidate_products=None):
         result["reason"] = f"Margin too thin ({min_margin:.0%}) for discount on these products"
         return result
 
-    # ── Smart offer ladder ──
+    # ── LDAS offer ladder (engagement-driven escalation) ──
 
-    # Welcome: intent-based decision
+    eng = _compute_engagement_score(contact_id)
+    eng_score = eng["score"]
+    eng_signals = eng["signals"]
+
+    # Post-purchase: NEVER discount (LDAS policy)
+    if purpose == "post_purchase":
+        result["reason"] = "post_purchase: no discount per LDAS policy"
+        result["engagement_score"] = eng_score
+        result["engagement_signals"] = eng_signals
+        return result
+
+    # Welcome: ALWAYS 5% for true new subscribers (first-sale conversion)
     if purpose == "welcome":
         total_orders_val = 0
         try:
-            from database import CustomerProfile
-            _cp = CustomerProfile.get_or_none(CustomerProfile.contact == contact_id)
-            total_orders_val = (_cp.total_orders if _cp else 0) or 0
+            from database import CustomerProfile as _CPw
+            _cpw = _CPw.get_or_none(_CPw.contact == contact_id)
+            total_orders_val = (_cpw.total_orders if _cpw else 0) or 0
         except Exception:
             pass
-
-        intent = profile.intent_score if profile else 0
-
         if total_orders_val > 0:
-            # Returning subscriber — no offer needed
-            result["reason"] = "Returning subscriber — no welcome discount needed"
-            return result
-        elif intent and intent >= 60:
-            # New subscriber with high intent → free shipping
-            result["offer_discount"] = True
-            result["discount_type"] = "free_shipping"
-            result["discount_value"] = "100"
-            result["reason"] = "New subscriber with high intent — free shipping offer"
-            return result
+            result["reason"] = "welcome: returning buyer — no offer"
         else:
-            # New subscriber, low/no intent → 5%
             result["offer_discount"] = True
             result["discount_type"] = "percentage"
             result["discount_value"] = "5"
-            result["reason"] = "Welcome offer for new subscriber"
-            return result
-
-    # Browse abandonment: always free shipping
-    if purpose == "browse_abandonment":
-        result["offer_discount"] = True
-        result["discount_type"] = "free_shipping"
-        result["discount_value"] = "100"
-        result["reason"] = "Browse abandonment — free shipping incentive"
+            result["reason"] = "welcome: 5%% for new subscriber (LDAS first-sale conversion)"
+        result["engagement_score"] = eng_score
+        result["engagement_signals"] = eng_signals
         return result
 
-    # Cart / checkout recovery: decision ladder
-    if purpose in ("cart_abandonment", "checkout_recovery"):
-        # Determine cart value
-        cart_value = 0.0
-        try:
-            from database import AbandonedCheckout
-            checkout = (AbandonedCheckout.select()
-                        .where(AbandonedCheckout.contact == contact_id,
-                               AbandonedCheckout.recovered == False)
-                        .order_by(AbandonedCheckout.created_at.desc())
-                        .first())
-            if checkout and checkout.cart_total:
-                cart_value = float(checkout.cart_total or 0)
-        except Exception:
-            pass
-
-        # Determine attempt count
-        try:
-            from database import CustomerProfile
-            _cp = CustomerProfile.get_or_none(CustomerProfile.contact == contact_id)
-            abandonment_count = (_cp.checkout_abandonment_count if _cp else 0) or 0
-        except Exception:
-            abandonment_count = 0
-
-        if cart_value > 100 or abandonment_count == 0:
-            # High cart value or first attempt → free shipping
-            result["offer_discount"] = True
-            result["discount_type"] = "free_shipping"
-            result["discount_value"] = "100"
-            reason_detail = "high cart value" if cart_value > 100 else "first recovery attempt"
-            result["reason"] = f"Cart recovery — free shipping ({reason_detail})"
-            return result
-        elif cart_value < 50 or abandonment_count >= 1:
-            # Low cart value or repeat attempt → 5%
-            result["offer_discount"] = True
+    # Browse abandonment: escalate free_shipping → 5% → 10% by engagement
+    if purpose == "browse_abandonment":
+        result["offer_discount"] = True
+        if eng_score >= 8:
+            result["discount_type"] = "percentage"
+            result["discount_value"] = "10"
+            result["reason"] = "browse: 10%% (engagement %d: %s)" % (eng_score, ", ".join(eng_signals))
+        elif eng_score >= 4:
             result["discount_type"] = "percentage"
             result["discount_value"] = "5"
-            reason_detail = "low cart value" if cart_value < 50 else "repeat recovery attempt"
-            result["reason"] = f"Cart recovery — 5% discount ({reason_detail})"
-            return result
+            result["reason"] = "browse: 5%% (engagement %d: %s)" % (eng_score, ", ".join(eng_signals))
         else:
-            result["offer_discount"] = True
             result["discount_type"] = "free_shipping"
             result["discount_value"] = "100"
-            result["reason"] = "Cart recovery — free shipping"
-            return result
+            result["reason"] = "browse: free shipping (engagement %d)" % eng_score
+        result["engagement_score"] = eng_score
+        result["engagement_signals"] = eng_signals
+        # Sub-$60 cap applied below
+        break_to_cap = True
 
-    # Winback: lapse duration ladder
-    if purpose == "winback" and lifecycle in ("churned", "at_risk"):
-        days_lapsed = 999
+    # Cart / checkout recovery: escalate free_shipping → 5% → 10% by engagement
+    elif purpose in ("cart_abandonment", "checkout_recovery"):
+        result["offer_discount"] = True
+        if eng_score >= 8:
+            result["discount_type"] = "percentage"
+            result["discount_value"] = "10"
+            result["reason"] = "recovery: 10%% (engagement %d: %s)" % (eng_score, ", ".join(eng_signals))
+        elif eng_score >= 4:
+            result["discount_type"] = "percentage"
+            result["discount_value"] = "5"
+            result["reason"] = "recovery: 5%% (engagement %d: %s)" % (eng_score, ", ".join(eng_signals))
+        else:
+            result["discount_type"] = "free_shipping"
+            result["discount_value"] = "100"
+            result["reason"] = "recovery: free shipping (engagement %d)" % eng_score
+        result["engagement_score"] = eng_score
+        result["engagement_signals"] = eng_signals
+
+    # Winback: escalate 5% → 10% → 15% by lapse + engagement + confidence
+    elif purpose == "winback":
+        days_lapsed = 90
         try:
-            if profile and profile.days_since_last_order:
+            if profile and hasattr(profile, 'days_since_last_order') and profile.days_since_last_order:
                 days_lapsed = profile.days_since_last_order
         except Exception:
             pass
-
-        if days_lapsed <= 60:
-            # Recently lapsed (30-60 days) → free shipping
-            result["offer_discount"] = True
-            result["discount_type"] = "free_shipping"
-            result["discount_value"] = "100"
-            result["reason"] = f"Winback — recently lapsed ({days_lapsed}d) — free shipping"
-            return result
-        elif days_lapsed <= 120:
-            # Long lapsed (60-120 days) → 10%
-            result["offer_discount"] = True
-            result["discount_type"] = "percentage"
-            result["discount_value"] = "10"
-            result["reason"] = f"Winback — lapsed {days_lapsed}d — 10%"
-            return result
-        else:
-            # Very long lapsed (120+ days) → 10% or 15% if margin allows
-            best_pct = "15" if result["max_discount_pct"] >= 15 else "10"
-            result["offer_discount"] = True
-            result["discount_type"] = "percentage"
-            result["discount_value"] = best_pct
-            result["reason"] = f"Winback — long lapsed {days_lapsed}d — {best_pct}%"
-            return result
-
-    # Loyalty reward
-    if purpose == "loyalty_reward" and lifecycle in ("loyal", "vip"):
-        total_orders_val = 0
+        conf = 0
         try:
-            if profile:
-                total_orders_val = profile.total_orders or 0
+            if profile and hasattr(profile, 'confidence_discount'):
+                conf = profile.confidence_discount or 0
         except Exception:
             pass
-        if total_orders_val >= 5 or segment in ("champion", "loyal"):
-            result["offer_discount"] = True
-            result["discount_type"] = "free_shipping"
-            result["discount_value"] = "100"
-            result["reason"] = "VIP loyalty reward — free shipping"
-            return result
+
+        result["offer_discount"] = True
+        if days_lapsed > 120 and eng_score >= 12 and conf >= 70:
+            result["discount_type"] = "percentage"
+            result["discount_value"] = "15"
+            result["reason"] = "winback: 15%% (lapse %dd, engagement %d, confidence %d)" % (days_lapsed, eng_score, conf)
+        elif days_lapsed > 60:
+            result["discount_type"] = "percentage"
+            result["discount_value"] = "10"
+            result["reason"] = "winback: 10%% (lapse %dd, engagement %d)" % (days_lapsed, eng_score)
         else:
+            result["discount_type"] = "percentage"
+            result["discount_value"] = "5"
+            result["reason"] = "winback: 5%% (lapse %dd, engagement %d)" % (days_lapsed, eng_score)
+        result["engagement_score"] = eng_score
+        result["engagement_signals"] = eng_signals
+
+    # Loyalty reward: default no offer, 5% max for engaged buyers
+    elif purpose == "loyalty_reward":
+        if eng_score >= 4:
             result["offer_discount"] = True
             result["discount_type"] = "percentage"
             result["discount_value"] = "5"
-            result["reason"] = "Loyalty reward — 5%"
-            return result
+            result["reason"] = "loyalty: 5%% for engaged buyer (engagement %d)" % eng_score
+        else:
+            result["reason"] = "loyalty: no offer (engagement %d)" % eng_score
+        result["engagement_score"] = eng_score
+        result["engagement_signals"] = eng_signals
 
-    # For purposes without a specific ladder, offer only if discount-sensitive
-    if discount_sensitivity >= 0.4 and has_used_discount:
-        # Cap at margin-safe value
-        safe_value = str(min(10, int(result["max_discount_pct"])))
-        if int(safe_value) >= 5:
-            result["offer_discount"] = True
-            result["discount_type"] = "percentage"
-            result["discount_value"] = safe_value
-            result["reason"] = f"Discount-sensitive customer ({discount_sensitivity:.0%} of orders used codes)"
-            return result
+    # Unmapped purpose fallback
+    else:
+        if discount_sensitivity >= 0.4 and has_used_discount:
+            safe_value = str(min(10, int(result["max_discount_pct"])))
+            if int(safe_value) >= 5:
+                result["offer_discount"] = True
+                result["discount_type"] = "percentage"
+                result["discount_value"] = safe_value
+                result["reason"] = "Discount-sensitive customer (%.0f%% of orders used codes)" % (discount_sensitivity * 100)
+            else:
+                result["reason"] = "No discount warranted for %s" % purpose
+        else:
+            result["reason"] = "No discount warranted for %s to %s/%s" % (purpose, lifecycle, segment)
+        result["engagement_score"] = eng_score
+        result["engagement_signals"] = eng_signals
 
-    result["reason"] = f"No discount warranted for {purpose} to {lifecycle}/{segment} contact"
+    # ── Sub-$60 product protection: cap percentage at 10% ──
+    if result.get("discount_type") == "percentage" and result.get("discount_value"):
+        try:
+            val = int(result["discount_value"])
+            if val > 10 and candidate_products:
+                from database import ProductImageCache as _PICcap
+                for pid in (candidate_products or []):
+                    try:
+                        _pic = _PICcap.get_or_none(_PICcap.product_title == pid)
+                        if _pic and _pic.price:
+                            _price = float(str(_pic.price).replace("$", "").replace(",", ""))
+                            if _price < 60:
+                                result["discount_value"] = "10"
+                                result["reason"] += " [capped 10%% for sub-$60 item]"
+                                break
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     return result
 
 
