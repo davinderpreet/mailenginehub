@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-30 16:47 -- `f05be36`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-03-30 14:43 -- `ac809b5`
 
 **feat: merchandising quality upgrades — merch enrichment, multi-product expansion, smarter offer ladder**
