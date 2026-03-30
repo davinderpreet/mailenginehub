@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-30 11:06. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-30 11:12. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 40,452 lines)
+## Python Files — Detailed (63 files, 40,462 lines)
 
 ### `app.py` (7,302 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -416,7 +416,7 @@ Key functions:
 - `_check_preconditions(contact) → ('ok','') or ('skipped', reason)`
 - `_check_timing(contact, intelligence) → ('ok', scheduled_at) or ('wait', wait_until)`
 
-### `flow_runtime.py` (864 lines)
+### `flow_runtime.py` (874 lines)
 **Flow send package builder — centralizes flow render/decision logic (Phase 3)**
 
 Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()

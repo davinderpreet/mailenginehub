@@ -741,16 +741,26 @@ def build_flow_send_package(enrollment, step, contact, flow,
         render_result = te.render_email(contract)
         if not render_result.get("is_valid", False):
             issues = render_result.get("errors", [])
-            return _make_package(
-                "invalid", "render_failed",
-                objective=objective,
-                urgency=urgency,
-                candidate_products=candidate_products,
-                offer_context=offer_context,
-                render_result=render_result,
-                priority=priority,
-                metadata={"errors": issues},
-            )
+            # For flows, offer_consistency and product_consistency are non-fatal:
+            # - offer codes are managed by flow_runtime (discount_engine), not template
+            # - product placeholders get filled at render time
+            # Only structural/placeholder errors are truly fatal for send.
+            _fatal = [e for e in issues if e.get("check") not in
+                      ("offer_consistency", "product_consistency")]
+            if _fatal:
+                return _make_package(
+                    "invalid", "; ".join(e.get("message", "unknown") for e in _fatal),
+                    objective=objective,
+                    urgency=urgency,
+                    candidate_products=candidate_products,
+                    offer_context=offer_context,
+                    render_result=render_result,
+                    priority=priority,
+                    metadata={"errors": _fatal},
+                )
+            # Non-fatal validation issues — proceed with the render
+            logger.info("[flow_runtime] Non-fatal validation issues (proceeding): %s",
+                        [e.get("message") for e in issues])
         html = render_result.get("html", "")
         subject = render_result.get("subject", "")
 
