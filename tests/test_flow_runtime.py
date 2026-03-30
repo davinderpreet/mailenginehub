@@ -1758,3 +1758,232 @@ class TestDBRepairSetsRuntimeMode:
         blocks = json.loads(tpl_r.blocks_json)
         disc = [b for b in blocks if b["block_type"] == "discount"][0]
         assert disc["content"]["mode"] == "runtime"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestMerchEnrichment
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestMerchEnrichment:
+    """Product cards should have usable descriptions."""
+
+    def test_enriches_with_description(self, in_memory_db, make_contact):
+        from flow_runtime import enrich_products_for_merch
+        from database import ProductImageCache, ProductCommercial
+
+        ProductImageCache.create(
+            product_id="merch1", product_title="LDAS G10 Headset",
+            image_url="https://cdn/g10.jpg", product_url="https://ldas.ca/g10",
+            price="65.99", compare_price="129.99", product_type="Bluetooth Headset",
+            handle="g10",
+        )
+        ProductCommercial.create(
+            product_id="merch1", product_title="LDAS G10 Headset",
+            current_price=65.99, compare_price=129.99,
+            margin_pct=0.45, stock_pressure="overstocked",
+            profitability_score=95,
+        )
+
+        products = [{"product_title": "LDAS G10 Headset", "product_url": "https://ldas.ca/g10",
+                      "image_url": "https://cdn/g10.jpg", "price": "65.99"}]
+        enriched = enrich_products_for_merch(products)
+        assert len(enriched) == 1
+        assert enriched[0].get("short_description")
+        assert len(enriched[0]["short_description"]) > 10
+        assert enriched[0].get("compare_price")
+
+    def test_enriches_without_commercial_data(self, in_memory_db):
+        from flow_runtime import enrich_products_for_merch
+        from database import ProductImageCache
+
+        ProductImageCache.create(
+            product_id="merch2", product_title="USB-C Charger XL",
+            image_url="https://cdn/charger.jpg", product_url="https://ldas.ca/charger",
+            price="12.99", product_type="Power Adapter",
+            handle="charger",
+        )
+
+        products = [{"product_title": "USB-C Charger XL", "price": "12.99"}]
+        enriched = enrich_products_for_merch(products)
+        assert enriched[0].get("short_description")
+
+    def test_does_not_overwrite_existing_description(self, in_memory_db):
+        """If short_description is already set, it should not be overwritten."""
+        from flow_runtime import enrich_products_for_merch
+        from database import ProductImageCache
+
+        ProductImageCache.create(
+            product_id="merch3", product_title="Smart Hub Pro",
+            image_url="https://cdn/hub.jpg", product_url="https://ldas.ca/hub",
+            price="49.99", product_type="Smart Home", handle="hub",
+        )
+
+        products = [{"product_title": "Smart Hub Pro", "price": "49.99",
+                     "short_description": "Existing description."}]
+        enriched = enrich_products_for_merch(products)
+        assert enriched[0]["short_description"] == "Existing description."
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestMultiProductExpansion
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestMultiProductExpansion:
+    """Templates should get 3+ products when catalog has enough."""
+
+    def test_expands_to_multiple_products(self, in_memory_db, make_contact):
+        from flow_runtime import _get_intelligence_products
+        from database import ProductImageCache, ProductCommercial
+
+        for i, (title, ptype) in enumerate([
+            ("Headset A", "Bluetooth Headset"),
+            ("Headset B", "Bluetooth Headset"),
+            ("Dash Cam C", "Dash Cam"),
+            ("Charger D", "Power Adapter"),
+        ]):
+            ProductImageCache.create(
+                product_id="exp%d" % (i + 1), product_title=title,
+                image_url="https://cdn/%d.jpg" % (i + 1),
+                product_url="https://ldas.ca/p/%d" % (i + 1),
+                price="49.99", product_type=ptype, handle="p%d" % (i + 1),
+            )
+            ProductCommercial.create(
+                product_id="exp%d" % (i + 1), product_title=title,
+                margin_pct=0.45, stock_pressure="overstocked",
+                profitability_score=80 - i * 10, promotion_eligible=True,
+            )
+
+        contact = make_contact()
+
+        with patch("flow_runtime.intelligence_layer") as mock_intel:
+            mock_intel.get_next_products.return_value = {
+                "schema_version": 1,
+                "top_pick": {"product_key": "Headset A", "reason": "top seller"},
+                "cross_sells": [], "reorders": [], "replacements": [],
+                "upgrades": [], "accessories": [],
+            }
+            products = _get_intelligence_products(contact, limit=4)
+
+        assert len(products) >= 3, "Expected 3+ products, got %d" % len(products)
+
+    def test_does_not_exceed_limit(self, in_memory_db, make_contact):
+        """Expansion should not exceed the requested limit."""
+        from flow_runtime import _get_intelligence_products
+        from database import ProductImageCache, ProductCommercial
+
+        for i in range(6):
+            ProductImageCache.create(
+                product_id="lim%d" % i, product_title="Gadget %d" % i,
+                image_url="https://cdn/g%d.jpg" % i,
+                product_url="https://ldas.ca/g/%d" % i,
+                price="39.99", product_type="Gadget", handle="gadget%d" % i,
+            )
+            ProductCommercial.create(
+                product_id="lim%d" % i, product_title="Gadget %d" % i,
+                margin_pct=0.40, stock_pressure="normal",
+                profitability_score=70, promotion_eligible=True,
+            )
+
+        contact = make_contact()
+
+        with patch("flow_runtime.intelligence_layer") as mock_intel:
+            mock_intel.get_next_products.return_value = {
+                "schema_version": 1,
+                "top_pick": {"product_key": "Gadget 0", "reason": "top pick"},
+                "cross_sells": [], "reorders": [], "replacements": [],
+                "upgrades": [], "accessories": [],
+            }
+            products = _get_intelligence_products(contact, limit=4)
+
+        assert len(products) <= 4
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestOfferLadder
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestOfferLadder:
+    """Offer policy should not always default to 5%."""
+
+    def test_browse_abandonment_gets_free_shipping(self, in_memory_db, make_contact):
+        """Browse abandonment always gets free shipping, not percentage."""
+        from intelligence_layer import get_discount_policy
+
+        contact = make_contact()
+        policy = get_discount_policy(contact.id, "browse_abandonment")
+        assert policy["offer_discount"] is True
+        assert policy["discount_type"] == "free_shipping"
+
+    def test_welcome_high_intent_gets_free_shipping(self, in_memory_db, make_contact):
+        """High intent new subscriber should get free shipping, not 5%."""
+        from intelligence_layer import get_discount_policy
+        from database import CustomerProfile
+
+        contact = make_contact()
+        CustomerProfile.create(
+            contact=contact.id,
+            email=contact.email,
+            total_orders=0,
+            intent_score=75,
+            lifecycle_stage="new",
+        )
+
+        policy = get_discount_policy(contact.id, "welcome")
+        assert policy["offer_discount"] is True
+        assert policy["discount_type"] == "free_shipping"
+
+    def test_welcome_low_intent_gets_percentage(self, in_memory_db, make_contact):
+        """Low intent new subscriber should get 5% discount."""
+        from intelligence_layer import get_discount_policy
+        from database import CustomerProfile
+
+        contact = make_contact()
+        CustomerProfile.create(
+            contact=contact.id,
+            email=contact.email,
+            total_orders=0,
+            intent_score=20,
+            lifecycle_stage="new",
+        )
+
+        policy = get_discount_policy(contact.id, "welcome")
+        assert policy["offer_discount"] is True
+        assert policy["discount_type"] == "percentage"
+        assert policy["discount_value"] == "5"
+
+    def test_winback_recent_lapse_gets_free_shipping(self, in_memory_db, make_contact):
+        """Recently lapsed winback (30-60 days) should get free shipping."""
+        from intelligence_layer import get_discount_policy
+        from database import CustomerProfile
+
+        contact = make_contact()
+        CustomerProfile.create(
+            contact=contact.id,
+            email=contact.email,
+            total_orders=3,
+            lifecycle_stage="churned",
+            days_since_last_order=45,
+        )
+
+        policy = get_discount_policy(contact.id, "winback")
+        assert policy["offer_discount"] is True
+        assert policy["discount_type"] == "free_shipping"
+
+    def test_winback_long_lapse_gets_percentage(self, in_memory_db, make_contact):
+        """Long lapsed winback (60-120 days) should get 10%."""
+        from intelligence_layer import get_discount_policy
+        from database import CustomerProfile
+
+        contact = make_contact()
+        CustomerProfile.create(
+            contact=contact.id,
+            email=contact.email,
+            total_orders=3,
+            lifecycle_stage="churned",
+            days_since_last_order=90,
+        )
+
+        policy = get_discount_policy(contact.id, "winback")
+        assert policy["offer_discount"] is True
+        assert policy["discount_type"] == "percentage"
+        assert policy["discount_value"] == "10"

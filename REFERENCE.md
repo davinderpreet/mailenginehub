@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-30 13:43. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-30 14:41. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 40,653 lines)
+## Python Files — Detailed (63 files, 40,907 lines)
 
 ### `app.py` (7,312 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -315,6 +315,21 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 
 ### `generate-context.py` (1,364 lines)
 **Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
+
+### `flow_runtime.py` (1,196 lines)
+**Flow send package builder — centralizes flow render/decision logic (Phase 3)**
+
+Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
+which resolves objective, timing, products, offers, and renders via template_engine for all flow sends.
+Replaces inline rendering in _process_flow_enrollments and _pause_lower_priority_enrollments.
+
+Key functions:
+- `build_flow_send_package(enrollment, step, contact, flow, template=None, trigger_context=None) → dict with status/subject/html/priority`
+- `_resolve_objective(flow, step, template) → (objective, urgency, discount_purpose)`
+- `_check_soft_timing_gate(contact, urgency) → ('ok', None) or ('deferred', next_available_at)`
+- `_resolve_products(contact, flow, enrollment, trigger_context) → list of product dicts`
+- `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
+- `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
 
 ### `customer_intelligence.py` (1,150 lines)
 **Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV**
@@ -383,21 +398,6 @@ Key functions:
 - `validate_rendered_email(html, subject, ...) — Post-render 6-category validation`
 - `substitute_preview_tokens(html) — Replace send-time tokens for browser preview display`
 
-### `flow_runtime.py` (1,032 lines)
-**Flow send package builder — centralizes flow render/decision logic (Phase 3)**
-
-Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
-which resolves objective, timing, products, offers, and renders via template_engine for all flow sends.
-Replaces inline rendering in _process_flow_enrollments and _pause_lower_priority_enrollments.
-
-Key functions:
-- `build_flow_send_package(enrollment, step, contact, flow, template=None, trigger_context=None) → dict with status/subject/html/priority`
-- `_resolve_objective(flow, step, template) → (objective, urgency, discount_purpose)`
-- `_check_soft_timing_gate(contact, urgency) → ('ok', None) or ('deferred', next_available_at)`
-- `_resolve_products(contact, flow, enrollment, trigger_context) → list of product dicts`
-- `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
-- `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
-
 ### `knowledge_scraper.py` (952 lines)
 **Auto-enrichment pipeline — scrapes products, blogs, competitors, FAQs into knowledge base**
 
@@ -431,6 +431,23 @@ Key functions:
 - `_check_preconditions(contact) → ('ok','') or ('skipped', reason)`
 - `_check_timing(contact, intelligence) → ('ok', scheduled_at) or ('wait', wait_until)`
 
+### `intelligence_layer.py` (915 lines)
+**Unified intelligence API — contact profiles, timing gates, discount policy, diagnostics**
+
+Phase 1 of the architecture rebuild. Single entry point for all contact intelligence.
+Aggregates data from CustomerProfile, ContactScore, MessageDecision, and product_intelligence
+into a unified schema (schema_version=1). Includes timing gate (should_contact_now) that checks
+recency, suppression, and unsubscribe status. Discount policy engine decides whether to offer
+discounts based on customer type, lifecycle stage, and product margins. Used by studio, AM, and flows.
+
+Key functions:
+- `get_contact_intelligence(contact_id) — Returns unified profile dict with all intelligence sections`
+- `should_contact_now(contact_id) — Timing gate: checks recency, suppression, unsubscribe`
+- `get_discount_policy(contact_id, family, candidate_products) — Returns discount recommendation`
+- `get_next_products(contact_id) — Returns product recommendations from product_intelligence`
+- `format_intelligence_for_prompt(intel) — Formats intelligence dict for AI prompt context`
+- `diagnose_contact(contact_id) — Debug helper: returns full intelligence + timing + discount`
+
 ### `ai_engine.py` (836 lines)
 **Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution**
 
@@ -460,23 +477,6 @@ when cost data unavailable: headsets 45%, dash cams 35%, accessories 55%, etc.
 score_product_profitability(product_id) returns composite score: margin % + inventory level + velocity.
 get_promotion_eligibility(product_id) recommends discount/promotion strategy.
 Stored in ProductCommercial model (product_id, current_price, cost_per_unit, margin_pct, etc.).
-
-### `intelligence_layer.py` (825 lines)
-**Unified intelligence API — contact profiles, timing gates, discount policy, diagnostics**
-
-Phase 1 of the architecture rebuild. Single entry point for all contact intelligence.
-Aggregates data from CustomerProfile, ContactScore, MessageDecision, and product_intelligence
-into a unified schema (schema_version=1). Includes timing gate (should_contact_now) that checks
-recency, suppression, and unsubscribe status. Discount policy engine decides whether to offer
-discounts based on customer type, lifecycle stage, and product margins. Used by studio, AM, and flows.
-
-Key functions:
-- `get_contact_intelligence(contact_id) — Returns unified profile dict with all intelligence sections`
-- `should_contact_now(contact_id) — Timing gate: checks recency, suppression, unsubscribe`
-- `get_discount_policy(contact_id, family, candidate_products) — Returns discount recommendation`
-- `get_next_products(contact_id) — Returns product recommendations from product_intelligence`
-- `format_intelligence_for_prompt(intel) — Formats intelligence dict for AI prompt context`
-- `diagnose_contact(contact_id) — Debug helper: returns full intelligence + timing + discount`
 
 ### `next_best_message.py` (824 lines)
 **Deterministic decision engine — 10 action types, per-contact scoring with cooldowns**

@@ -539,58 +539,148 @@ def get_discount_policy(contact_id, purpose, candidate_products=None):
         result["reason"] = f"Margin too thin ({min_margin:.0%}) for discount on these products"
         return result
 
-    # Purpose-based defaults
-    purpose_defaults = {
-        "cart_abandonment":   ("percentage", "5"),
-        "checkout_recovery":  ("percentage", "5"),
-        "browse_abandonment": ("free_shipping", "100"),
-        "winback":            ("percentage", "10"),
-        "welcome":            ("percentage", "5"),
-        "loyalty_reward":     ("percentage", "10"),
-        "cross_sell":         (None, None),   # no default discount for cross-sell
-        "upsell":             (None, None),
-        "education":          (None, None),
-        "reorder_reminder":   (None, None),
-        "post_purchase":      (None, None),
-    }
+    # ── Smart offer ladder ──
 
-    default_type, default_value = purpose_defaults.get(purpose, (None, None))
+    # Welcome: intent-based decision
+    if purpose == "welcome":
+        total_orders_val = 0
+        try:
+            from database import CustomerProfile
+            _cp = CustomerProfile.get_or_none(CustomerProfile.contact == contact_id)
+            total_orders_val = (_cp.total_orders if _cp else 0) or 0
+        except Exception:
+            pass
 
-    # For purposes with defaults, decide based on sensitivity
-    if default_type:
-        # Always offer for high-intent recovery
-        if purpose in ("cart_abandonment", "checkout_recovery"):
-            result["offer_discount"] = True
-            result["discount_type"] = default_type
-            result["discount_value"] = default_value
-            result["reason"] = f"Recovery email — {purpose} standard offer"
+        intent = profile.intent_score if profile else 0
+
+        if total_orders_val > 0:
+            # Returning subscriber — no offer needed
+            result["reason"] = "Returning subscriber — no welcome discount needed"
             return result
-
-        # Winback: offer if churned or at-risk
-        if purpose == "winback" and lifecycle in ("churned", "at_risk"):
+        elif intent and intent >= 60:
+            # New subscriber with high intent → free shipping
             result["offer_discount"] = True
-            result["discount_type"] = default_type
-            result["discount_value"] = default_value
-            result["reason"] = f"Winback for {lifecycle} contact"
+            result["discount_type"] = "free_shipping"
+            result["discount_value"] = "100"
+            result["reason"] = "New subscriber with high intent — free shipping offer"
             return result
-
-        # Welcome: always offer
-        if purpose == "welcome":
+        else:
+            # New subscriber, low/no intent → 5%
             result["offer_discount"] = True
-            result["discount_type"] = default_type
-            result["discount_value"] = default_value
+            result["discount_type"] = "percentage"
+            result["discount_value"] = "5"
             result["reason"] = "Welcome offer for new subscriber"
             return result
 
-        # Loyalty: offer if truly loyal
-        if purpose == "loyalty_reward" and lifecycle in ("loyal", "vip"):
+    # Browse abandonment: always free shipping
+    if purpose == "browse_abandonment":
+        result["offer_discount"] = True
+        result["discount_type"] = "free_shipping"
+        result["discount_value"] = "100"
+        result["reason"] = "Browse abandonment — free shipping incentive"
+        return result
+
+    # Cart / checkout recovery: decision ladder
+    if purpose in ("cart_abandonment", "checkout_recovery"):
+        # Determine cart value
+        cart_value = 0.0
+        try:
+            from database import AbandonedCheckout
+            checkout = (AbandonedCheckout.select()
+                        .where(AbandonedCheckout.contact == contact_id,
+                               AbandonedCheckout.recovered == False)
+                        .order_by(AbandonedCheckout.created_at.desc())
+                        .first())
+            if checkout and checkout.cart_total:
+                cart_value = float(checkout.cart_total or 0)
+        except Exception:
+            pass
+
+        # Determine attempt count
+        try:
+            from database import CustomerProfile
+            _cp = CustomerProfile.get_or_none(CustomerProfile.contact == contact_id)
+            abandonment_count = (_cp.checkout_abandonment_count if _cp else 0) or 0
+        except Exception:
+            abandonment_count = 0
+
+        if cart_value > 100 or abandonment_count == 0:
+            # High cart value or first attempt → free shipping
             result["offer_discount"] = True
-            result["discount_type"] = default_type
-            result["discount_value"] = default_value
-            result["reason"] = "Loyalty reward for VIP/loyal customer"
+            result["discount_type"] = "free_shipping"
+            result["discount_value"] = "100"
+            reason_detail = "high cart value" if cart_value > 100 else "first recovery attempt"
+            result["reason"] = f"Cart recovery — free shipping ({reason_detail})"
+            return result
+        elif cart_value < 50 or abandonment_count >= 1:
+            # Low cart value or repeat attempt → 5%
+            result["offer_discount"] = True
+            result["discount_type"] = "percentage"
+            result["discount_value"] = "5"
+            reason_detail = "low cart value" if cart_value < 50 else "repeat recovery attempt"
+            result["reason"] = f"Cart recovery — 5% discount ({reason_detail})"
+            return result
+        else:
+            result["offer_discount"] = True
+            result["discount_type"] = "free_shipping"
+            result["discount_value"] = "100"
+            result["reason"] = "Cart recovery — free shipping"
             return result
 
-    # For purposes without defaults, offer only if discount-sensitive
+    # Winback: lapse duration ladder
+    if purpose == "winback" and lifecycle in ("churned", "at_risk"):
+        days_lapsed = 999
+        try:
+            if profile and profile.days_since_last_order:
+                days_lapsed = profile.days_since_last_order
+        except Exception:
+            pass
+
+        if days_lapsed <= 60:
+            # Recently lapsed (30-60 days) → free shipping
+            result["offer_discount"] = True
+            result["discount_type"] = "free_shipping"
+            result["discount_value"] = "100"
+            result["reason"] = f"Winback — recently lapsed ({days_lapsed}d) — free shipping"
+            return result
+        elif days_lapsed <= 120:
+            # Long lapsed (60-120 days) → 10%
+            result["offer_discount"] = True
+            result["discount_type"] = "percentage"
+            result["discount_value"] = "10"
+            result["reason"] = f"Winback — lapsed {days_lapsed}d — 10%"
+            return result
+        else:
+            # Very long lapsed (120+ days) → 10% or 15% if margin allows
+            best_pct = "15" if result["max_discount_pct"] >= 15 else "10"
+            result["offer_discount"] = True
+            result["discount_type"] = "percentage"
+            result["discount_value"] = best_pct
+            result["reason"] = f"Winback — long lapsed {days_lapsed}d — {best_pct}%"
+            return result
+
+    # Loyalty reward
+    if purpose == "loyalty_reward" and lifecycle in ("loyal", "vip"):
+        total_orders_val = 0
+        try:
+            if profile:
+                total_orders_val = profile.total_orders or 0
+        except Exception:
+            pass
+        if total_orders_val >= 5 or segment in ("champion", "loyal"):
+            result["offer_discount"] = True
+            result["discount_type"] = "free_shipping"
+            result["discount_value"] = "100"
+            result["reason"] = "VIP loyalty reward — free shipping"
+            return result
+        else:
+            result["offer_discount"] = True
+            result["discount_type"] = "percentage"
+            result["discount_value"] = "5"
+            result["reason"] = "Loyalty reward — 5%"
+            return result
+
+    # For purposes without a specific ladder, offer only if discount-sensitive
     if discount_sensitivity >= 0.4 and has_used_discount:
         # Cap at margin-safe value
         safe_value = str(min(10, int(result["max_discount_pct"])))

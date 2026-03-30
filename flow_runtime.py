@@ -385,6 +385,81 @@ def _get_intelligence_products(contact, limit=4):
         logger.info("[flow_runtime] Intelligence recommended %d candidates but no concrete products resolved",
                     len(candidates))
 
+    # ── Expansion: fill to 3 products when catalog has enough ──
+    if len(products) < 3:
+        try:
+            selected_titles = {p["product_title"] for p in products}
+
+            # First pass: same product_type as existing products
+            existing_types = set()
+            for p in products:
+                cached = ProductImageCache.get_or_none(ProductImageCache.product_title == p["product_title"])
+                if cached and cached.product_type:
+                    existing_types.add(cached.product_type)
+
+            if existing_types:
+                for ptype in list(existing_types):
+                    if len(products) >= 3:
+                        break
+                    try:
+                        type_matches = (ProductImageCache.select()
+                                        .where(ProductImageCache.product_type == ptype)
+                                        .limit(10))
+                        for m in type_matches:
+                            if len(products) >= 3:
+                                break
+                            if m.product_title in selected_titles:
+                                continue
+                            if m.product_title in out_of_stock:
+                                continue
+                            # Check promotion_eligible via ProductCommercial
+                            pc = ProductCommercial.get_or_none(
+                                ProductCommercial.product_title == m.product_title
+                            )
+                            if pc and not pc.promotion_eligible:
+                                continue
+                            products.append({
+                                "product_title": m.product_title,
+                                "product_url": m.product_url or "",
+                                "image_url": m.image_url or "",
+                                "price": str(m.price or "0.00"),
+                            })
+                            selected_titles.add(m.product_title)
+                    except Exception:
+                        pass
+
+            # Second pass: top promotable by profitability_score
+            if len(products) < 3:
+                try:
+                    top_commercial = (ProductCommercial.select()
+                                      .where(
+                                          ProductCommercial.promotion_eligible == True,
+                                          ProductCommercial.stock_pressure != "out_of_stock",
+                                      )
+                                      .order_by(ProductCommercial.profitability_score.desc())
+                                      .limit(20))
+                    for pc in top_commercial:
+                        if len(products) >= 3:
+                            break
+                        if pc.product_title in selected_titles:
+                            continue
+                        cached = ProductImageCache.get_or_none(
+                            ProductImageCache.product_title == pc.product_title
+                        )
+                        if not cached:
+                            continue
+                        products.append({
+                            "product_title": cached.product_title,
+                            "product_url": cached.product_url or "",
+                            "image_url": cached.image_url or "",
+                            "price": str(cached.price or "0.00"),
+                        })
+                        selected_titles.add(cached.product_title)
+                except Exception:
+                    pass
+        except Exception as expand_exc:
+            logger.debug("[flow_runtime] product expansion error: %s", expand_exc)
+
     return products
 
 
@@ -408,6 +483,91 @@ def _legacy_product_fallback(contact):
             "image_url": (cached.image_url if cached else "") or "",
             "price": str((cached.price if cached else "") or "0.00"),
         })
+    return products
+
+
+def enrich_products_for_merch(products):
+    """Enrich product dicts with compare_price and short_description for merch display.
+
+    For each product dict, looks up ProductImageCache (for compare_price) and
+    ProductCommercial (for richer description data).  Modifies the dicts in place
+    and returns the enriched list.
+
+    Priority for short_description:
+    1. ProductCommercial exists → build blurb from product_type + savings info
+    2. ProductImageCache only → build from product_type + price
+    3. Fallback → generic title-based blurb
+    """
+    try:
+        from database import ProductImageCache, ProductCommercial
+    except ImportError:
+        return products
+
+    for prod in products:
+        title = prod.get("product_title") or ""
+        if not title:
+            continue
+
+        # Look up cache entry
+        cached = None
+        try:
+            cached = ProductImageCache.get_or_none(ProductImageCache.product_title == title)
+        except Exception:
+            pass
+
+        # Add compare_price if not already present
+        if not prod.get("compare_price") and cached and getattr(cached, "compare_price", ""):
+            prod["compare_price"] = str(cached.compare_price)
+
+        # Skip if short_description already present
+        if prod.get("short_description"):
+            continue
+
+        # Look up commercial data
+        pc = None
+        try:
+            pc = ProductCommercial.get_or_none(ProductCommercial.product_title == title)
+        except Exception:
+            pass
+
+        blurb = ""
+        if pc:
+            ptype = (pc.product_type or "").strip() or (cached.product_type if cached else "") or ""
+            current_price = pc.current_price or 0.0
+            compare = pc.compare_price or 0.0
+            if not compare and cached:
+                try:
+                    compare = float(cached.compare_price or 0)
+                except (ValueError, TypeError):
+                    compare = 0.0
+
+            if ptype and compare and compare > current_price:
+                savings = compare - current_price
+                blurb = "%s. Save $%g — was $%g." % (
+                    ptype,
+                    round(savings, 2),
+                    round(compare, 2),
+                )
+            elif ptype and current_price:
+                blurb = "%s — premium quality at $%g." % (ptype, round(current_price, 2))
+            elif ptype:
+                blurb = "%s — great value for your home." % ptype
+            # Trim to 100 chars
+            if len(blurb) > 100:
+                blurb = blurb[:97] + "..."
+        elif cached:
+            ptype = (getattr(cached, "product_type", "") or "").strip()
+            price_str = prod.get("price") or str(getattr(cached, "price", "") or "")
+            if ptype and price_str:
+                blurb = "%s — premium quality at $%s." % (ptype, price_str)
+            elif ptype:
+                blurb = "%s — quality electronics." % ptype
+            if len(blurb) > 100:
+                blurb = blurb[:97] + "..."
+
+        if blurb:
+            prod["short_description"] = blurb
+
     return products
 
 
@@ -735,6 +895,10 @@ def build_flow_send_package(enrollment, step, contact, flow,
             p for p in candidate_products
             if (p.get("product_title") or p.get("title") or "").strip()
         ]
+
+    # ── 6b. Enrich products with compare_price + short_description ──
+    if candidate_products:
+        candidate_products = enrich_products_for_merch(candidate_products)
 
     # ── 7. Render ──
     template_format = getattr(template, "template_format", "html") or "html"
