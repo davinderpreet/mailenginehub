@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-30 13:44 -- `6482a8b`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-03-30 12:54 -- `750eba7`
 
 **fix: commercial-grade template/validation/approve fixes**
