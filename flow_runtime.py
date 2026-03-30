@@ -937,6 +937,13 @@ def repair_flow_templates():
                         continue
                     content = block.get("content", {})
                     old_code = content.get("code", "")
+                    # Set mode=runtime if not already set
+                    if content.get("mode") != "runtime":
+                        content["mode"] = "runtime"
+                        if not old_code:
+                            changes.append("discount block: set mode=runtime")
+                        blocks_changed = True
+
                     if old_code and old_code not in ("", "{{discount_code}}"):
                         changes.append("discount block code: '%s' → ''" % old_code)
                         content["code"] = ""

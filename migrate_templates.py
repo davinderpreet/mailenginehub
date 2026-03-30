@@ -47,7 +47,7 @@ TEMPLATES = {
     4: ("welcome", [
         {"block_type": "hero", "content": {"headline": "Welcome to LDAS", "subheadline": "Canadian-built Bluetooth gear for the road"}},
         {"block_type": "text", "content": {"paragraphs": ["Thanks for joining the LDAS family. We build headsets that survive Canadian highways.", "Here's a welcome gift to get you started."]}},
-        {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
+        {"block_type": "discount", "content": {"mode": "runtime", "code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**G10, "section_title": "Our Bestseller"}},
         {"block_type": "cta", "content": {"text": "Shop Now", "url": LDAS_URL, "color": BLUE, "secondary_text": "View All Products", "secondary_url": LDAS_URL + "/collections/all"}},
     ]),
@@ -68,7 +68,7 @@ TEMPLATES = {
     7: ("welcome", [
         {"block_type": "hero", "content": {"headline": "Last Chance", "subheadline": "Your welcome offer expires soon"}},
         {"block_type": "text", "content": {"paragraphs": ["We noticed you haven't used your welcome discount yet.", "Don't miss out on your LDAS welcome offer. This is your last reminder."]}},
-        {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
+        {"block_type": "discount", "content": {"mode": "runtime", "code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**G10, "section_title": "Most Popular"}},
         {"block_type": "urgency", "content": {"message": "Offer expires at midnight. Don't miss out."}},
         {"block_type": "cta", "content": {"text": "Claim Your Discount", "url": LDAS_URL, "color": BLUE}},
@@ -100,7 +100,7 @@ TEMPLATES = {
     ]),
     10: ("checkout_recovery", [
         {"block_type": "hero", "content": {"headline": "A Little Extra Incentive", "subheadline": "We saved your cart and sweetened the deal"}},
-        {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
+        {"block_type": "discount", "content": {"mode": "runtime", "code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**G10, "section_title": "Still In Your Cart"}},
         {"block_type": "trust_reassurance", "content": {"items": [{"icon": "package", "text": "Free Shipping on $50+"}, {"icon": "shield", "text": "30-Day Returns"}, {"icon": "maple", "text": "Canadian Owned"}, {"icon": "star", "text": "4.8/5 Rating"}]}},
         {"block_type": "cta", "content": {"text": "Complete Your Order", "url": LDAS_URL + "/checkout", "color": BLUE}},
@@ -122,7 +122,7 @@ TEMPLATES = {
     13: ("post_purchase", [
         {"block_type": "hero", "content": {"headline": "You've Earned This", "subheadline": "A thank-you reward just for you"}},
         {"block_type": "text", "content": {"paragraphs": ["As a valued LDAS customer, here's an exclusive loyalty reward on your next order.", "Whether you need a backup headset or want to try the TH11, this one's for you."]}},
-        {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
+        {"block_type": "discount", "content": {"mode": "runtime", "code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**TH11, "section_title": "Upgrade to TH11"}},
         {"block_type": "cta", "content": {"text": "Shop with Discount", "url": LDAS_URL, "color": BLUE}},
     ]),
@@ -131,7 +131,7 @@ TEMPLATES = {
     3: ("winback", [
         {"block_type": "hero", "content": {"headline": "Come Back To Quality", "subheadline": "Pro headsets without the premium price"}},
         {"block_type": "text", "content": {"paragraphs": ["You tried others. Canada chooses LDAS.", "The TH11 delivers 36-hour battery and dual-mic noise cancellation. Built for the road."]}},
-        {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
+        {"block_type": "discount", "content": {"mode": "runtime", "code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**TH11, "section_title": "Featured Product"}},
         {"block_type": "urgency", "content": {"message": "Last chance. Offer expires at midnight."}},
         {"block_type": "cta", "content": {"text": "Shop LDAS", "url": LDAS_URL, "color": BLUE, "secondary_text": "View Deals", "secondary_url": LDAS_URL + "/collections/all"}},
@@ -145,7 +145,7 @@ TEMPLATES = {
     ]),
     15: ("winback", [
         {"block_type": "hero", "content": {"headline": "A Reason to Come Back", "subheadline": "We want to earn your business again"}},
-        {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
+        {"block_type": "discount", "content": {"mode": "runtime", "code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**G10, "section_title": "Our Bestseller"}},
         {"block_type": "trust_reassurance", "content": {"items": [{"icon": "package", "text": "Free Shipping on $50+"}, {"icon": "shield", "text": "30-Day Returns"}, {"icon": "maple", "text": "Canadian Owned"}, {"icon": "star", "text": "4.8/5 Rating"}]}},
         {"block_type": "cta", "content": {"text": "Come Back to LDAS", "url": LDAS_URL, "color": BLUE}},
@@ -153,7 +153,7 @@ TEMPLATES = {
     16: ("winback", [
         {"block_type": "hero", "content": {"headline": "Final Offer", "subheadline": "This is your last chance"}},
         {"block_type": "text", "content": {"paragraphs": ["We've reached out a few times but haven't heard back.", "This is our best and final offer on anything in the store."]}},
-        {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
+        {"block_type": "discount", "content": {"mode": "runtime", "code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**TH11, "section_title": "Top Pick"}},
         {"block_type": "urgency", "content": {"message": "This offer won't be sent again."}},
         {"block_type": "cta", "content": {"text": "Claim Your Offer", "url": LDAS_URL, "color": BLUE}},

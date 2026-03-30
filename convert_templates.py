@@ -43,7 +43,7 @@ CONVERSIONS = [
                 ],
             }},
             {"block_type": "discount", "content": {
-                "code": "WELCOME5",
+                "mode": "runtime", "code": "",
                 "value_display": "5% Off",
                 "display_text": "Your first order",
                 "expires_text": "No minimum purchase",
@@ -157,7 +157,7 @@ CONVERSIONS = [
                 "Hey {{first_name}}, your welcome discount is about to expire. If you've been eyeing something, now's the time.",
             ]}},
             {"block_type": "discount", "content": {
-                "code": "WELCOME5",
+                "mode": "runtime", "code": "",
                 "value_display": "5% Off",
                 "display_text": "Use it before it's gone",
                 "expires_text": "Expiring soon",
@@ -264,7 +264,7 @@ CONVERSIONS = [
                 "Hey {{first_name}}, we noticed you haven't finished your order. Here's an exclusive 10% discount to make it easy:",
             ]}},
             {"block_type": "discount", "content": {
-                "code": "SAVE10",
+                "mode": "runtime", "code": "",
                 "value_display": "10% Off",
                 "display_text": "Your abandoned cart",
                 "expires_text": "Expires in 48 hours",
@@ -371,7 +371,7 @@ CONVERSIONS = [
                 "columns": 2,
             }},
             {"block_type": "discount", "content": {
-                "code": "LOYAL10",
+                "mode": "runtime", "code": "",
                 "value_display": "10% Off",
                 "display_text": "Your next order",
                 "expires_text": "Valid for 30 days",
@@ -423,7 +423,7 @@ CONVERSIONS = [
                 "Hey {{first_name}}, we'd love to see you back. Here's a special comeback offer:",
             ]}},
             {"block_type": "discount", "content": {
-                "code": "COMEBACK10",
+                "mode": "runtime", "code": "",
                 "value_display": "10% Off",
                 "display_text": "Welcome back offer",
                 "expires_text": "Expires in 7 days",
@@ -457,7 +457,7 @@ CONVERSIONS = [
                 "Hey {{first_name}}, this is our best offer yet. We really want you back.",
             ]}},
             {"block_type": "discount", "content": {
-                "code": "COMEBACK15",
+                "mode": "runtime", "code": "",
                 "value_display": "15% Off",
                 "display_text": "Everything in store",
                 "expires_text": "48 hours only",

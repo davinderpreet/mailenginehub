@@ -568,13 +568,24 @@ def _check_offer_consistency(subject, preview_text, html, offer_context, blocks_
 
     has_discount_block = any(b.get("block_type") == "discount" for b in blocks)
 
+    # Check if all discount blocks are runtime mode (values come from offer_context)
+    all_runtime = all(
+        b.get("content", {}).get("mode") == "runtime"
+        for b in blocks if b.get("block_type") == "discount"
+    ) if has_discount_block else False
+
     # ── Check: discount block present but no offer ──
     if has_discount_block and not offer_context:
-        issues.append({
-            "level": level,
-            "check": "offer_consistency",
-            "message": "Template has a discount block but no offer was resolved",
-        })
+        if all_runtime:
+            # Runtime discount blocks are designed to be omitted when no offer exists.
+            # render_discount() returns "" when code is empty — block is cleanly skipped.
+            pass  # This is valid — not an error
+        else:
+            issues.append({
+                "level": level,
+                "check": "offer_consistency",
+                "message": "Template has a fixed discount block but no offer was resolved",
+            })
 
     if not offer_context:
         # Check for hardcoded discount codes in block content (stale seed data)
@@ -583,6 +594,8 @@ def _check_offer_consistency(subject, preview_text, html, offer_context, blocks_
                 if block.get("block_type") != "discount":
                     continue
                 content = block.get("content", {})
+                if content.get("mode") == "runtime":
+                    continue  # runtime blocks are expected to be empty
                 block_code = (content.get("code") or "").strip()
                 if block_code:
                     issues.append({

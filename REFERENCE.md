@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-30 12:53. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-30 13:42. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 40,624 lines)
+## Python Files — Detailed (63 files, 40,653 lines)
 
 ### `app.py` (7,312 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -280,7 +280,7 @@ Key functions:
 - `_process_flow_enrollments() — Every 60s: advance flow steps, send scheduled emails`
 - `_process_delivery_queue_wrapper() — Every 30s: drain queue respecting warmup limits`
 
-### `block_registry.py` (2,483 lines)
+### `block_registry.py` (2,489 lines)
 **Email template block rendering engine — 26 block types, validation, personalization**
 
 Defines BLOCK_TYPES registry (26 types) with schema (required/optional fields, defaults, label, category).
@@ -358,7 +358,7 @@ Key functions:
 - `process_identity_jobs() — Drain IdentityJob queue`
 - `replay_triggers(contact) — Re-evaluate pending triggers after stitching`
 
-### `template_engine.py` (1,030 lines)
+### `template_engine.py` (1,043 lines)
 **Shared template rendering & validation engine — single render path for all preview/send/studio/preflight**
 
 Phase 2 of the architecture rebuild. THE single public API for rendering and validating email
@@ -383,7 +383,7 @@ Key functions:
 - `validate_rendered_email(html, subject, ...) — Post-render 6-category validation`
 - `substitute_preview_tokens(html) — Replace send-time tokens for browser preview display`
 
-### `flow_runtime.py` (1,025 lines)
+### `flow_runtime.py` (1,032 lines)
 **Flow send package builder — centralizes flow render/decision logic (Phase 3)**
 
 Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
@@ -624,7 +624,7 @@ Key functions:
 - `process_queue() — Drain queue respecting warmup limits and delivery mode`
 - `_get_warmup_remaining() — Calculate remaining daily capacity`
 
-### `flow_templates_seed.py` (593 lines)
+### `flow_templates_seed.py` (596 lines)
 **Seed flow definitions — pre-built automation flows with steps and timing**
 
 Seed data for automation flows: Welcome Series (3 steps over 7 days),

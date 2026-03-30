@@ -52,7 +52,10 @@ def _button(text, url=BRAND_URL):
 def _divider():
     return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:8px 0;"><hr style="border:none;border-top:1px solid #eeeef2;margin:0;" /></td></tr></table>'
 
-def _discount_box(code, description):
+def _discount_box(code="{{discount_code}}", description="{{discount_display_text}}"):
+    """Discount code display box. Uses runtime tokens by default.
+    Runtime tokens are replaced by flow_runtime._build_legacy_token_context().
+    """
     return f'''<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:16px 0;">
 <div style="background:#f0f4ff;border:2px dashed {BRAND_COLOR};border-radius:12px;padding:24px;text-align:center;">
   <p style="margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:2px;color:{BRAND_COLOR};text-transform:uppercase;">YOUR CODE</p>
@@ -86,7 +89,7 @@ TEMPLATES = [
   {_heading("Welcome to LDAS Electronics, {{{{first_name}}}}!")}
   {_para("We're thrilled to have you. LDAS Electronics is Canada's trusted source for Bluetooth speakers, headsets, dash cams, and everyday electronics — built for quality, priced for value.")}
   {_para("As a welcome gift, here's <strong>5% off</strong> your first order:")}
-  {_discount_box("WELCOME5", "5% off your first order — no minimum")}
+  {_discount_box()}
   {_para("Browse our store and find something you'll love:")}
   {_button("Shop Now")}
   {_para("Questions? Just reply to this email — we're real people and we love helping.")}
@@ -142,7 +145,7 @@ TEMPLATES = [
   {_heading("Your 5% Off Expires Soon")}
   {_para("Hey {{{{first_name}}}}, just a friendly heads up — your welcome discount is about to expire.")}
   {_para("If there's something you've been eyeing, now's the time:")}
-  {_discount_box("WELCOME5", "5% off — use it before it's gone")}
+  {_discount_box()}
   {_para("Remember: free shipping on orders over $50, and every order comes with our 30-day return guarantee.")}
   {_button("Use My Discount")}
   {_para("After this, you'll still get our best deals and new product alerts — but this specific code won't last forever.")}
@@ -213,7 +216,7 @@ TEMPLATES = [
         "html_body": f'''<tr><td style="padding:28px 30px;">
   {_heading("We Saved Your Cart")}
   {_para("Hey {{{{first_name}}}}, we really want you to love what you picked out. Here's <strong>10% off</strong> to make it easier:")}
-  {_discount_box("SAVE10", "10% off your order — 48 hours only")}
+  {_discount_box()}
   <div style="background:#f8f9ff;border-radius:10px;padding:16px 20px;margin:16px 0;">
     <p style="margin:0;font-size:14px;color:{TEXT_MID};">{{{{cart_items}}}}</p>
   </div>
@@ -233,7 +236,7 @@ TEMPLATES = [
     <p style="margin:0;font-size:14px;color:{TEXT_MID};">{{{{cart_items}}}}</p>
   </div>
   {_para("Your <strong>10% off code</strong> is still active — but not for long:")}
-  {_discount_box("SAVE10", "10% off — expires tonight")}
+  {_discount_box()}
   {_button("Complete Your Order Now", "{{checkout_url}}")}
   {_divider()}
   {_para("<strong>Still on the fence?</strong> Here's what other customers say:")}
@@ -297,7 +300,7 @@ TEMPLATES = [
   {_heading("You've Earned a Reward")}
   {_para("Hey {{{{first_name}}}}, it's been a month since your order, and we hope your products are serving you well.")}
   {_para("As a thank you for being a valued customer, here's an exclusive loyalty discount:")}
-  {_discount_box("LOYAL10", "10% off your next order — just for you")}
+  {_discount_box()}
   {_para("This code is exclusive to returning customers and doesn't expire for 30 days.")}
   {_para("We're always adding new products — here's a sneak peek at what's new:")}
   {_button("See What's New")}
@@ -349,7 +352,7 @@ TEMPLATES = [
   {_heading("We Want You Back")}
   {_para("Hey {{{{first_name}}}}, we noticed you haven't shopped with us in a while. We get it — life gets busy. But we'd love to have you back.")}
   {_para("Here's a little incentive:")}
-  {_discount_box("COMEBACK10", "10% off your next order")}
+  {_discount_box()}
   {_para("This code is valid for 14 days. Use it on anything in our store — no minimum order.")}
   {_para("Plus, remember: free shipping on orders over $50 and hassle-free 30-day returns.")}
   {_button("Redeem My Discount")}
@@ -362,7 +365,7 @@ TEMPLATES = [
         "html_body": f'''<tr><td style="padding:28px 30px;">
   {_heading("Last Chance — 15% Off")}
   {_para("Hey {{{{first_name}}}}, this is our final nudge. We've been saving a spot for you, and this is our best offer:")}
-  {_discount_box("LASTCHANCE15", "15% off everything — expires in 48 hours")}
+  {_discount_box()}
   {_para("This is the biggest discount we offer. After 48 hours, this code is gone for good.")}
   {_para("<strong>What are you waiting for?</strong>")}
   {_button("Shop Now — 15% Off")}

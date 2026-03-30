@@ -104,6 +104,23 @@ echo -e "\n${YELLOW}[4/7] Committing deploy on VPS...${NC}"
 $SSH "cd $VPS_PATH && git add -A && git diff --cached --quiet && echo 'No changes to commit' || git commit -m 'Deploy $LOCAL_COMMIT: $LOCAL_MSG'"
 echo -e "  ${GREEN}VPS commit done.${NC}"
 
+# ── Step 4.5: Run deterministic template migration ──
+echo -e "\n${YELLOW}[4.5/7] Running template migration...${NC}"
+MIGRATE_OUT=$($SSH "cd $VPS_PATH && source venv/bin/activate && python3 -c \"
+from database import init_db; init_db()
+from flow_runtime import repair_flow_templates
+repaired = repair_flow_templates()
+print('REPAIRED:%d' % len(repaired))
+for r in repaired:
+    print('  %s: %s' % (r[1], r[2]))
+\" 2>&1 | tail -20")
+echo "$MIGRATE_OUT"
+if echo "$MIGRATE_OUT" | grep -q "Traceback\|Error\|error"; then
+    echo -e "  ${RED}TEMPLATE MIGRATION FAILED — aborting deploy${NC}"
+    exit 1
+fi
+echo -e "  ${GREEN}Template migration done.${NC}"
+
 # ── Step 5: Restart service ───────────────
 echo -e "\n${YELLOW}[5/7] Restarting $SERVICE...${NC}"
 $SSH "systemctl restart $SERVICE"

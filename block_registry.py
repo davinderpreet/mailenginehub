@@ -175,11 +175,11 @@ BLOCK_TYPES = {
     },
     "discount": {
         "label": "Discount Block",
-        "required": ["code", "value_display"],
-        "optional": ["display_text", "expires_text"],
+        "required": ["code", "value_display"],  # enforced only when mode != "runtime"
+        "optional": ["display_text", "expires_text", "mode"],
         "defaults": {
-            "code": "CODE",
-            "value_display": "Save",
+            "code": "",
+            "value_display": "",
             "display_text": "",
             "expires_text": "",
         },
@@ -2143,7 +2143,13 @@ def validate_template(blocks_json_str, family=None):
 
         # Check required fields
         type_def = BLOCK_TYPES[block_type]
+        # Discount blocks with mode="runtime" get their values from runtime
+        # offer_context — skip required-field check for code/value_display
+        is_runtime_discount = (block_type == "discount" and
+                               content.get("mode") == "runtime")
         for field in type_def["required"]:
+            if is_runtime_discount and field in ("code", "value_display"):
+                continue  # filled at render time by discount_data
             val = content.get(field)
             if val is None or val == "" or val == []:
                 warnings.append({
