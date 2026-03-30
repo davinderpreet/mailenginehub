@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-30 11:12. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-30 11:58. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 40,462 lines)
+## Python Files — Detailed (63 files, 40,521 lines)
 
 ### `app.py` (7,302 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -358,7 +358,7 @@ Key functions:
 - `process_identity_jobs() — Drain IdentityJob queue`
 - `replay_triggers(contact) — Re-evaluate pending triggers after stitching`
 
-### `template_engine.py` (1,031 lines)
+### `template_engine.py` (1,030 lines)
 **Shared template rendering & validation engine — single render path for all preview/send/studio/preflight**
 
 Phase 2 of the architecture rebuild. THE single public API for rendering and validating email
@@ -401,6 +401,21 @@ Key functions:
 - `scrape_competitor(source) — Extracts product/pricing from competitor pages`
 - `classify_content(text, source_type) — AI classifies and scores relevance`
 
+### `flow_runtime.py` (934 lines)
+**Flow send package builder — centralizes flow render/decision logic (Phase 3)**
+
+Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
+which resolves objective, timing, products, offers, and renders via template_engine for all flow sends.
+Replaces inline rendering in _process_flow_enrollments and _pause_lower_priority_enrollments.
+
+Key functions:
+- `build_flow_send_package(enrollment, step, contact, flow, template=None, trigger_context=None) → dict with status/subject/html/priority`
+- `_resolve_objective(flow, step, template) → (objective, urgency, discount_purpose)`
+- `_check_soft_timing_gate(contact, urgency) → ('ok', None) or ('deferred', next_available_at)`
+- `_resolve_products(contact, flow, enrollment, trigger_context) → list of product dicts`
+- `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
+- `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
+
 ### `am_runtime.py` (932 lines)
 **AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)**
 
@@ -415,21 +430,6 @@ Key functions:
 - `_evaluate_candidates(strategy_state, intel) → (action_type, score, reasoning)`
 - `_check_preconditions(contact) → ('ok','') or ('skipped', reason)`
 - `_check_timing(contact, intelligence) → ('ok', scheduled_at) or ('wait', wait_until)`
-
-### `flow_runtime.py` (874 lines)
-**Flow send package builder — centralizes flow render/decision logic (Phase 3)**
-
-Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
-which resolves objective, timing, products, offers, and renders via template_engine for all flow sends.
-Replaces inline rendering in _process_flow_enrollments and _pause_lower_priority_enrollments.
-
-Key functions:
-- `build_flow_send_package(enrollment, step, contact, flow, template=None, trigger_context=None) → dict with status/subject/html/priority`
-- `_resolve_objective(flow, step, template) → (objective, urgency, discount_purpose)`
-- `_check_soft_timing_gate(contact, urgency) → ('ok', None) or ('deferred', next_available_at)`
-- `_resolve_products(contact, flow, enrollment, trigger_context) → list of product dicts`
-- `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
-- `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
 
 ### `ai_engine.py` (836 lines)
 **Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution**

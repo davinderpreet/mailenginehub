@@ -529,7 +529,7 @@ class TestBuildFlowSendPackage:
             )
 
         assert package["status"] == "invalid"
-        assert package["reason"] == "render_failed"
+        assert "No unsubscribe link" in package["reason"]
 
     def test_deferred_for_lower_urgency_timing(self, make_contact, make_flow, in_memory_db):
         """no_purchase_days (lower urgency) defers when timing gate blocks."""
@@ -1192,3 +1192,218 @@ class TestInvalidRenderRetryPolicy:
         assert enrollment.next_send_at > original_time
         # Backed off by fail_count hours from now
         assert enrollment.next_send_at > now
+
+
+# ═══════════════════════════════════════════════════════════════
+# Validation correctness tests (offer + product consistency)
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestOfferConsistencyValidation:
+    """Offer consistency: blocks with seed codes + runtime offer must pass."""
+
+    def test_seed_discount_block_with_runtime_offer_passes(self):
+        """Block template has empty/seed discount block + resolved offer → pass."""
+        from template_engine import _check_offer_consistency
+        blocks_json = json.dumps([
+            {"block_type": "hero", "content": {"headline": "Welcome"}},
+            {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": ""}},
+        ])
+        offer = {"code": "REAL-CODE", "value_display": "5% OFF"}
+        # Rendered HTML contains the real code (render_discount overrides seed)
+        html = '<p>Use code REAL-CODE for 5% off</p>'
+        issues = _check_offer_consistency("Subject", "", html, offer, blocks_json, True)
+        errors = [i for i in issues if i["level"] == "error"]
+        assert len(errors) == 0
+
+    def test_stale_code_in_rendered_html_still_fails(self):
+        """If rendered HTML contains wrong discount value, that's a real error."""
+        from template_engine import _check_offer_consistency
+        offer = {"code": "REAL-CODE", "value_display": "5% OFF"}
+        # HTML contains 10% off but offer is 5% off
+        html = '<p>Get 10% off your order!</p>'
+        issues = _check_offer_consistency("Subject", "", html, offer, None, True)
+        errors = [i for i in issues if i["level"] == "error" and "10%" in i.get("message", "")]
+        assert len(errors) > 0
+
+    def test_hardcoded_block_code_without_offer_is_flagged(self):
+        """Discount block with hardcoded code but no offer_context → flagged."""
+        from template_engine import _check_offer_consistency
+        blocks_json = json.dumps([
+            {"block_type": "discount", "content": {"code": "STALE5", "value_display": "5% OFF"}},
+        ])
+        html = '<p>Use STALE5</p>'
+        issues = _check_offer_consistency("Subject", "", html, None, blocks_json, True)
+        # Should flag the hardcoded code with no offer resolved
+        relevant = [i for i in issues if "STALE5" in i.get("message", "")]
+        assert len(relevant) > 0
+
+
+class TestProductConsistencyValidation:
+    """Product consistency: blank products must fail, concrete must pass."""
+
+    def test_blank_product_title_fails(self):
+        from template_engine import _check_product_consistency
+        blocks_json = json.dumps([{"block_type": "product_grid", "content": {}}])
+        products = [{"title": "", "product_url": "https://ldas.ca/p"}]
+        issues = _check_product_consistency(products, blocks_json, True)
+        errors = [i for i in issues if i["level"] == "error"]
+        assert len(errors) > 0
+
+    def test_product_title_key_accepted(self):
+        """product_title (flow_runtime format) should also be accepted."""
+        from template_engine import _check_product_consistency
+        blocks_json = json.dumps([{"block_type": "product_grid", "content": {}}])
+        products = [{"product_title": "USB-C Hub", "product_url": "https://ldas.ca/hub"}]
+        issues = _check_product_consistency(products, blocks_json, True)
+        errors = [i for i in issues if i["level"] == "error"]
+        assert len(errors) == 0
+
+    def test_concrete_product_passes(self):
+        from template_engine import _check_product_consistency
+        blocks_json = json.dumps([{"block_type": "product_grid", "content": {}}])
+        products = [{"title": "HDMI Cable", "product_url": "https://ldas.ca/hdmi"}]
+        issues = _check_product_consistency(products, blocks_json, True)
+        errors = [i for i in issues if i["level"] == "error"]
+        assert len(errors) == 0
+
+
+class TestFlowRuntimeStrictValidation:
+    """Regression: flow_runtime no longer bypasses offer/product consistency."""
+
+    def test_flow_runtime_rejects_invalid_render(self, in_memory_db, make_contact, make_flow):
+        """build_flow_send_package returns invalid when template_engine has errors."""
+        from flow_runtime import build_flow_send_package
+        from database import FlowStep, FlowEnrollment
+
+        contact = make_contact()
+        flow = make_flow("contact_created", steps=1)
+        step = FlowStep.select().where(FlowStep.flow == flow).first()
+        step.template.template_format = "blocks"
+        step.template.save()
+        enrollment = FlowEnrollment.create(
+            flow=flow, contact=contact, current_step=1,
+            next_send_at=datetime.now(), status="active",
+        )
+
+        with patch("flow_runtime.intelligence_layer") as mock_intel, \
+             patch("flow_runtime.te") as mock_te, \
+             patch("flow_runtime.discount_engine"):
+            mock_intel.should_contact_now.return_value = {"can_send": True, "reason": "ok"}
+            mock_intel.get_discount_policy.return_value = {"offer_discount": False}
+            mock_intel.get_next_products.return_value = {
+                "schema_version": 1, "top_pick": None,
+                "cross_sells": [], "reorders": [],
+                "replacements": [], "upgrades": [], "accessories": [],
+            }
+            mock_te.make_render_contract.return_value = {}
+            mock_te.render_email.return_value = {
+                "is_valid": False,
+                "errors": [
+                    {"level": "error", "check": "offer_consistency", "message": "Stale code mismatch"},
+                ],
+                "subject": "", "html": "", "warnings": [],
+            }
+
+            package = build_flow_send_package(enrollment, step, contact, flow)
+
+        # Must be invalid — no bypass
+        assert package["status"] == "invalid"
+        assert "Stale code mismatch" in package["reason"]
+
+
+class TestFlowProductFiltering:
+    """Blank products are filtered before reaching template_engine."""
+
+    def test_blank_products_filtered_out(self):
+        """Products with no title should be removed before render."""
+        from flow_runtime import build_flow_send_package
+        from unittest.mock import MagicMock
+
+        enrollment = MagicMock()
+        step = MagicMock()
+        step.template.template_format = "blocks"
+        step.template.template_family = "welcome"
+        step.template.shell_version = 1
+        step.subject_override = None
+        contact = MagicMock(id=1, first_name="Test", subscribed=True)
+        flow = MagicMock(trigger_type="contact_created")
+
+        with patch("flow_runtime.intelligence_layer") as mock_intel, \
+             patch("flow_runtime.te") as mock_te, \
+             patch("flow_runtime.discount_engine"), \
+             patch("flow_runtime._resolve_products") as mock_resolve:
+            mock_intel.should_contact_now.return_value = {"can_send": True, "reason": "ok"}
+            mock_intel.get_discount_policy.return_value = {"offer_discount": False}
+            # Return mix of valid and blank products
+            mock_resolve.return_value = [
+                {"product_title": "Good Product", "product_url": "/good"},
+                {"product_title": "", "product_url": ""},  # blank — should be filtered
+                {"title": "", "product_url": ""},  # blank with alt key
+            ]
+            mock_te.make_render_contract.return_value = {}
+            mock_te.render_email.return_value = {
+                "is_valid": True, "subject": "Welcome", "html": "<p>Hi</p>",
+                "errors": [], "warnings": [],
+            }
+
+            package = build_flow_send_package(enrollment, step, contact, flow)
+
+        # Check what was passed to make_render_contract
+        if mock_te.make_render_contract.called:
+            call_kwargs = mock_te.make_render_contract.call_args
+            passed_products = call_kwargs.kwargs.get("product_context") or call_kwargs[1].get("product_context")
+            if passed_products:
+                for p in passed_products:
+                    title = (p.get("product_title") or p.get("title") or "").strip()
+                    assert title, "Blank product should have been filtered"
+
+
+class TestRepairFlowTemplates:
+    """Template repair helper clears hardcoded discount codes."""
+
+    def test_repair_clears_hardcoded_codes(self, in_memory_db):
+        from flow_runtime import repair_flow_templates
+        from database import EmailTemplate
+
+        tpl = EmailTemplate.create(
+            name="Test Discount Template",
+            subject="Welcome {{first_name}}",
+            html_body="<p>legacy</p>",
+            template_format="blocks",
+            blocks_json=json.dumps([
+                {"block_type": "hero", "content": {"headline": "Welcome"}},
+                {"block_type": "discount", "content": {
+                    "code": "WELCOME5", "value_display": "5% OFF",
+                    "display_text": "Your gift", "expires_text": "7 days",
+                }},
+            ]),
+        )
+
+        repaired = repair_flow_templates()
+        assert len(repaired) == 1
+        assert repaired[0][0] == tpl.id
+
+        # Verify the discount block is cleared
+        tpl_refreshed = EmailTemplate.get_by_id(tpl.id)
+        blocks = json.loads(tpl_refreshed.blocks_json)
+        disc = [b for b in blocks if b["block_type"] == "discount"][0]
+        assert disc["content"]["code"] == ""
+        assert disc["content"]["value_display"] == ""
+
+    def test_repair_is_idempotent(self, in_memory_db):
+        from flow_runtime import repair_flow_templates
+        from database import EmailTemplate
+
+        EmailTemplate.create(
+            name="Already Clean",
+            subject="Test",
+            html_body="<p>legacy</p>",
+            template_format="blocks",
+            blocks_json=json.dumps([
+                {"block_type": "discount", "content": {"code": "", "value_display": ""}},
+            ]),
+        )
+
+        repaired = repair_flow_templates()
+        assert len(repaired) == 0  # nothing to repair

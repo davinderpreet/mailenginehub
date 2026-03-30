@@ -2447,10 +2447,10 @@ def make_example_blocks():
         {
             "block_type": "discount",
             "content": {
-                "code": "WELCOME5",
-                "value_display": "5% Off",
-                "display_text": "Your first order",
-                "expires_text": "Valid for 30 days",
+                "code": "",
+                "value_display": "",
+                "display_text": "",
+                "expires_text": "",
             },
         },
         {

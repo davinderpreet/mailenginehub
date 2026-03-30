@@ -577,6 +577,20 @@ def _check_offer_consistency(subject, preview_text, html, offer_context, blocks_
         })
 
     if not offer_context:
+        # Check for hardcoded discount codes in block content (stale seed data)
+        if blocks:
+            for block in blocks:
+                if block.get("block_type") != "discount":
+                    continue
+                content = block.get("content", {})
+                block_code = (content.get("code") or "").strip()
+                if block_code:
+                    issues.append({
+                        "level": level,
+                        "check": "offer_consistency",
+                        "message": "Discount block has hardcoded code '%s' but no offer_context was resolved" % block_code,
+                    })
+
         # Also check if subject/preview mention discount-like patterns without an offer
         discount_pattern = re.compile(r'\b(\d+)\s*%\s*(?:off|discount|save)', re.IGNORECASE)
         dollar_pattern = re.compile(r'\$\s*(\d+(?:\.\d+)?)\s*(?:off|discount|save)', re.IGNORECASE)
@@ -613,27 +627,12 @@ def _check_offer_consistency(subject, preview_text, html, offer_context, blocks_
             pass
 
     # ── For block templates: validate discount block content vs offer ──
-    if blocks:
-        for block in blocks:
-            if block.get("block_type") != "discount":
-                continue
-            content = block.get("content", {})
-            block_code = (content.get("code") or "").strip()
-            block_value = (content.get("value_display") or "").strip()
-
-            # If discount block has hardcoded values, check against offer
-            if block_code and offer_code and block_code != offer_code:
-                issues.append({
-                    "level": level,
-                    "check": "offer_consistency",
-                    "message": "Discount block code '%s' doesn't match resolved offer code '%s'" % (block_code, offer_code),
-                })
-            if block_value and offer_value and block_value.lower() != offer_value.lower():
-                issues.append({
-                    "level": level,
-                    "check": "offer_consistency",
-                    "message": "Discount block value '%s' doesn't match resolved offer value '%s'" % (block_value, offer_value),
-                })
+    # Note: block_registry.render_discount() OVERRIDES hardcoded block content
+    # with runtime discount_data when provided (see block_registry.py ~line 785).
+    # So blocks_json code/value are seed/default content, not the final truth.
+    # When a resolved offer_context is supplied, the rendered HTML is the real
+    # source of truth — we skip the raw block code/value comparison here.
+    # (Hardcoded-code-without-offer is already caught in the early-return above.)
 
     # ── Check subject and preview_text for discount value mentions ──
     if offer_value:
@@ -733,7 +732,7 @@ def _check_product_consistency(products, blocks_json, is_send):
         category_names = set()
 
     for i, product in enumerate(products):
-        title = (product.get("title") or "").strip()
+        title = (product.get("title") or product.get("product_title") or "").strip()
         url = (product.get("product_url") or "").strip()
 
         if not title:

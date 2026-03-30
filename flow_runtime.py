@@ -520,10 +520,16 @@ def _build_legacy_token_context(contact, flow, trigger_context, candidate_produc
     last_name = getattr(contact, "last_name", "") or ""
     email = getattr(contact, "email", "") or ""
 
-    # ── Offer ──
+    # ── Offer (all discount tokens) ──
     discount_code = ""
+    discount_value_display = ""
+    discount_display_text = ""
+    discount_expires_text = ""
     if offer_context:
         discount_code = offer_context.get("code") or ""
+        discount_value_display = offer_context.get("value_display") or ""
+        discount_display_text = offer_context.get("display_text") or ""
+        discount_expires_text = offer_context.get("expires_text") or ""
 
     # ── Checkout / cart ──
     checkout_url = ctx.get("checkout_url") or ctx.get("recover_url") or ""
@@ -637,6 +643,9 @@ def _build_legacy_token_context(contact, flow, trigger_context, candidate_produc
         "{{last_name}}": last_name,
         "{{email}}": email,
         "{{discount_code}}": discount_code,
+        "{{discount_value_display}}": discount_value_display,
+        "{{discount_display_text}}": discount_display_text,
+        "{{discount_expires_text}}": discount_expires_text,
         "{{cart_items}}": cart_html,
         "{{checkout_url}}": checkout_url,
         "{{last_viewed_product}}": last_viewed_product,
@@ -720,7 +729,14 @@ def build_flow_send_package(enrollment, step, contact, flow,
     # ── 5. Resolve offer ──
     offer_context = _resolve_offer(contact, discount_purpose, candidate_products)
 
-    # ── 6. Render ──
+    # ── 6. Filter products — only concrete sellable products in send mode ──
+    if candidate_products:
+        candidate_products = [
+            p for p in candidate_products
+            if (p.get("product_title") or p.get("title") or "").strip()
+        ]
+
+    # ── 7. Render ──
     template_format = getattr(template, "template_format", "html") or "html"
     shell_version = getattr(template, "shell_version", 1) or 1
     render_result = None
@@ -741,26 +757,17 @@ def build_flow_send_package(enrollment, step, contact, flow,
         render_result = te.render_email(contract)
         if not render_result.get("is_valid", False):
             issues = render_result.get("errors", [])
-            # For flows, offer_consistency and product_consistency are non-fatal:
-            # - offer codes are managed by flow_runtime (discount_engine), not template
-            # - product placeholders get filled at render time
-            # Only structural/placeholder errors are truly fatal for send.
-            _fatal = [e for e in issues if e.get("check") not in
-                      ("offer_consistency", "product_consistency")]
-            if _fatal:
-                return _make_package(
-                    "invalid", "; ".join(e.get("message", "unknown") for e in _fatal),
-                    objective=objective,
-                    urgency=urgency,
-                    candidate_products=candidate_products,
-                    offer_context=offer_context,
-                    render_result=render_result,
-                    priority=priority,
-                    metadata={"errors": _fatal},
-                )
-            # Non-fatal validation issues — proceed with the render
-            logger.info("[flow_runtime] Non-fatal validation issues (proceeding): %s",
-                        [e.get("message") for e in issues])
+            reason = "; ".join(e.get("message", "unknown") for e in issues) if issues else "render invalid"
+            return _make_package(
+                "invalid", reason,
+                objective=objective,
+                urgency=urgency,
+                candidate_products=candidate_products,
+                offer_context=offer_context,
+                render_result=render_result,
+                priority=priority,
+                metadata={"errors": issues},
+            )
         html = render_result.get("html", "")
         subject = render_result.get("subject", "")
 
@@ -871,3 +878,56 @@ def build_flow_send_package(enrollment, step, contact, flow,
         "priority": priority,
         "metadata": {},
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# Template Repair — clear hardcoded discount codes from live DB
+# ═══════════════════════════════════════════════════════════════
+
+def repair_flow_templates():
+    """Idempotent repair: clear hardcoded discount codes from flow templates.
+
+    Finds block-based templates with discount blocks containing hardcoded codes
+    (e.g. WELCOME5, CART-xxx) and replaces them with empty seed values so
+    runtime discount_data overrides work correctly.
+
+    Returns: list of (template_id, template_name, changes) tuples
+    """
+    from database import EmailTemplate
+    repaired = []
+
+    for tpl in EmailTemplate.select().where(
+        EmailTemplate.template_format == "blocks",
+        EmailTemplate.blocks_json.is_null(False),
+    ):
+        if not tpl.blocks_json or tpl.blocks_json == "[]":
+            continue
+
+        try:
+            blocks = json.loads(tpl.blocks_json)
+        except Exception:
+            continue
+
+        changed = False
+        changes = []
+        for block in blocks:
+            if block.get("block_type") != "discount":
+                continue
+            content = block.get("content", {})
+            old_code = content.get("code", "")
+            if old_code and old_code not in ("", "{{discount_code}}"):
+                # Hardcoded code found — clear it so runtime overrides cleanly
+                changes.append("code: '%s' → ''" % old_code)
+                content["code"] = ""
+                content["value_display"] = ""
+                content["display_text"] = ""
+                content["expires_text"] = ""
+                changed = True
+
+        if changed:
+            tpl.blocks_json = json.dumps(blocks)
+            tpl.save()
+            repaired.append((tpl.id, tpl.name, changes))
+            logger.info("[flow_runtime] Repaired template %d '%s': %s", tpl.id, tpl.name, changes)
+
+    return repaired
