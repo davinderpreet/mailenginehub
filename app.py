@@ -7278,6 +7278,16 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
     _scheduler.start()
     atexit.register(lambda: _scheduler.shutdown(wait=False))
     sys.stderr.write("[OK] Background scheduler started (ENABLE_SCHEDULER=1, pid=%d)\n" % os.getpid())
+
+    # Run template repair at startup (idempotent — safe on every deploy)
+    try:
+        from flow_runtime import repair_flow_templates
+        _repaired = repair_flow_templates()
+        if _repaired:
+            sys.stderr.write("[repair] Fixed %d templates: %s\n" % (
+                len(_repaired), ", ".join(r[1] for r in _repaired)))
+    except Exception as _repair_err:
+        sys.stderr.write("[repair] Template repair failed: %s\n" % _repair_err)
 else:
     if os.environ.get("ENABLE_SCHEDULER", "1") != "1":
         sys.stderr.write("[INFO] Scheduler disabled (ENABLE_SCHEDULER != 1)\n")

@@ -1285,8 +1285,8 @@ def approve_email(pending_id):
     # Resolve real template_id from pending review (not 0)
     _tpl_id = getattr(pe, 'template_id', 0) or 0
 
-    # Create AutoEmail FIRST with frozen metadata — before enqueue so we have ae.id
-    ae = None
+    # Create AutoEmail FIRST with frozen metadata — MANDATORY for outcome tracking.
+    # If this fails, do NOT enqueue. Sending without frozen metadata breaks learning.
     try:
         ae = AutoEmail.create(
             contact=contact,
@@ -1298,7 +1298,9 @@ def approve_email(pending_id):
             decision_json=getattr(pe, 'decision_json', '{}') or "{}",
         )
     except Exception as e:
-        logger.warning("[AM] Failed to create AutoEmail on approval: %s", e)
+        logger.error("[AM] FAILED to create AutoEmail on approval — aborting enqueue: %s", e)
+        # Fail closed: do not enqueue, keep pending review as pending
+        return False
 
     ledger = log_action(contact, "auto", 0, "rendered", "RC_ACCOUNT_MANAGER",
                         source_type="account_manager",
@@ -1321,7 +1323,7 @@ def approve_email(pending_id):
         priority=60,
         ledger_id=ledger.id if ledger else 0,
         scheduled_at=send_at,
-        auto_email_id=ae.id if ae else 0,
+        auto_email_id=ae.id,
     )
 
     pe.status = "approved"

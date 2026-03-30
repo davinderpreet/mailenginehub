@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-30 11:58. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-30 12:53. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,9 +260,9 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 40,521 lines)
+## Python Files — Detailed (63 files, 40,624 lines)
 
-### `app.py` (7,302 lines)
+### `app.py` (7,312 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
 
 Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,
@@ -310,7 +310,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 (5) AI/Studio: KnowledgeEntry, StudioJob, TemplateCandidate, AIModelConfig
 (6) Learning: OutcomeLog, ActionPerformance, TemplatePerformance, ModelWeights, LearningConfig
 
-### `account_manager.py` (1,755 lines)
+### `account_manager.py` (1,757 lines)
 **Account Manager AI — autonomous nightly email campaign planning and execution via Claude**
 
 ### `generate-context.py` (1,364 lines)
@@ -383,6 +383,21 @@ Key functions:
 - `validate_rendered_email(html, subject, ...) — Post-render 6-category validation`
 - `substitute_preview_tokens(html) — Replace send-time tokens for browser preview display`
 
+### `flow_runtime.py` (1,025 lines)
+**Flow send package builder — centralizes flow render/decision logic (Phase 3)**
+
+Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
+which resolves objective, timing, products, offers, and renders via template_engine for all flow sends.
+Replaces inline rendering in _process_flow_enrollments and _pause_lower_priority_enrollments.
+
+Key functions:
+- `build_flow_send_package(enrollment, step, contact, flow, template=None, trigger_context=None) → dict with status/subject/html/priority`
+- `_resolve_objective(flow, step, template) → (objective, urgency, discount_purpose)`
+- `_check_soft_timing_gate(contact, urgency) → ('ok', None) or ('deferred', next_available_at)`
+- `_resolve_products(contact, flow, enrollment, trigger_context) → list of product dicts`
+- `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
+- `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
+
 ### `knowledge_scraper.py` (952 lines)
 **Auto-enrichment pipeline — scrapes products, blogs, competitors, FAQs into knowledge base**
 
@@ -400,21 +415,6 @@ Key functions:
 - `scrape_blog(source) — Fetches blog post content from URL`
 - `scrape_competitor(source) — Extracts product/pricing from competitor pages`
 - `classify_content(text, source_type) — AI classifies and scores relevance`
-
-### `flow_runtime.py` (934 lines)
-**Flow send package builder — centralizes flow render/decision logic (Phase 3)**
-
-Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
-which resolves objective, timing, products, offers, and renders via template_engine for all flow sends.
-Replaces inline rendering in _process_flow_enrollments and _pause_lower_priority_enrollments.
-
-Key functions:
-- `build_flow_send_package(enrollment, step, contact, flow, template=None, trigger_context=None) → dict with status/subject/html/priority`
-- `_resolve_objective(flow, step, template) → (objective, urgency, discount_purpose)`
-- `_check_soft_timing_gate(contact, urgency) → ('ok', None) or ('deferred', next_available_at)`
-- `_resolve_products(contact, flow, enrollment, trigger_context) → list of product dicts`
-- `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
-- `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
 
 ### `am_runtime.py` (932 lines)
 **AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)**

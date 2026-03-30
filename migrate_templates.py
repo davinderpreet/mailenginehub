@@ -46,7 +46,7 @@ TEMPLATES = {
     ]),
     4: ("welcome", [
         {"block_type": "hero", "content": {"headline": "Welcome to LDAS", "subheadline": "Canadian-built Bluetooth gear for the road"}},
-        {"block_type": "text", "content": {"paragraphs": ["Thanks for joining the LDAS family. We build headsets that survive Canadian highways.", "Here's 5% off your first order to get started."]}},
+        {"block_type": "text", "content": {"paragraphs": ["Thanks for joining the LDAS family. We build headsets that survive Canadian highways.", "Here's a welcome gift to get you started."]}},
         {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**G10, "section_title": "Our Bestseller"}},
         {"block_type": "cta", "content": {"text": "Shop Now", "url": LDAS_URL, "color": BLUE, "secondary_text": "View All Products", "secondary_url": LDAS_URL + "/collections/all"}},
@@ -66,8 +66,8 @@ TEMPLATES = {
         {"block_type": "cta", "content": {"text": "Shop LDAS", "url": LDAS_URL, "color": BLUE, "secondary_text": "Read More Reviews", "secondary_url": LDAS_URL + "/blogs/news"}},
     ]),
     7: ("welcome", [
-        {"block_type": "hero", "content": {"headline": "Last Chance: 5% Off", "subheadline": "Your welcome offer expires soon"}},
-        {"block_type": "text", "content": {"paragraphs": ["We noticed you haven't used your welcome discount yet.", "Don't miss out on 5% off any LDAS product. This is your last reminder."]}},
+        {"block_type": "hero", "content": {"headline": "Last Chance", "subheadline": "Your welcome offer expires soon"}},
+        {"block_type": "text", "content": {"paragraphs": ["We noticed you haven't used your welcome discount yet.", "Don't miss out on your LDAS welcome offer. This is your last reminder."]}},
         {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**G10, "section_title": "Most Popular"}},
         {"block_type": "urgency", "content": {"message": "Offer expires at midnight. Don't miss out."}},
@@ -99,11 +99,11 @@ TEMPLATES = {
         {"block_type": "cta", "content": {"text": "Complete Your Order", "url": LDAS_URL + "/checkout", "color": BLUE}},
     ]),
     10: ("checkout_recovery", [
-        {"block_type": "hero", "content": {"headline": "Here's 10% Off", "subheadline": "We saved your cart and sweetened the deal"}},
-        {"block_type": "discount", "content": {"code": "SAVE10", "value_display": "10% OFF", "display_text": "Complete your order today", "expires_text": "24 hours only"}},
+        {"block_type": "hero", "content": {"headline": "A Little Extra Incentive", "subheadline": "We saved your cart and sweetened the deal"}},
+        {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**G10, "section_title": "Still In Your Cart"}},
         {"block_type": "trust_reassurance", "content": {"items": [{"icon": "package", "text": "Free Shipping on $50+"}, {"icon": "shield", "text": "30-Day Returns"}, {"icon": "maple", "text": "Canadian Owned"}, {"icon": "star", "text": "4.8/5 Rating"}]}},
-        {"block_type": "cta", "content": {"text": "Claim 10% Off", "url": LDAS_URL + "/checkout", "color": BLUE}},
+        {"block_type": "cta", "content": {"text": "Complete Your Order", "url": LDAS_URL + "/checkout", "color": BLUE}},
     ]),
 
     # ── Post-Purchase ──
@@ -120,9 +120,9 @@ TEMPLATES = {
         {"block_type": "cta", "content": {"text": "Leave a Review", "url": "https://www.amazon.ca/review/create-review?asin=B0BRJX5PFM", "color": BLUE, "secondary_text": "Shop More Gear", "secondary_url": LDAS_URL + "/collections/all"}},
     ]),
     13: ("post_purchase", [
-        {"block_type": "hero", "content": {"headline": "You've Earned This", "subheadline": "A thank-you discount just for you"}},
-        {"block_type": "text", "content": {"paragraphs": ["As a valued LDAS customer, here's an exclusive loyalty discount on your next order.", "Whether you need a backup headset or want to try the TH11, this one's for you."]}},
-        {"block_type": "discount", "content": {"code": "LOYAL10", "value_display": "10% OFF", "display_text": "Your loyalty reward", "expires_text": "30 days to use"}},
+        {"block_type": "hero", "content": {"headline": "You've Earned This", "subheadline": "A thank-you reward just for you"}},
+        {"block_type": "text", "content": {"paragraphs": ["As a valued LDAS customer, here's an exclusive loyalty reward on your next order.", "Whether you need a backup headset or want to try the TH11, this one's for you."]}},
+        {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**TH11, "section_title": "Upgrade to TH11"}},
         {"block_type": "cta", "content": {"text": "Shop with Discount", "url": LDAS_URL, "color": BLUE}},
     ]),
@@ -131,7 +131,7 @@ TEMPLATES = {
     3: ("winback", [
         {"block_type": "hero", "content": {"headline": "Come Back To Quality", "subheadline": "Pro headsets without the premium price"}},
         {"block_type": "text", "content": {"paragraphs": ["You tried others. Canada chooses LDAS.", "The TH11 delivers 36-hour battery and dual-mic noise cancellation. Built for the road."]}},
-        {"block_type": "discount", "content": {"code": "RETURN20", "value_display": "SAVE 20%", "display_text": "Ready to roll again?", "expires_text": "72 hours only. Single use only"}},
+        {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**TH11, "section_title": "Featured Product"}},
         {"block_type": "urgency", "content": {"message": "Last chance. Offer expires at midnight."}},
         {"block_type": "cta", "content": {"text": "Shop LDAS", "url": LDAS_URL, "color": BLUE, "secondary_text": "View Deals", "secondary_url": LDAS_URL + "/collections/all"}},
@@ -144,29 +144,29 @@ TEMPLATES = {
         {"block_type": "cta", "content": {"text": "See What's New", "url": LDAS_URL + "/collections/all", "color": BLUE}},
     ]),
     15: ("winback", [
-        {"block_type": "hero", "content": {"headline": "10% Off to Come Back", "subheadline": "We want to earn your business again"}},
-        {"block_type": "discount", "content": {"code": "COMEBACK10", "value_display": "10% OFF", "display_text": "Your comeback offer", "expires_text": "5 days to use"}},
+        {"block_type": "hero", "content": {"headline": "A Reason to Come Back", "subheadline": "We want to earn your business again"}},
+        {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**G10, "section_title": "Our Bestseller"}},
         {"block_type": "trust_reassurance", "content": {"items": [{"icon": "package", "text": "Free Shipping on $50+"}, {"icon": "shield", "text": "30-Day Returns"}, {"icon": "maple", "text": "Canadian Owned"}, {"icon": "star", "text": "4.8/5 Rating"}]}},
-        {"block_type": "cta", "content": {"text": "Claim 10% Off", "url": LDAS_URL, "color": BLUE}},
+        {"block_type": "cta", "content": {"text": "Come Back to LDAS", "url": LDAS_URL, "color": BLUE}},
     ]),
     16: ("winback", [
-        {"block_type": "hero", "content": {"headline": "Final Offer: 15% Off", "subheadline": "This is your last chance"}},
-        {"block_type": "text", "content": {"paragraphs": ["We've reached out a few times but haven't heard back.", "This is our best and final offer — 15% off anything in the store."]}},
-        {"block_type": "discount", "content": {"code": "FINAL15", "value_display": "15% OFF", "display_text": "Last chance", "expires_text": "Expires in 48 hours"}},
+        {"block_type": "hero", "content": {"headline": "Final Offer", "subheadline": "This is your last chance"}},
+        {"block_type": "text", "content": {"paragraphs": ["We've reached out a few times but haven't heard back.", "This is our best and final offer on anything in the store."]}},
+        {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
         {"block_type": "product_hero", "content": {**TH11, "section_title": "Top Pick"}},
         {"block_type": "urgency", "content": {"message": "This offer won't be sent again."}},
-        {"block_type": "cta", "content": {"text": "Save 15% Now", "url": LDAS_URL, "color": BLUE}},
+        {"block_type": "cta", "content": {"text": "Claim Your Offer", "url": LDAS_URL, "color": BLUE}},
     ]),
 
     # ── Browse Abandon ──
-    17: ("browse_abandon", [
+    17: ("browse_recovery", [
         {"block_type": "hero", "content": {"headline": "Still Thinking It Over?", "subheadline": "The product you viewed is still available"}},
         {"block_type": "product_hero", "content": {**G10, "section_title": "You Were Looking At"}},
         {"block_type": "feature_highlights", "content": {"items": ["40-hour battery life with charging case", "Qualcomm Bluetooth 5.0 chip", "Dual-mic ENC noise cancellation", "3 charging options (USB-C, case, car)"], "section_title": "G10 Highlights", "icon_type": "check", "columns": 2}},
         {"block_type": "cta", "content": {"text": "View Product", "url": LDAS_URL + "/products/ldas-bluetooth-headset-g10", "color": BLUE, "secondary_text": "Browse All", "secondary_url": LDAS_URL + "/collections/all"}},
     ]),
-    18: ("browse_abandon", [
+    18: ("browse_recovery", [
         {"block_type": "hero", "content": {"headline": "Drivers Love This One", "subheadline": "See why the G10 is our #1 seller"}},
         {"block_type": "product_hero", "content": {**G10, "section_title": "Trending Now"}},
         {"block_type": "driver_testimonial", "content": {"quote": "Best headset I've owned. Battery lasts my whole shift and calls are crystal clear.", "author_name": "Gary", "author_title": "Canada", "product": "G10"}},

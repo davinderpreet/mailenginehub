@@ -885,49 +885,140 @@ def build_flow_send_package(enrollment, step, contact, flow,
 # ═══════════════════════════════════════════════════════════════
 
 def repair_flow_templates():
-    """Idempotent repair: clear hardcoded discount codes from flow templates.
+    """Idempotent repair: fix hardcoded commercial facts and data issues in templates.
 
-    Finds block-based templates with discount blocks containing hardcoded codes
-    (e.g. WELCOME5, CART-xxx) and replaces them with empty seed values so
-    runtime discount_data overrides work correctly.
+    Covers:
+    1. Block templates: clear hardcoded discount codes from discount blocks
+    2. Subjects: neutralize hardcoded percentage claims that conflict with runtime offers
+    3. Family aliases: normalize browse_abandon → browse_recovery
+    4. Legacy HTML: replace hardcoded discount codes with {{discount_code}} tokens
 
+    Runs at deploy/startup. Idempotent — safe to run repeatedly.
     Returns: list of (template_id, template_name, changes) tuples
     """
+    import re
     from database import EmailTemplate
     repaired = []
 
-    for tpl in EmailTemplate.select().where(
-        EmailTemplate.template_format == "blocks",
-        EmailTemplate.blocks_json.is_null(False),
-    ):
-        if not tpl.blocks_json or tpl.blocks_json == "[]":
-            continue
+    # Known hardcoded discount codes to clear
+    _KNOWN_CODES = {
+        "WELCOME5", "SAVE10", "LOYAL10", "RETURN20", "COMEBACK10", "FINAL15",
+        "COMEBACK15", "COMEBACK20", "WELCOME10", "SAVE15", "CART5", "CART10",
+    }
 
-        try:
-            blocks = json.loads(tpl.blocks_json)
-        except Exception:
-            continue
+    # Family alias normalization
+    _FAMILY_ALIASES = {
+        "browse_abandon": "browse_recovery",
+        "promotional": "promo",
+    }
 
-        changed = False
+    # Subject patterns that hardcode mutable discount percentages
+    # e.g. "Here's 10% Off" or "Last Chance: 5% Off" or "Final Offer: 15% Off"
+    _SUBJECT_REWRITES = {
+        "Here's 10% Off": "A Little Extra Incentive",
+        "Last Chance: 5% Off": "Last Chance",
+        "10% Off to Come Back": "A Reason to Come Back",
+        "Final Offer: 15% Off": "Final Offer",
+        "Claim 10% Off": "Complete Your Order",
+        "Save 15% Now": "Claim Your Offer",
+        "Claim 10% Off": "Come Back to LDAS",
+    }
+
+    for tpl in EmailTemplate.select():
         changes = []
-        for block in blocks:
-            if block.get("block_type") != "discount":
-                continue
-            content = block.get("content", {})
-            old_code = content.get("code", "")
-            if old_code and old_code not in ("", "{{discount_code}}"):
-                # Hardcoded code found — clear it so runtime overrides cleanly
-                changes.append("code: '%s' → ''" % old_code)
-                content["code"] = ""
-                content["value_display"] = ""
-                content["display_text"] = ""
-                content["expires_text"] = ""
-                changed = True
 
-        if changed:
-            tpl.blocks_json = json.dumps(blocks)
+        # ── 1. Block templates: clear hardcoded discount block codes ──
+        if tpl.template_format == "blocks" and tpl.blocks_json and tpl.blocks_json != "[]":
+            try:
+                blocks = json.loads(tpl.blocks_json)
+                blocks_changed = False
+                for block in blocks:
+                    if block.get("block_type") != "discount":
+                        continue
+                    content = block.get("content", {})
+                    old_code = content.get("code", "")
+                    if old_code and old_code not in ("", "{{discount_code}}"):
+                        changes.append("discount block code: '%s' → ''" % old_code)
+                        content["code"] = ""
+                        content["value_display"] = ""
+                        content["display_text"] = ""
+                        content["expires_text"] = ""
+                        blocks_changed = True
+
+                # Also clear hardcoded percentage text in hero/text blocks
+                for block in blocks:
+                    bt = block.get("block_type", "")
+                    content = block.get("content", {})
+                    if bt == "hero":
+                        for key in ("headline", "subheadline"):
+                            val = content.get(key, "")
+                            if val and re.search(r'\b\d+%\s*[Oo]ff\b', val):
+                                # Replace specific known patterns
+                                for old, new in _SUBJECT_REWRITES.items():
+                                    if old in val:
+                                        content[key] = val.replace(old, new)
+                                        changes.append("hero %s: '%s' → '%s'" % (key, old, new))
+                                        blocks_changed = True
+                                        break
+                    elif bt == "text":
+                        paragraphs = content.get("paragraphs", [])
+                        for i, para in enumerate(paragraphs):
+                            if para and re.search(r'\b\d+%\s*off\b', para, re.IGNORECASE):
+                                # Neutralize specific hardcoded percentage claims
+                                new_para = re.sub(
+                                    r'\b(\d+)%\s*off\b',
+                                    'a special discount',
+                                    para, flags=re.IGNORECASE, count=1,
+                                )
+                                if new_para != para:
+                                    paragraphs[i] = new_para
+                                    changes.append("text paragraph: neutralized %%off → 'a special discount'")
+                                    blocks_changed = True
+                    elif bt == "cta":
+                        text = content.get("text", "")
+                        for old, new in _SUBJECT_REWRITES.items():
+                            if old in text:
+                                content["text"] = text.replace(old, new)
+                                changes.append("cta text: '%s' → '%s'" % (old, new))
+                                blocks_changed = True
+                                break
+
+                if blocks_changed:
+                    tpl.blocks_json = json.dumps(blocks)
+
+            except Exception as e:
+                logger.warning("[repair] Failed to parse blocks for template %d: %s", tpl.id, e)
+
+        # ── 2. Subject: neutralize hardcoded percentage claims ──
+        if tpl.subject:
+            new_subject = tpl.subject
+            for old, new in _SUBJECT_REWRITES.items():
+                if old in new_subject:
+                    new_subject = new_subject.replace(old, new)
+                    changes.append("subject: '%s' → '%s'" % (old, new))
+            if new_subject != tpl.subject:
+                tpl.subject = new_subject
+
+        # ── 3. Family alias normalization ──
+        if tpl.template_family in _FAMILY_ALIASES:
+            old_family = tpl.template_family
+            tpl.template_family = _FAMILY_ALIASES[old_family]
+            changes.append("family: '%s' → '%s'" % (old_family, tpl.template_family))
+
+        # ── 4. Legacy HTML: replace known hardcoded discount codes ──
+        if tpl.template_format != "blocks" and tpl.html_body:
+            new_html = tpl.html_body
+            for code in _KNOWN_CODES:
+                if code in new_html:
+                    new_html = new_html.replace(code, "{{discount_code}}")
+                    changes.append("html_body: '%s' → '{{discount_code}}'" % code)
+            if new_html != tpl.html_body:
+                tpl.html_body = new_html
+
+        # ── Save if anything changed ──
+        if changes:
             tpl.save()
             repaired.append((tpl.id, tpl.name, changes))
-            logger.info("[flow_runtime] Repaired template %d '%s': %s", tpl.id, tpl.name, changes)
+            logger.info("[repair] Template %d '%s': %s", tpl.id, tpl.name, changes)
 
     return repaired

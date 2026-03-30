@@ -1407,3 +1407,192 @@ class TestRepairFlowTemplates:
 
         repaired = repair_flow_templates()
         assert len(repaired) == 0  # nothing to repair
+
+
+# ═══════════════════════════════════════════════════════════════
+# Commercial-grade validation + approve_email + template audit
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestApproveEmailFailClosed:
+    """approve_email must not enqueue when AutoEmail creation fails."""
+
+    def test_auto_email_failure_prevents_enqueue(self, in_memory_db, make_contact):
+        """If AutoEmail.create raises, no queue item, pending stays pending."""
+        from database import ContactStrategy, AMPendingReview, AutoEmail, DeliveryQueue
+
+        contact = make_contact()
+        cs = ContactStrategy.create(contact=contact, enrolled=True, strategy_json="{}")
+        pe = AMPendingReview.create(
+            contact=contact, strategy=cs,
+            subject="Test", body_html="<p>Hi</p>",
+            reasoning="test", action_type="education",
+            status="pending",
+        )
+
+        pytest.importorskip("flask", reason="Flask not installed")
+        try:
+            from account_manager import approve_email
+        except Exception as exc:
+            pytest.skip("Cannot import account_manager: %s" % exc)
+
+        with patch("account_manager._get_optimal_send_time") as mock_time, \
+             patch("account_manager.AutoEmail") as mock_ae_class, \
+             patch("delivery_engine.enqueue_email") as mock_enqueue, \
+             patch("account_manager.log_action") as mock_log:
+            mock_time.return_value = datetime.now() + timedelta(hours=2)
+            mock_log.return_value = MagicMock(id=999)
+            mock_ae_class.create.side_effect = Exception("DB locked")
+
+            result = approve_email(pe.id)
+
+        assert result is False
+        mock_enqueue.assert_not_called()
+
+        # AMPendingReview should still be pending
+        pe_refreshed = AMPendingReview.get_by_id(pe.id)
+        assert pe_refreshed.status == "pending"
+
+
+class TestSeedTemplateAudit:
+    """No seed template should contain live hardcoded discount codes."""
+
+    def test_migrate_templates_no_hardcoded_codes(self):
+        """Verify migrate_templates.py source has no live discount codes."""
+        import os
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "migrate_templates.py")
+        with open(path, "r") as f:
+            content = f.read()
+        known_codes = ["WELCOME5", "SAVE10", "LOYAL10", "RETURN20", "COMEBACK10", "FINAL15"]
+        for code in known_codes:
+            # Check that the code doesn't appear as a live value in blocks
+            # Allow it in comments or the known_codes list itself
+            pattern = '"code": "%s"' % code
+            assert pattern not in content, \
+                "migrate_templates.py still has hardcoded discount code '%s'" % code
+
+    def test_migrate_templates_no_browse_abandon_family(self):
+        """template_family should not be 'browse_abandon' (alias issue)."""
+        import os
+        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "migrate_templates.py")
+        with open(path, "r") as f:
+            content = f.read()
+        assert '"browse_abandon"' not in content, \
+            "migrate_templates.py still uses 'browse_abandon' family alias"
+
+
+class TestDBRepairExpanded:
+    """Expanded repair covers block codes, subjects, family aliases, legacy HTML."""
+
+    def test_repair_clears_hardcoded_block_codes(self, in_memory_db):
+        from flow_runtime import repair_flow_templates
+        from database import EmailTemplate
+        tpl = EmailTemplate.create(
+            name="Test Hardcoded", subject="Welcome",
+            html_body="<p>legacy</p>", template_format="blocks",
+            blocks_json=json.dumps([
+                {"block_type": "discount", "content": {
+                    "code": "SAVE10", "value_display": "10% OFF",
+                    "display_text": "Order now", "expires_text": "24h"}},
+            ]),
+        )
+        repaired = repair_flow_templates()
+        assert any(r[0] == tpl.id for r in repaired)
+        tpl_r = EmailTemplate.get_by_id(tpl.id)
+        blocks = json.loads(tpl_r.blocks_json)
+        assert blocks[0]["content"]["code"] == ""
+
+    def test_repair_normalizes_family_alias(self, in_memory_db):
+        from flow_runtime import repair_flow_templates
+        from database import EmailTemplate
+        tpl = EmailTemplate.create(
+            name="Browse", subject="Still looking?",
+            html_body="<p>browse</p>", template_format="blocks",
+            blocks_json="[]", template_family="browse_abandon",
+        )
+        repaired = repair_flow_templates()
+        assert any(r[0] == tpl.id for r in repaired)
+        tpl_r = EmailTemplate.get_by_id(tpl.id)
+        assert tpl_r.template_family == "browse_recovery"
+
+    def test_repair_legacy_html_discount_codes(self, in_memory_db):
+        from flow_runtime import repair_flow_templates
+        from database import EmailTemplate
+        tpl = EmailTemplate.create(
+            name="Legacy", subject="Welcome",
+            html_body="<p>Use code WELCOME5 for 5% off</p>",
+            template_format="html",
+        )
+        repaired = repair_flow_templates()
+        assert any(r[0] == tpl.id for r in repaired)
+        tpl_r = EmailTemplate.get_by_id(tpl.id)
+        assert "WELCOME5" not in tpl_r.html_body
+        assert "{{discount_code}}" in tpl_r.html_body
+
+    def test_repair_is_idempotent(self, in_memory_db):
+        from flow_runtime import repair_flow_templates
+        from database import EmailTemplate
+        EmailTemplate.create(
+            name="Clean", subject="Test", html_body="<p>ok</p>",
+            template_format="blocks", template_family="welcome",
+            blocks_json=json.dumps([
+                {"block_type": "discount", "content": {"code": "", "value_display": ""}},
+            ]),
+        )
+        r1 = repair_flow_templates()
+        r2 = repair_flow_templates()
+        assert len(r1) == 0
+        assert len(r2) == 0
+
+
+class TestStrictValidationRegression:
+    """Strict validation remains on — no bypass."""
+
+    def test_flow_runtime_does_not_bypass_offer_consistency(self, in_memory_db, make_contact, make_flow):
+        """offer_consistency errors are fatal for flow sends."""
+        from flow_runtime import build_flow_send_package
+        from database import FlowStep, FlowEnrollment
+
+        contact = make_contact()
+        flow = make_flow("contact_created", steps=1)
+        step = FlowStep.select().where(FlowStep.flow == flow).first()
+        step.template.template_format = "blocks"
+        step.template.save()
+        enrollment = FlowEnrollment.create(
+            flow=flow, contact=contact, current_step=1,
+            next_send_at=datetime.now(), status="active",
+        )
+
+        with patch("flow_runtime.intelligence_layer") as mock_intel, \
+             patch("flow_runtime.te") as mock_te, \
+             patch("flow_runtime.discount_engine"):
+            mock_intel.should_contact_now.return_value = {"can_send": True, "reason": "ok"}
+            mock_intel.get_discount_policy.return_value = {"offer_discount": False}
+            mock_intel.get_next_products.return_value = {
+                "schema_version": 1, "top_pick": None,
+                "cross_sells": [], "reorders": [],
+                "replacements": [], "upgrades": [], "accessories": [],
+            }
+            mock_te.make_render_contract.return_value = {}
+            mock_te.render_email.return_value = {
+                "is_valid": False,
+                "errors": [{"level": "error", "check": "offer_consistency",
+                            "message": "Stale discount code mismatch"}],
+                "subject": "", "html": "", "warnings": [],
+            }
+            package = build_flow_send_package(enrollment, step, contact, flow)
+
+        assert package["status"] == "invalid"
+        assert "Stale discount" in package["reason"]
+
+    def test_runtime_offer_passes_strict_validation(self):
+        """Block template with empty seed + runtime offer should pass."""
+        from template_engine import _check_offer_consistency
+        blocks_json = json.dumps([
+            {"block_type": "discount", "content": {"code": "", "value_display": ""}},
+        ])
+        offer = {"code": "DYNAMIC-ABC", "value_display": "5% OFF"}
+        html = '<p>Use code DYNAMIC-ABC for 5% off your order</p>'
+        issues = _check_offer_consistency("Welcome", "", html, offer, blocks_json, True)
+        errors = [i for i in issues if i["level"] == "error"]
+        assert len(errors) == 0
