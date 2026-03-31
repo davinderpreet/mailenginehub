@@ -8,6 +8,7 @@ respecting warmup limits and delivery mode (live/shadow/sandbox).
 
 import os
 import sys
+import logging
 from datetime import datetime, date, timedelta
 from database import (
     DeliveryQueue, ActionLedger, SystemConfig,
@@ -15,8 +16,132 @@ from database import (
     FlowEnrollment, FlowStep, Flow, Contact,
     ContactScore, AutoEmail, db, get_system_config,
     ShopifyOrder, BounceLog, SuppressionEntry,
+    CustomerActivity, AbandonedCheckout,
 )
 from action_ledger import update_ledger_status
+
+logger = logging.getLogger("delivery_engine")
+
+
+# ── Purchase-evidence correlation window ────────────────────────────────
+#
+# Recovery-flow suppression should not depend solely on ShopifyOrder rows,
+# which may arrive late due to webhook delays, batch sync timing, or order
+# processing queues.  The system records multiple purchase signals that
+# arrive at different times:
+#
+#   Signal                       Source                  Typical latency
+#   ──────────────────────────── ─────────────────────── ────────────────
+#   ShopifyOrder.ordered_at      Shopify order webhook   seconds to hours
+#   CustomerActivity(checkout_   Website pixel / webhook  seconds
+#     completed)
+#   AbandonedCheckout.recovered  Order webhook sets it    seconds
+#
+# To avoid sending recovery emails to confirmed purchasers, Guard 2
+# evaluates ALL three signals within a correlation window defined by:
+#
+#   PRE_ENROLLMENT_BUFFER:  1 hour before enrollment
+#     Absorbs: timezone drift (enrolled_at is local, ordered_at may be UTC),
+#     webhook race conditions, order-before-checkout-recovery enrollment timing.
+#
+#   The window is:  purchase_signal_time >= (enrolled_at - PRE_ENROLLMENT_BUFFER)
+#
+# Decision rule for recovery flows (checkout_abandoned, browse_abandonment,
+# cart_abandonment): block the send if ANY of:
+#   1. Confirmed ShopifyOrder exists in the correlated window
+#   2. checkout_completed CustomerActivity exists in the correlated window
+#   3. Matching AbandonedCheckout is marked recovered in the correlated window
+#
+# This is deliberately conservative — it's safer to skip one recovery email
+# than to email a customer who already purchased.
+#
+
+PRE_ENROLLMENT_BUFFER = timedelta(hours=1)
+
+
+def _has_post_enrollment_purchase_signal(email, enrollment, flow_trigger):
+    """
+    Check for strong purchase evidence after (or beside) flow enrollment.
+
+    Uses corroborating signals beyond just ShopifyOrder to catch purchases
+    even before all async sync jobs finish.
+
+    Args:
+        email: str — contact email
+        enrollment: FlowEnrollment instance
+        flow_trigger: str — the flow's trigger_type
+
+    Returns:
+        (bool, str) — (has_purchase_signal, evidence_description)
+    """
+    if flow_trigger not in ("checkout_abandoned", "browse_abandonment", "cart_abandonment"):
+        return False, ""
+
+    enrolled_at = enrollment.enrolled_at
+    if not enrolled_at:
+        return False, ""
+
+    # Normalize: strip any tzinfo for safe comparison
+    if hasattr(enrolled_at, 'replace'):
+        enrolled_at = enrolled_at.replace(tzinfo=None)
+
+    # Correlation window: purchase signals >= (enrolled_at - buffer)
+    window_start = enrolled_at - PRE_ENROLLMENT_BUFFER
+
+    evidence = []
+    _signal_failures = 0
+
+    # ── Signal 1: ShopifyOrder ──
+    try:
+        has_order = ShopifyOrder.select().where(
+            ShopifyOrder.email == email,
+            ShopifyOrder.ordered_at >= window_start,
+            ShopifyOrder.financial_status.not_in(["refunded", "voided"]),
+        ).exists()
+        if has_order:
+            evidence.append("ShopifyOrder after %s" % window_start.isoformat())
+    except Exception as e:
+        _signal_failures += 1
+        logger.warning("[Guard2Signal] ShopifyOrder query failed for %s: %s", email, e)
+
+    # ── Signal 2: checkout_completed CustomerActivity ──
+    try:
+        has_checkout_completed = CustomerActivity.select().where(
+            CustomerActivity.email == email,
+            CustomerActivity.event_type == "checkout_completed",
+            CustomerActivity.occurred_at >= window_start,
+        ).exists()
+        if has_checkout_completed:
+            evidence.append("checkout_completed activity after %s" % window_start.isoformat())
+    except Exception as e:
+        _signal_failures += 1
+        logger.warning("[Guard2Signal] CustomerActivity query failed for %s: %s", email, e)
+
+    # ── Signal 3: AbandonedCheckout recovered ──
+    try:
+        has_recovered_checkout = AbandonedCheckout.select().where(
+            AbandonedCheckout.email == email,
+            AbandonedCheckout.recovered == True,
+            AbandonedCheckout.recovered_at >= window_start,
+        ).exists()
+        if has_recovered_checkout:
+            evidence.append("recovered checkout after %s" % window_start.isoformat())
+    except Exception as e:
+        _signal_failures += 1
+        logger.warning("[Guard2Signal] AbandonedCheckout query failed for %s: %s", email, e)
+
+    if evidence:
+        desc = "; ".join(evidence)
+        logger.info("[Guard2Signal] Purchase evidence for %s: %s", email, desc)
+        return True, desc
+
+    # FAIL-CLOSED: if ALL signal queries failed, we have no reliable data.
+    # Raise so Guard 2's outer handler cancels the send rather than allowing it.
+    if _signal_failures >= 3:
+        raise RuntimeError(
+            "All 3 purchase-signal queries failed for %s — cannot safely determine purchase state" % email)
+
+    return False, ""
 
 
 # ── Priority mapping ─────────────────────────────────────────────────
@@ -327,10 +452,17 @@ def _send_one(item, send_fn):
                     logger.info("[Guard1] Cancelled queue #%s — enrollment #%s is %s",
                                 item.id, item.enrollment_id, _enrollment.status)
                     return 0
-            except Exception:
-                pass  # Fail-open: if check fails, proceed with send
+            except Exception as _g1_err:
+                # Fail-open: if enrollment check fails, proceed with send
+                logger.warning("[Guard1] Error checking enrollment for queue #%s: %s", item.id, _g1_err)
 
         # ── Guard 2: Purchase since enrollment? (recovery flows only) ──
+        # FAIL-CLOSED: if this guard errors, block the send — safer to skip
+        # one email than to email a customer who already bought.
+        #
+        # Uses multi-signal purchase evidence (ShopifyOrder + checkout_completed
+        # activity + recovered abandoned checkout) — see _has_post_enrollment_purchase_signal
+        # and the correlation window docs above.
         if item.email_type == "flow" and item.enrollment_id:
             try:
                 if not _enrollment:
@@ -339,12 +471,9 @@ def _send_one(item, send_fn):
                 if _enrollment:
                     _flow = Flow.get_or_none(Flow.id == _enrollment.flow_id)
                     if _flow and _flow.trigger_type in ("checkout_abandoned", "browse_abandonment", "cart_abandonment"):
-                        _has_order = ShopifyOrder.select().where(
-                            ShopifyOrder.email == item.email,
-                            ShopifyOrder.ordered_at >= _enrollment.enrolled_at,
-                            ShopifyOrder.financial_status.not_in(["refunded", "voided"]),
-                        ).exists()
-                        if _has_order:
+                        _has_signal, _evidence = _has_post_enrollment_purchase_signal(
+                            item.email, _enrollment, _flow.trigger_type)
+                        if _has_signal:
                             item.status = "cancelled"
                             item.error_msg = "purchased_after_enrollment"
                             item.sent_at = datetime.now()
@@ -353,11 +482,20 @@ def _send_one(item, send_fn):
                             _enrollment.save()
                             update_ledger_status(item.ledger_id, "cancelled",
                                                  reason_code="purchased_after_enrollment",
-                                                 reason_detail="Order found after enrollment at %s" % _enrollment.enrolled_at)
-                            logger.info("[Guard2] Cancelled queue #%s — purchase found after enrollment", item.id)
+                                                 reason_detail="Evidence: %s" % _evidence[:200])
+                            logger.info("[Guard2] Cancelled queue #%s — %s", item.id, _evidence)
                             return 0
-            except Exception:
-                pass  # Fail-open
+            except Exception as _g2_err:
+                # FAIL-CLOSED: block send on guard error — never send recovery to a buyer
+                logger.error("[Guard2] FAIL-CLOSED — error checking purchase for queue #%s: %s", item.id, _g2_err)
+                item.status = "cancelled"
+                item.error_msg = "guard2_error_%s" % str(_g2_err)[:80]
+                item.sent_at = datetime.now()
+                item.save()
+                update_ledger_status(item.ledger_id, "cancelled",
+                                     reason_code="guard2_error",
+                                     reason_detail="Guard 2 failed closed: %s" % str(_g2_err)[:120])
+                return 0
 
         # ── Guard 3: Recent hard bounce or complaint? (all email types) ──
         if item.email_type in ("flow", "campaign", "auto"):
@@ -394,8 +532,9 @@ def _send_one(item, send_fn):
                                          reason_detail="Hard bounce or complaint in last 7 days")
                     logger.info("[Guard3] Bounce-suppressed queue #%s for %s", item.id, item.email)
                     return 0
-            except Exception:
-                pass  # Fail-open
+            except Exception as _g3_err:
+                # Fail-open for bounce guard — if unsure, allow send
+                logger.warning("[Guard3] Error checking bounces for queue #%s: %s", item.id, _g3_err)
 
         item.status = "sending"
         item.save()
@@ -603,3 +742,167 @@ def get_queue_items(status="queued", limit=50):
         .limit(limit)
         .dicts()
     )
+
+
+def repair_post_purchase_contact(email, dry_run=True):
+    """
+    Production-safe repair for contacts who purchased but weren't transitioned.
+
+    Fixes:
+      1. Apply minimal buyer-state (Contact + CustomerProfile immediately)
+      2. Active recovery/welcome flow enrollments cancelled
+      3. Pending queue items for those flows cancelled (via purchase evidence)
+      4. Full profile refresh scheduled for enriched intelligence fields
+
+    After repair:
+      - Contact.total_orders > 0
+      - CustomerProfile.total_orders > 0, last_order_at set, lifecycle != prospect
+      - Recovery/welcome/winback enrollments cancelled
+      - Pending recovery queue items cancelled
+      - ActionLedger entries created for all exits
+
+    Args:
+        email: str — the contact's email
+        dry_run: bool — if True, only log what WOULD be fixed (no writes)
+
+    Returns:
+        dict with repair summary
+    """
+    from action_ledger import log_action
+    summary = {"email": email, "dry_run": dry_run, "fixes": []}
+
+    contact = Contact.get_or_none(Contact.email == email)
+    if not contact:
+        summary["error"] = "Contact not found"
+        return summary
+
+    # ── 1. Apply minimal buyer-state (Contact + CustomerProfile) ──
+    order_count = ShopifyOrder.select().where(
+        ShopifyOrder.email == email,
+        ShopifyOrder.financial_status.not_in(["refunded", "voided"]),
+    ).count()
+
+    # Also check corroborating purchase evidence even if order_count is 0
+    # (order row may not exist yet but checkout_completed / recovered checkout may)
+    has_purchase_evidence = order_count > 0
+    if not has_purchase_evidence:
+        try:
+            has_purchase_evidence = CustomerActivity.select().where(
+                CustomerActivity.email == email,
+                CustomerActivity.event_type == "checkout_completed",
+            ).exists()
+        except Exception:
+            pass
+    if not has_purchase_evidence:
+        try:
+            has_purchase_evidence = AbandonedCheckout.select().where(
+                AbandonedCheckout.email == email,
+                AbandonedCheckout.recovered == True,
+            ).exists()
+        except Exception:
+            pass
+
+    if not has_purchase_evidence:
+        summary["fixes"].append("no purchase evidence found — nothing to repair")
+        logger.info("[Repair] %s for %s: no purchase evidence", "DRY-RUN" if dry_run else "CHECK", email)
+        return summary
+
+    if order_count < 1:
+        order_count = 1  # Confirmed purchase but ShopifyOrder not yet synced
+
+    if not dry_run:
+        try:
+            from customer_intelligence import apply_minimal_buyer_state
+            buyer_changes = apply_minimal_buyer_state(contact, order_count=order_count)
+            for k, v in buyer_changes.items():
+                if k != "error":
+                    summary["fixes"].append("%s: %s" % (k, v))
+            if "error" in buyer_changes:
+                summary["fixes"].append("buyer-state partial error: %s" % buyer_changes["error"])
+        except Exception as e:
+            summary["fixes"].append("buyer-state helper failed: %s" % e)
+    else:
+        # Dry-run: report what would change
+        if (contact.total_orders or 0) != order_count:
+            summary["fixes"].append("contact.total_orders: %d → %d" % (contact.total_orders or 0, order_count))
+        from database import CustomerProfile
+        _profile = CustomerProfile.get_or_none(CustomerProfile.contact_id == contact.id)
+        if not _profile:
+            summary["fixes"].append("CustomerProfile: would be created")
+        else:
+            if (_profile.total_orders or 0) != order_count:
+                summary["fixes"].append("profile.total_orders: %d → %d" % (_profile.total_orders or 0, order_count))
+            if (_profile.lifecycle_stage or "").lower() in ("prospect", "unknown", "browser", ""):
+                summary["fixes"].append("profile.lifecycle_stage: %s → new_customer/active_buyer" % (
+                    _profile.lifecycle_stage or "unknown"))
+            if not _profile.last_order_at:
+                summary["fixes"].append("profile.last_order_at: null → would be set")
+
+    # ── 2. Cancel active recovery + welcome flow enrollments ──
+    _recovery_types = ["checkout_abandoned", "browse_abandonment", "cart_abandonment",
+                       "no_purchase_days", "contact_created"]
+    _recovery_flows = list(Flow.select().where(Flow.trigger_type.in_(_recovery_types)))
+    _flow_ids = [f.id for f in _recovery_flows]
+
+    active_enrollments = list(FlowEnrollment.select().where(
+        FlowEnrollment.contact == contact,
+        FlowEnrollment.flow_id.in_(_flow_ids),
+        FlowEnrollment.status.in_(["active", "paused"]),
+    )) if _flow_ids else []
+
+    for enrollment in active_enrollments:
+        flow_name = "flow#%s" % enrollment.flow_id
+        try:
+            flow_obj = Flow.get_or_none(Flow.id == enrollment.flow_id)
+            if flow_obj:
+                flow_name = flow_obj.name
+        except Exception:
+            pass
+        summary["fixes"].append("cancel enrollment #%d (%s, was %s)" % (
+            enrollment.id, flow_name, enrollment.status))
+        if not dry_run:
+            enrollment.status = "cancelled"
+            enrollment.save()
+            log_action(
+                contact, "flow", enrollment.flow_id, "exited", "repair_post_purchase",
+                source_type=flow_name,
+                enrollment_id=enrollment.id,
+                reason_detail="Repair: customer has %d orders but enrollment was still %s" % (
+                    order_count, enrollment.status),
+            )
+
+    # ── 3. Cancel pending queue items for recovery flows ──
+    if _flow_ids:
+        pending = list(DeliveryQueue.select().where(
+            DeliveryQueue.email == email,
+            DeliveryQueue.status == "queued",
+            DeliveryQueue.email_type == "flow",
+        ))
+        for item in pending:
+            if item.enrollment_id:
+                _enr = FlowEnrollment.get_or_none(FlowEnrollment.id == item.enrollment_id)
+                if _enr and _enr.flow_id in _flow_ids:
+                    summary["fixes"].append("cancel queue #%d (enrollment #%d)" % (item.id, item.enrollment_id))
+                    if not dry_run:
+                        item.status = "cancelled"
+                        item.error_msg = "repair_post_purchase"
+                        item.sent_at = datetime.now()
+                        item.save()
+                        update_ledger_status(item.ledger_id, "cancelled",
+                                             reason_code="repair_post_purchase",
+                                             reason_detail="Contact has %d orders — purchase evidence confirmed" % order_count)
+
+    # ── 4. Schedule full intelligence recompute ──
+    summary["fixes"].append("schedule full profile refresh")
+    if not dry_run:
+        try:
+            from customer_intelligence import schedule_profile_refresh
+            schedule_profile_refresh(contact.id, "repair_post_purchase")
+        except Exception as e:
+            summary["fixes"].append("profile refresh schedule failed: %s" % e)
+
+    if not summary["fixes"]:
+        summary["fixes"].append("no repairs needed")
+
+    logger.info("[Repair] %s for %s: %s", "DRY-RUN" if dry_run else "APPLIED", email, summary["fixes"])
+    return summary

@@ -1049,6 +1049,40 @@ def webhook_shopify_order_create():
                     app.logger.info(f"Discount redeemed: {_dc_code} by {email} on order #{data.get('order_number')}")
 
         if contact:
+            # 2a. Immediate synchronous buyer-state update.
+            # Persists minimum buyer fields (Contact + CustomerProfile) so the system
+            # stops treating this contact as a prospect right away. Guard 2, lifecycle
+            # checks, flow fitness, and AM logic all read these fields.
+            try:
+                from customer_intelligence import apply_minimal_buyer_state
+                _order_total = float(data.get("total_price") or 0)
+                _ordered_at_str = data.get("created_at") or data.get("processed_at") or ""
+                _ordered_at = None
+                if _ordered_at_str:
+                    try:
+                        # Shopify sends ISO 8601: "2026-03-28T20:14:59-04:00"
+                        _ordered_at = datetime.fromisoformat(_ordered_at_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                    except Exception:
+                        _ordered_at = None
+                _buyer_result = apply_minimal_buyer_state(
+                    contact,
+                    total_spent=_order_total if _order_total > 0 else None,
+                    last_order_at=_ordered_at,
+                )
+                if "error" in _buyer_result:
+                    app.logger.warning(f"[OrderWebhook] Buyer-state update partial for {email}: {_buyer_result['error']}")
+                else:
+                    app.logger.info(f"[OrderWebhook] Buyer-state applied for {email}: {_buyer_result}")
+            except Exception as _bs_err:
+                # Fallback: at least mark 1 order on Contact if helper fails entirely
+                try:
+                    if (contact.total_orders or 0) < 1:
+                        contact.total_orders = 1
+                        contact.save()
+                except Exception:
+                    pass
+                app.logger.warning(f"[OrderWebhook] Buyer-state helper failed for {email}: {_bs_err}")
+
             # 3. Smart exit: cancel ALL abandonment + winback + welcome flows on purchase
             # Welcome flow should stop once customer converts — no "5% off" after they bought
             _exit_flows_by_trigger_type(
@@ -1057,7 +1091,8 @@ def webhook_shopify_order_create():
                 reason_code="flow_exit_purchase",
             )
 
-            # Schedule real-time profile refresh (15 min after last activity)
+            # Schedule full intelligence recompute (15 min later — enriches intent,
+            # category affinity, recommendations, etc. beyond the minimal buyer state)
             try:
                 schedule_profile_refresh(contact.id, "placed_order")
             except Exception as _e:

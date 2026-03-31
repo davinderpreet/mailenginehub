@@ -57,6 +57,9 @@ def schedule_profile_refresh(contact_id, trigger_event):
     Schedule a full profile recompute for 15 minutes after the contact's last
     qualifying activity. If already scheduled, the timer resets (pushes forward).
 
+    If no CustomerProfile exists yet (e.g. prospect placing first order),
+    creates one so the refresh can proceed.
+
     Qualifying events: placed_order, completed_checkout, viewed_product,
     product_search, add_to_cart, email_click, checkout_abandoned, cart_abandoned.
 
@@ -64,7 +67,7 @@ def schedule_profile_refresh(contact_id, trigger_event):
         contact_id: int — the Contact.id
         trigger_event: str — the event type that triggered this (e.g. "placed_order")
     """
-    from database import CustomerProfile
+    from database import CustomerProfile, Contact
     refresh_at = datetime.now() + timedelta(minutes=15)
     updated = CustomerProfile.update(
         refresh_scheduled_at=refresh_at,
@@ -74,7 +77,168 @@ def schedule_profile_refresh(contact_id, trigger_event):
         logger.info("[ProfileRefresh] Scheduled refresh for contact #%s at %s (trigger: %s)",
                      contact_id, refresh_at.strftime("%H:%M:%S"), trigger_event)
     else:
-        logger.debug("[ProfileRefresh] No profile found for contact #%s, skipping", contact_id)
+        # No CustomerProfile row — create one so the refresh actually runs.
+        # This happens for prospects placing their first order (profile created
+        # during identity resolution only for new contacts, not pre-existing ones).
+        try:
+            contact = Contact.get_or_none(Contact.id == contact_id)
+            if contact:
+                CustomerProfile.create(
+                    contact=contact,
+                    email=contact.email,
+                    lifecycle_stage="unknown",
+                    refresh_scheduled_at=refresh_at,
+                    last_refresh_trigger=trigger_event,
+                )
+                logger.info("[ProfileRefresh] Created profile + scheduled refresh for contact #%s (trigger: %s)",
+                             contact_id, trigger_event)
+            else:
+                logger.warning("[ProfileRefresh] Contact #%s not found — cannot create profile", contact_id)
+        except Exception as e:
+            logger.error("[ProfileRefresh] Failed to create profile for contact #%s: %s", contact_id, e)
+
+
+def apply_minimal_buyer_state(contact, order_count=None, total_spent=None,
+                               last_order_at=None, first_order_at=None):
+    """
+    Synchronously persist the minimum buyer-state fields so the system stops
+    treating a confirmed purchaser as a prospect immediately.
+
+    This is a minimal immediate state correction — NOT a replacement for the full
+    intelligence recompute. After calling this, still schedule a full
+    refresh_contact_profile for the enriched fields (intent score, category
+    affinity, recommendations, etc.).
+
+    Updates:
+      Contact: total_orders, total_spent
+      CustomerProfile: total_orders, total_spent, last_order_at, first_order_at,
+                       days_since_last_order, lifecycle_stage, customer_type,
+                       last_active_at
+
+    Args:
+        contact: Contact model instance
+        order_count: int or None — if None, counted from ShopifyOrder table
+        total_spent: float or None — if None, summed from ShopifyOrder table
+        last_order_at: datetime or None — if None, queried from ShopifyOrder table
+        first_order_at: datetime or None — if None, queried from ShopifyOrder table
+
+    Returns:
+        dict with what was updated, or {"error": ...} on failure
+    """
+    from database import CustomerProfile, ShopifyOrder
+    from peewee import fn
+
+    changes = {}
+
+    try:
+        email = contact.email
+
+        # ── Derive order facts from ShopifyOrder if not passed ──
+        _valid_orders = (ShopifyOrder.select()
+                         .where(ShopifyOrder.email == email,
+                                ShopifyOrder.financial_status.not_in(["refunded", "voided"])))
+
+        if order_count is None:
+            order_count = _valid_orders.count()
+        if order_count < 1:
+            order_count = 1  # We're only called when a confirmed purchase exists
+
+        if total_spent is None:
+            _agg = _valid_orders.select(fn.SUM(ShopifyOrder.total_price)).scalar()
+            total_spent = float(_agg) if _agg else 0.0
+
+        if last_order_at is None:
+            _latest = _valid_orders.select(fn.MAX(ShopifyOrder.ordered_at)).scalar()
+            last_order_at = _latest if _latest else datetime.now()
+
+        if first_order_at is None:
+            _earliest = _valid_orders.select(fn.MIN(ShopifyOrder.ordered_at)).scalar()
+            first_order_at = _earliest if _earliest else last_order_at
+
+        now = datetime.now()
+        days_since = max(0, (now - last_order_at).days) if last_order_at else 0
+
+        # ── Update Contact ──
+        _contact_changed = False
+        if (contact.total_orders or 0) != order_count:
+            changes["contact.total_orders"] = "%d → %d" % (contact.total_orders or 0, order_count)
+            contact.total_orders = order_count
+            _contact_changed = True
+        if total_spent and (contact.total_spent or 0) != total_spent:
+            changes["contact.total_spent"] = "%.2f → %.2f" % (contact.total_spent or 0, total_spent)
+            contact.total_spent = total_spent
+            _contact_changed = True
+        if _contact_changed:
+            contact.save()
+
+        # ── Get or create CustomerProfile ──
+        profile = CustomerProfile.get_or_none(CustomerProfile.contact_id == contact.id)
+        if not profile:
+            profile = CustomerProfile.create(
+                contact=contact,
+                email=email,
+                lifecycle_stage="unknown",
+            )
+            changes["profile"] = "created"
+
+        # ── Update profile fields ──
+        _profile_changed = False
+
+        if (profile.total_orders or 0) != order_count:
+            changes["profile.total_orders"] = "%d → %d" % (profile.total_orders or 0, order_count)
+            profile.total_orders = order_count
+            _profile_changed = True
+
+        if total_spent and (profile.total_spent or 0) != total_spent:
+            changes["profile.total_spent"] = "%.2f → %.2f" % (profile.total_spent or 0, total_spent)
+            profile.total_spent = total_spent
+            _profile_changed = True
+
+        if last_order_at and (not profile.last_order_at or profile.last_order_at < last_order_at):
+            changes["profile.last_order_at"] = str(last_order_at)
+            profile.last_order_at = last_order_at
+            _profile_changed = True
+
+        if first_order_at and (not profile.first_order_at or profile.first_order_at > first_order_at):
+            changes["profile.first_order_at"] = str(first_order_at)
+            profile.first_order_at = first_order_at
+            _profile_changed = True
+
+        profile.days_since_last_order = days_since
+        profile.last_active_at = now
+
+        # ── Lifecycle correction: prospect/browser → buyer state ──
+        # Only upgrade, never downgrade (full recompute handles demotion)
+        _stale_lifecycles = {"prospect", "unknown", "browser", ""}
+        _stale_ctypes = {"browser", "unknown", ""}
+        old_lifecycle = profile.lifecycle_stage or "unknown"
+        old_ctype = profile.customer_type or "unknown"
+
+        if old_lifecycle.lower() in _stale_lifecycles:
+            if order_count == 1:
+                profile.lifecycle_stage = "new_customer"
+            else:
+                profile.lifecycle_stage = "active_buyer"
+            changes["profile.lifecycle_stage"] = "%s → %s" % (old_lifecycle, profile.lifecycle_stage)
+            _profile_changed = True
+
+        if old_ctype.lower() in _stale_ctypes:
+            if order_count == 1:
+                profile.customer_type = "one_time"
+            else:
+                profile.customer_type = "repeat"
+            changes["profile.customer_type"] = "%s → %s" % (old_ctype, profile.customer_type)
+            _profile_changed = True
+
+        if _profile_changed:
+            profile.save()
+
+        logger.info("[BuyerState] Applied minimal buyer state for %s: %s", email, changes)
+        return changes
+
+    except Exception as e:
+        logger.error("[BuyerState] Failed for contact #%s: %s", contact.id, e)
+        return {"error": str(e)}
 
 
 def refresh_contact_profile(contact_id):
