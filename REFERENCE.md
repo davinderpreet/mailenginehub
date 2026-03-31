@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-31 10:23. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-03-31 10:52. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 41,112 lines)
+## Python Files — Detailed (63 files, 41,175 lines)
 
 ### `app.py` (7,312 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -316,7 +316,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 ### `generate-context.py` (1,364 lines)
 **Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
 
-### `flow_runtime.py` (1,280 lines)
+### `flow_runtime.py` (1,326 lines)
 **Flow send package builder — centralizes flow render/decision logic (Phase 3)**
 
 Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
@@ -398,7 +398,7 @@ Key functions:
 - `validate_rendered_email(html, subject, ...) — Post-render 6-category validation`
 - `substitute_preview_tokens(html) — Replace send-time tokens for browser preview display`
 
-### `intelligence_layer.py` (994 lines)
+### `intelligence_layer.py` (1,011 lines)
 **Unified intelligence API — contact profiles, timing gates, discount policy, diagnostics**
 
 Phase 1 of the architecture rebuild. Single entry point for all contact intelligence.
