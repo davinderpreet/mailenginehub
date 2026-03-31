@@ -4,6 +4,22 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-31 12:52 -- `caa60b7`
+
+**Fix post-purchase flow bug: multi-signal Guard 2, immediate buyer state, repair utility**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+customer_intelligence.py
+delivery_engine.py
+tests/test_delivery_guards.py
+```
+
+---
+
 ### 2026-03-31 10:54 -- `86837dc`
 
 **chore: add *.db-shm and *.db-wal to gitignore**
