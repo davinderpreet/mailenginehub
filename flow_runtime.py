@@ -51,6 +51,7 @@ LDAS_PRODUCT_BLURBS = {
     "LDAS USB C Car Charger, 30W iPhone Car Charger Fast Charging Mini Metal USB C Car Adapter": "Fast 30W USB-C car charger that keeps phones powered through long hauls.",
     "Dash Cam Hardwire Kit, Type-C USB C Hard Wire Kit, 12V-24V to 5V Low Voltage Protection, 13ft Cord": "Hardwire kit for permanent dash cam power — fits 12V-24V vehicles.",
     "LDAS Phone Mount for Truck, Truck Phone Holder, Heavy Duty Suction Cup Phone Mount for Dashboard Windshield": "Heavy-duty suction cup phone mount built for semi trucks and rough roads.",
+    "LDAS Portable Charger Power Bank 10000mAh": "Compact 10,000mAh power bank that keeps your devices charged through full work shifts.",
 }
 
 # Upgrade ladder: each headset's natural next step
@@ -66,10 +67,11 @@ LDAS_UPGRADE_LADDER = {
 
 # Complementary product type → product title substrings to try
 LDAS_COMPLEMENTARY = {
-    "Bluetooth Headset": ["Dash Cam", "Car Charger", "Phone Mount"],
+    "Bluetooth Headset": ["Dash Cam", "Car Charger", "Power Bank", "Phone Mount"],
     "Dash Cam": ["Hardwire Kit", "Phone Mount", "TH11"],
     "Computer Speaker": ["Car Charger", "Phone Mount"],
     "Power Adapter & Charger A": ["Phone Mount", "Dash Cam"],
+    "Portable Charger": ["Phone Mount", "Car Charger", "TH11"],
 }
 
 
@@ -426,6 +428,50 @@ def _get_intelligence_products(contact, limit=4):
     if not products and candidates:
         logger.info("[flow_runtime] Intelligence recommended %d candidates but no concrete products resolved",
                     len(candidates))
+
+    # ── Single-product path: if intelligence only had 1 strong candidate and
+    # no upgrade/complement is findable in the catalog, prefer a focused
+    # single-product email over padding with weak filler cards. ──
+    intel_candidate_count = len(candidates)
+    _skip_expansion = False
+    if len(products) == 1 and intel_candidate_count <= 1:
+        # Check if upgrade ladder or complementary has anything for this hero
+        hero_title = products[0].get("product_title", "")
+        _has_upgrade = False
+        _has_complement = False
+        try:
+            for ladder_key in LDAS_UPGRADE_LADDER:
+                if ladder_key in hero_title:
+                    target = LDAS_UPGRADE_LADDER[ladder_key]
+                    match = ProductImageCache.get_or_none(
+                        ProductImageCache.product_title.contains(target))
+                    if match and match.product_title not in out_of_stock:
+                        _has_upgrade = True
+                        break
+        except Exception:
+            pass
+        if not _has_upgrade:
+            try:
+                hero_cache = ProductImageCache.get_or_none(
+                    ProductImageCache.product_title == hero_title)
+                hero_type = (hero_cache.product_type if hero_cache else "") or ""
+                comp_keys = LDAS_COMPLEMENTARY.get(hero_type, [])
+                for ck in comp_keys:
+                    match = (ProductImageCache.select()
+                             .where(ProductImageCache.product_title.contains(ck))
+                             .first())
+                    if match and match.product_title not in out_of_stock:
+                        _has_complement = True
+                        break
+            except Exception:
+                pass
+
+        if not _has_upgrade and not _has_complement:
+            # No meaningful expansion available — single-product path
+            _skip_expansion = True
+
+    if _skip_expansion:
+        return products
 
     # ── Curated expansion: upgrade ladder → complementary → diverse fallback ──
     if products and len(products) < limit:

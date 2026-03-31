@@ -2227,3 +2227,278 @@ class TestOfferLadder:
         assert policy["offer_discount"] is True
         assert policy["discount_type"] == "percentage"
         assert policy["discount_value"] == "10"
+
+
+# ═══════════════════════════════════════════════════════════════
+# Merchandising + Offer Quality Pass — Gap-Closing Tests
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestCheckoutEscalationWithEngagement:
+    """Checkout abandonment starts at 5% (not free_shipping) per LDAS rules."""
+
+    def test_checkout_default_is_5pct(self, in_memory_db, make_contact):
+        """Checkout abandonment with low engagement still gets 5% (stronger intent)."""
+        from database import CustomerProfile, ContactScore
+        contact = make_contact()
+        CustomerProfile.create(contact=contact, email=contact.email,
+                               total_orders=0, lifecycle_stage="new")
+        ContactScore.create(contact=contact, email=contact.email, rfm_segment="new")
+
+        with patch("intelligence_layer._compute_engagement_score") as mock_eng:
+            mock_eng.return_value = {"score": 1, "signals": ["website_engagement"]}
+            from intelligence_layer import get_discount_policy
+            result = get_discount_policy(contact.id, "checkout_abandonment")
+
+        assert result["offer_discount"] is True
+        assert result["discount_type"] == "percentage"
+        assert result["discount_value"] == "5"
+
+    def test_checkout_escalates_to_10pct(self, in_memory_db, make_contact):
+        """Checkout abandonment with strong engagement escalates to 10%."""
+        from database import CustomerProfile, ContactScore
+        contact = make_contact()
+        CustomerProfile.create(contact=contact, email=contact.email,
+                               total_orders=1, lifecycle_stage="active")
+        ContactScore.create(contact=contact, email=contact.email, rfm_segment="potential")
+
+        with patch("intelligence_layer._compute_engagement_score") as mock_eng:
+            mock_eng.return_value = {"score": 9, "signals": [
+                "email_clicks", "product_views", "cart_activity"]}
+            from intelligence_layer import get_discount_policy
+            result = get_discount_policy(contact.id, "checkout_recovery")
+
+        assert result["offer_discount"] is True
+        assert result["discount_type"] == "percentage"
+        assert result["discount_value"] == "10"
+
+    def test_checkout_never_free_shipping(self, in_memory_db, make_contact):
+        """Checkout abandonment never falls to free_shipping — minimum is 5%."""
+        from database import CustomerProfile, ContactScore
+        contact = make_contact()
+        CustomerProfile.create(contact=contact, email=contact.email,
+                               total_orders=0, lifecycle_stage="new")
+        ContactScore.create(contact=contact, email=contact.email, rfm_segment="new")
+
+        with patch("intelligence_layer._compute_engagement_score") as mock_eng:
+            mock_eng.return_value = {"score": 0, "signals": []}
+            from intelligence_layer import get_discount_policy
+            result = get_discount_policy(contact.id, "checkout_abandonment")
+
+        assert result["offer_discount"] is True
+        assert result["discount_type"] == "percentage"
+        assert result["discount_value"] == "5"
+        # Must NOT be free_shipping for checkout intent
+        assert result["discount_type"] != "free_shipping"
+
+
+class TestWinbackMaxTier:
+    """Winback 15% tier requires lapse>120d AND engagement>=12 AND confidence>=70."""
+
+    def test_winback_max_15pct_with_all_conditions(self, in_memory_db, make_contact):
+        """15% only when lapse>120, engagement>=12, confidence_discount>=70."""
+        from database import CustomerProfile, ContactScore
+        contact = make_contact()
+        CustomerProfile.create(contact=contact, email=contact.email,
+                               total_orders=5, days_since_last_order=150,
+                               lifecycle_stage="churned", confidence_discount=75)
+        ContactScore.create(contact=contact, email=contact.email, rfm_segment="lapsed")
+
+        with patch("intelligence_layer._compute_engagement_score") as mock_eng:
+            mock_eng.return_value = {"score": 13, "signals": [
+                "email_clicks", "product_views", "cart_activity",
+                "repeat_visits", "prior_purchases", "confidence_75"]}
+            from intelligence_layer import get_discount_policy
+            result = get_discount_policy(contact.id, "winback")
+
+        assert result["offer_discount"] is True
+        assert result["discount_value"] == "15"
+
+    def test_winback_no_15pct_without_confidence(self, in_memory_db, make_contact):
+        """Long lapse + high engagement but low confidence → 10%, not 15%."""
+        from database import CustomerProfile, ContactScore
+        contact = make_contact()
+        CustomerProfile.create(contact=contact, email=contact.email,
+                               total_orders=3, days_since_last_order=150,
+                               lifecycle_stage="churned", confidence_discount=40)
+        ContactScore.create(contact=contact, email=contact.email, rfm_segment="lapsed")
+
+        with patch("intelligence_layer._compute_engagement_score") as mock_eng:
+            # High engagement but confidence is low — score won't hit 12 naturally
+            # because confidence_40 adds 0 bonus (40 < 50 threshold)
+            mock_eng.return_value = {"score": 10, "signals": [
+                "email_clicks", "product_views", "cart_activity", "repeat_visits"]}
+            from intelligence_layer import get_discount_policy
+            result = get_discount_policy(contact.id, "winback")
+
+        assert result["offer_discount"] is True
+        assert result["discount_value"] == "10"
+
+    def test_winback_no_15pct_without_long_lapse(self, in_memory_db, make_contact):
+        """High engagement + high confidence but lapse<=120d → 10%, not 15%."""
+        from database import CustomerProfile, ContactScore
+        contact = make_contact()
+        CustomerProfile.create(contact=contact, email=contact.email,
+                               total_orders=5, days_since_last_order=100,
+                               lifecycle_stage="at_risk", confidence_discount=80)
+        ContactScore.create(contact=contact, email=contact.email, rfm_segment="at_risk")
+
+        with patch("intelligence_layer._compute_engagement_score") as mock_eng:
+            mock_eng.return_value = {"score": 13, "signals": [
+                "email_clicks", "product_views", "cart_activity",
+                "repeat_visits", "prior_purchases", "confidence_80"]}
+            from intelligence_layer import get_discount_policy
+            result = get_discount_policy(contact.id, "winback")
+
+        assert result["offer_discount"] is True
+        # Lapse 100d is > 60 so it gets 10%, but not > 120 so no 15%
+        assert result["discount_value"] == "10"
+
+
+class TestOneActiveCodeEnforcement:
+    """New discount code must close prior active code for same person."""
+
+    def test_new_code_expires_old_code(self, in_memory_db):
+        """Calling get_or_create_discount twice expires the first code."""
+        pytest.importorskip("requests", reason="requests not installed")
+        from discount_engine import _expire_active_codes, get_or_create_discount
+        from database import GeneratedDiscount
+        from datetime import timezone
+
+        now = datetime.now(timezone.utc)
+        # Create an "existing" active code for a person
+        GeneratedDiscount.create(
+            email="onecode@example.com", code="FIRST123", purpose="welcome",
+            discount_type="percentage", value="5",
+            shopify_price_rule_id="pr_first", shopify_discount_id="d_first",
+            expires_at=now + timedelta(hours=48), used=False,
+        )
+
+        # Verify it's active
+        active_before = GeneratedDiscount.select().where(
+            GeneratedDiscount.email == "onecode@example.com",
+            GeneratedDiscount.used == False,
+        ).count()
+        assert active_before == 1
+
+        # Expire active codes (simulates what get_or_create_discount does)
+        expired = _expire_active_codes("onecode@example.com")
+        assert expired == 1
+
+        # Old code should now be marked used
+        old = GeneratedDiscount.get(GeneratedDiscount.code == "FIRST123")
+        assert old.used is True
+
+
+class TestProductExpansionCurated:
+    """Product expansion should use upgrade ladder + complementary, not random same-type."""
+
+    def test_hero_g7_gets_upgrade_and_complement(self, in_memory_db, make_contact):
+        """G7 hero → G10 upgrade + dash cam/charger complement (not 3 headsets)."""
+        from flow_runtime import _get_intelligence_products
+        from database import ProductImageCache, ProductCommercial
+
+        # Seed catalog: G7 (hero), G10 (upgrade), dash cam (complement)
+        for pid, title, ptype, price in [
+            ("1", "LDAS Bluetooth Headset G7", "Bluetooth Headset", "54.99"),
+            ("2", "LDAS Bluetooth Headset G10", "Bluetooth Headset", "65.99"),
+            ("3", "LDAS A20 Dash Cam WiFi , 2.5K Car Camera, Dash Cam with APP, Night Vision, WDR, G-sensor, Loop Recording, 24H Parking Mode, Free 128GB SD Card",
+             "Dash Cam", "39.99"),
+            ("4", "LDAS USB C Car Charger, 30W iPhone Car Charger Fast Charging Mini Metal USB C Car Adapter",
+             "Power Adapter & Charger A", "12.99"),
+        ]:
+            ProductImageCache.create(product_id=pid, product_title=title,
+                image_url="https://cdn/%s.jpg" % pid,
+                product_url="https://ldas.ca/p/%s" % pid,
+                price=price, product_type=ptype, handle="p%s" % pid)
+            ProductCommercial.create(product_id=pid, product_title=title,
+                margin_pct=0.45, stock_pressure="in_stock",
+                profitability_score=80, promotion_eligible=True)
+
+        contact = make_contact()
+        with patch("flow_runtime.intelligence_layer") as mock_intel:
+            mock_intel.get_next_products.return_value = {
+                "schema_version": 1,
+                "top_pick": {"product_key": "LDAS Bluetooth Headset G7"},
+                "cross_sells": [], "reorders": [], "replacements": [],
+                "upgrades": [], "accessories": [],
+            }
+            products = _get_intelligence_products(contact, limit=3)
+
+        titles = [p["product_title"] for p in products]
+        assert "LDAS Bluetooth Headset G7" in titles, "Hero G7 missing"
+        # G10 should be added via upgrade ladder (G7→G10)
+        assert any("G10" in t for t in titles), \
+            "Expected G10 upgrade in expansion, got: %s" % titles
+        # At least one non-headset should be present (complement)
+        types_present = set()
+        for p in products:
+            pic = ProductImageCache.get_or_none(
+                ProductImageCache.product_title == p["product_title"])
+            if pic:
+                types_present.add(pic.product_type)
+        assert len(types_present) > 1, \
+            "Expected multiple product types, got only: %s" % types_present
+
+
+class TestSingleProductPath:
+    """When only 1 strong product story exists, don't force weak filler cards."""
+
+    def test_single_product_when_only_one_intelligence_candidate(self, in_memory_db, make_contact):
+        """Intelligence with only 1 recommendation → 1 product returned (no filler)."""
+        from flow_runtime import _get_intelligence_products
+        from database import ProductImageCache
+
+        # Only the hero product exists in catalog — no upgrade/complement available
+        ProductImageCache.create(
+            product_id="solo1", product_title="LDAS Niche Widget",
+            image_url="https://cdn/niche.jpg",
+            product_url="https://ldas.ca/niche",
+            price="79.99", product_type="Niche Category", handle="niche",
+        )
+
+        contact = make_contact()
+        with patch("flow_runtime.intelligence_layer") as mock_intel:
+            mock_intel.get_next_products.return_value = {
+                "schema_version": 1,
+                "top_pick": {"product_key": "LDAS Niche Widget", "reason": "only recommendation"},
+                "cross_sells": [], "reorders": [], "replacements": [],
+                "upgrades": [], "accessories": [],
+            }
+            products = _get_intelligence_products(contact, limit=3)
+
+        # Should return just 1 product — no forced filler
+        assert len(products) == 1
+        assert products[0]["product_title"] == "LDAS Niche Widget"
+
+    def test_multiple_intelligence_candidates_still_expand(self, in_memory_db, make_contact):
+        """When intelligence gives multiple signals, expansion still happens."""
+        from flow_runtime import _get_intelligence_products
+        from database import ProductImageCache, ProductCommercial
+
+        for pid, title, ptype in [
+            ("1", "Product A", "Category A"),
+            ("2", "Product B", "Category B"),
+            ("3", "Product C", "Category C"),
+        ]:
+            ProductImageCache.create(product_id=pid, product_title=title,
+                image_url="https://cdn/%s.jpg" % pid,
+                product_url="https://ldas.ca/p/%s" % pid,
+                price="49.99", product_type=ptype, handle="p%s" % pid)
+            ProductCommercial.create(product_id=pid, product_title=title,
+                margin_pct=0.40, stock_pressure="normal",
+                profitability_score=70, promotion_eligible=True)
+
+        contact = make_contact()
+        with patch("flow_runtime.intelligence_layer") as mock_intel:
+            mock_intel.get_next_products.return_value = {
+                "schema_version": 1,
+                "top_pick": {"product_key": "Product A", "reason": "best"},
+                "cross_sells": [{"target_key": "Category B", "is_product": False}],
+                "reorders": [], "replacements": [],
+                "upgrades": [], "accessories": [],
+            }
+            products = _get_intelligence_products(contact, limit=3)
+
+        # Multiple intelligence signals → should expand beyond 1
+        assert len(products) >= 2

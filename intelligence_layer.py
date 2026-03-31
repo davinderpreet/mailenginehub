@@ -491,13 +491,16 @@ def _compute_engagement_score(contact_id):
         if not profile:
             return {"score": 0, "signals": ["no_profile"]}
 
-        # Email clicks (any recent): +3
+        # Email clicks (recent — last 30 days): +3
         try:
+            recent_cutoff = datetime.now() - timedelta(days=30)
             clicked_flow = FlowEmail.select().where(
-                FlowEmail.contact == contact_id, FlowEmail.clicked == True
+                FlowEmail.contact == contact_id, FlowEmail.clicked == True,
+                FlowEmail.clicked_at >= recent_cutoff,
             ).exists()
             clicked_auto = AutoEmail.select().where(
-                AutoEmail.contact == contact_id, AutoEmail.clicked == True
+                AutoEmail.contact == contact_id, AutoEmail.clicked == True,
+                AutoEmail.clicked_at >= recent_cutoff,
             ).exists()
             if clicked_flow or clicked_auto:
                 score += 3
@@ -674,21 +677,35 @@ def get_discount_policy(contact_id, purpose, candidate_products=None):
         # Sub-$60 cap applied below
         break_to_cap = True
 
-    # Cart / checkout recovery: escalate free_shipping → 5% → 10% by engagement
-    elif purpose in ("cart_abandonment", "checkout_recovery"):
+    # Cart abandonment: escalate free_shipping → 5% → 10% by engagement
+    elif purpose == "cart_abandonment":
         result["offer_discount"] = True
         if eng_score >= 8:
             result["discount_type"] = "percentage"
             result["discount_value"] = "10"
-            result["reason"] = "recovery: 10%% (engagement %d: %s)" % (eng_score, ", ".join(eng_signals))
+            result["reason"] = "cart: 10%% (engagement %d: %s)" % (eng_score, ", ".join(eng_signals))
         elif eng_score >= 4:
             result["discount_type"] = "percentage"
             result["discount_value"] = "5"
-            result["reason"] = "recovery: 5%% (engagement %d: %s)" % (eng_score, ", ".join(eng_signals))
+            result["reason"] = "cart: 5%% (engagement %d: %s)" % (eng_score, ", ".join(eng_signals))
         else:
             result["discount_type"] = "free_shipping"
             result["discount_value"] = "100"
-            result["reason"] = "recovery: free shipping (engagement %d)" % eng_score
+            result["reason"] = "cart: free shipping (engagement %d)" % eng_score
+        result["engagement_score"] = eng_score
+        result["engagement_signals"] = eng_signals
+
+    # Checkout abandonment / checkout_recovery: stronger intent → start at 5%, escalate to 10%
+    elif purpose in ("checkout_abandonment", "checkout_recovery"):
+        result["offer_discount"] = True
+        if eng_score >= 8:
+            result["discount_type"] = "percentage"
+            result["discount_value"] = "10"
+            result["reason"] = "checkout: 10%% (engagement %d: %s)" % (eng_score, ", ".join(eng_signals))
+        else:
+            result["discount_type"] = "percentage"
+            result["discount_value"] = "5"
+            result["reason"] = "checkout: 5%% (engagement %d: %s)" % (eng_score, ", ".join(eng_signals))
         result["engagement_score"] = eng_score
         result["engagement_signals"] = eng_signals
 

@@ -27,7 +27,7 @@ DISCOUNT_STRATEGIES = {
     "cart_abandonment":   {"type": "percentage",    "value": "5",   "expires_hours": 48,   "prefix": "CART"},
     "browse_abandonment": {"type": "free_shipping", "value": "100", "expires_hours": 72,   "prefix": "SHIP"},
     "winback":            {"type": "percentage",    "value": "10",  "expires_hours": 168,  "prefix": "WB"},
-    "welcome":            {"type": "percentage",    "value": "5",   "expires_hours": 336,  "prefix": "WELCOME"},
+    "welcome":            {"type": "percentage",    "value": "5",   "expires_hours": 240,  "prefix": "WELCOME"},
     "loyalty_reward":     {"type": "percentage",    "value": "10",  "expires_hours": 168,  "prefix": "VIP"},
     "upsell":             {"type": "percentage",    "value": "5",   "expires_hours": 120,  "prefix": "UP"},
     "re_engagement":      {"type": "percentage",    "value": "5",   "expires_hours": 168,  "prefix": "RE"},
