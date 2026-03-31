@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-31 10:54 -- `86837dc`
+
+**chore: add *.db-shm and *.db-wal to gitignore**
+
+Files changed:
+```
+.gitignore
+```
+
+---
+
 ### 2026-03-30 16:47 -- `f05be36`
 
 **Auto-update CLAUDE.md before deploy**
