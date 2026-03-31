@@ -144,7 +144,7 @@ def apply_minimal_buyer_state(contact, order_count=None, total_spent=None,
             order_count = 1  # We're only called when a confirmed purchase exists
 
         if total_spent is None:
-            _agg = _valid_orders.select(fn.SUM(ShopifyOrder.total_price)).scalar()
+            _agg = _valid_orders.select(fn.SUM(ShopifyOrder.order_total)).scalar()
             total_spent = float(_agg) if _agg else 0.0
 
         if last_order_at is None:
