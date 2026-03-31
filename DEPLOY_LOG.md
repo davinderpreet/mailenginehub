@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-03-31 12:55 -- `72ef221`
+
+**Fix ShopifyOrder field name: order_total not total_price**
+
+Files changed:
+```
+REFERENCE.md
+customer_intelligence.py
+```
+
+---
+
 ### 2026-03-31 12:52 -- `caa60b7`
 
 **Fix post-purchase flow bug: multi-signal Guard 2, immediate buyer state, repair utility**
