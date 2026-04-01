@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-03-31 12:54. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-04-01 12:52. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 41,677 lines)
+## Python Files — Detailed (63 files, 41,668 lines)
 
 ### `app.py` (7,347 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -310,7 +310,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 (5) AI/Studio: KnowledgeEntry, StudioJob, TemplateCandidate, AIModelConfig
 (6) Learning: OutcomeLog, ActionPerformance, TemplatePerformance, ModelWeights, LearningConfig
 
-### `account_manager.py` (1,757 lines)
+### `account_manager.py` (1,650 lines)
 **Account Manager AI — autonomous nightly email campaign planning and execution via Claude**
 
 ### `generate-context.py` (1,364 lines)
@@ -398,6 +398,21 @@ Key functions:
 - `validate_rendered_email(html, subject, ...) — Post-render 6-category validation`
 - `substitute_preview_tokens(html) — Replace send-time tokens for browser preview display`
 
+### `am_runtime.py` (1,030 lines)
+**AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)**
+
+Phase 4 Account Manager decision engine. Provides build_am_decision() for structured
+action decisions (reorder, cross_sell, winback, loyalty, education, wait) and execute_am_decision()
+for AI copy generation + template_engine rendering. Replaces inline logic in run_account_manager().
+
+Key functions:
+- `build_am_decision(contact, strategy, intelligence=None) → decision dict with action_type/products/offer/timing`
+- `execute_am_decision(contact, strategy, decision, template=None) → rendered subject/html or invalid`
+- `_normalize_strategy(strategy_json_dict, current_phase) → executable strategy state`
+- `_evaluate_candidates(strategy_state, intel) → (action_type, score, reasoning)`
+- `_check_preconditions(contact) → ('ok','') or ('skipped', reason)`
+- `_check_timing(contact, intelligence) → ('ok', scheduled_at) or ('wait', wait_until)`
+
 ### `intelligence_layer.py` (1,011 lines)
 **Unified intelligence API — contact profiles, timing gates, discount policy, diagnostics**
 
@@ -432,21 +447,6 @@ Key functions:
 - `scrape_blog(source) — Fetches blog post content from URL`
 - `scrape_competitor(source) — Extracts product/pricing from competitor pages`
 - `classify_content(text, source_type) — AI classifies and scores relevance`
-
-### `am_runtime.py` (932 lines)
-**AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)**
-
-Phase 4 Account Manager decision engine. Provides build_am_decision() for structured
-action decisions (reorder, cross_sell, winback, loyalty, education, wait) and execute_am_decision()
-for AI copy generation + template_engine rendering. Replaces inline logic in run_account_manager().
-
-Key functions:
-- `build_am_decision(contact, strategy, intelligence=None) → decision dict with action_type/products/offer/timing`
-- `execute_am_decision(contact, strategy, decision, template=None) → rendered subject/html or invalid`
-- `_normalize_strategy(strategy_json_dict, current_phase) → executable strategy state`
-- `_evaluate_candidates(strategy_state, intel) → (action_type, score, reasoning)`
-- `_check_preconditions(contact) → ('ok','') or ('skipped', reason)`
-- `_check_timing(contact, intelligence) → ('ok', scheduled_at) or ('wait', wait_until)`
 
 ### `delivery_engine.py` (909 lines)
 **Email delivery queue — priority-based, warmup-compliant, shadow/sandbox/live modes**
