@@ -628,7 +628,7 @@ def build_am_decision(contact, strategy, intelligence=None):
         "status": "wait",
         "action_type": "",
         "objective": "",
-        "strategy_phase": current_phase,
+        "strategy_phase": strategy_state.get("current_phase_name", "") or current_phase,
         "template_family": "",
         "candidate_products": [],
         "offer_context": None,
@@ -712,11 +712,74 @@ def build_am_decision(contact, strategy, intelligence=None):
     }
 
 
+def _infer_action_from_template(template):
+    """Best-effort reverse lookup from AM template name/family to action type."""
+    if template is None:
+        return ""
+
+    template_name = getattr(template, "name", "") or ""
+    template_family = getattr(template, "template_family", "") or ""
+
+    for action_type, family_info in AM_ACTION_TO_FAMILY.items():
+        if template_name and template_name == family_info[0]:
+            return action_type
+        if template_family and template_family == family_info[1]:
+            return action_type
+
+    return ""
+
+
+def restore_am_decision(raw_decision, strategy=None, template=None):
+    """Rehydrate a stored AM decision without re-deciding strategy.
+
+    Used by review-time regeneration so we preserve the original action,
+    products, offer, and template context instead of building a new decision.
+    """
+    stored = _safe_json(raw_decision, {}) if not isinstance(raw_decision, dict) else copy.deepcopy(raw_decision)
+    strat_dict, current_phase = _extract_strategy(strategy)
+    strategy_state = _normalize_strategy(strat_dict, current_phase)
+
+    inferred_action = stored.get("action_type") or _infer_action_from_template(template)
+    family_info = AM_ACTION_TO_FAMILY.get(
+        inferred_action,
+        ("AM: Unknown", getattr(template, "template_family", "") or "promo"),
+    )
+
+    metadata = stored.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    decision = {
+        "should_act": stored.get("should_act", bool(inferred_action)),
+        "status": stored.get("status", "ready" if inferred_action else "invalid"),
+        "action_type": inferred_action,
+        "objective": stored.get("objective") or family_info[0],
+        "strategy_phase": stored.get("strategy_phase") or strategy_state.get("current_phase_name", "") or current_phase,
+        "template_family": stored.get("template_family") or getattr(template, "template_family", "") or family_info[1],
+        "candidate_products": list(stored.get("candidate_products") or []),
+        "offer_context": stored.get("offer_context"),
+        "scheduled_at": stored.get("scheduled_at"),
+        "expected_value": stored.get("expected_value", 0.0),
+        "confidence": stored.get("confidence", 0.0),
+        "reasoning": stored.get("reasoning", ""),
+        "wait_until": stored.get("wait_until"),
+        "metadata": metadata,
+    }
+
+    if decision["action_type"] and "suggested_next" not in decision["metadata"]:
+        decision["metadata"]["suggested_next"] = _suggest_next_action(
+            strategy_state,
+            {"action_type": decision["action_type"], "metadata": decision["metadata"]},
+        )
+
+    return decision
+
+
 # ==================================================================
 # AI copy generation
 # ==================================================================
 
-def _generate_ai_copy(contact, decision, intelligence):
+def _generate_ai_copy(contact, decision, intelligence, reviewer_feedback=""):
     """Generate email copy via Claude (OpenRouter).
 
     Returns:
@@ -744,6 +807,18 @@ def _generate_ai_copy(contact, decision, intelligence):
         f"Include offer: {offer.get('display_text', 'Special offer')}"
     )
 
+    default_cta_url = "https://ldas.ca"
+    if len(products) == 1 and products[0].get("product_url"):
+        default_cta_url = products[0]["product_url"]
+
+    feedback_text = ""
+    if reviewer_feedback:
+        feedback_text = (
+            "\nReviewer feedback to incorporate:\n"
+            f"{reviewer_feedback}\n"
+            "Keep the same action, product set, and offer. Improve only the wording and emphasis.\n"
+        )
+
     prompt = f"""You are writing a marketing email for LDAS Electronics (ldas.ca).
 Action type: {action_type}
 Customer: {contact.first_name or 'Customer'} ({contact.email})
@@ -754,13 +829,14 @@ Products to feature:
 {product_text}
 
 {offer_text}
+{feedback_text}
 
 Write the email content as JSON with these exact keys:
 - hero_headline: short punchy headline (max 8 words)
 - hero_subheadline: supporting line (max 15 words)
 - paragraphs: list of 1-3 short paragraph strings
 - cta_text: call-to-action button text (max 4 words)
-- cta_url: "https://ldas.ca" (or product URL if single product)
+- cta_url: "{default_cta_url}" (or another ldas.ca URL if justified)
 
 Return ONLY valid JSON, no markdown fences."""
 
@@ -772,11 +848,20 @@ Return ONLY valid JSON, no markdown fences."""
             messages=[{"role": "user", "content": prompt}],
         )
         raw = response.choices[0].message.content.strip()
-        tokens_used = getattr(response.usage, "total_tokens", 0) if response.usage else 0
+        usage = response.usage
+        input_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
+        output_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
+        total_tokens = getattr(usage, "total_tokens", 0) if usage else 0
+        if not total_tokens:
+            total_tokens = input_tokens + output_tokens
 
         # Parse JSON
         parsed = json.loads(raw)
-        parsed["tokens_used"] = tokens_used
+        parsed["token_usage"] = {
+            "input": input_tokens,
+            "output": output_tokens,
+            "total": total_tokens,
+        }
         return parsed
 
     except Exception as exc:
@@ -788,7 +873,7 @@ Return ONLY valid JSON, no markdown fences."""
             "paragraphs": ["We've got something special for you."],
             "cta_text": "Shop Now",
             "cta_url": "https://ldas.ca",
-            "tokens_used": 0,
+            "token_usage": {"input": 0, "output": 0, "total": 0},
         }
 
 
@@ -832,7 +917,7 @@ def _apply_ai_overrides(blocks_json, ai_content):
 # Execution entry point
 # ==================================================================
 
-def execute_am_decision(contact, strategy, decision, template=None):
+def execute_am_decision(contact, strategy, decision, template=None, reviewer_feedback=""):
     """Execute an AM decision: AI copy generation + template rendering.
 
     Args:
@@ -851,6 +936,12 @@ def execute_am_decision(contact, strategy, decision, template=None):
     template_family = family_info[1]
 
     # Step 1: find template
+    if template is None and decision.get("template_id"):
+        try:
+            template = EmailTemplate.get_or_none(EmailTemplate.id == decision["template_id"])
+        except Exception:
+            template = None
+
     if template is None:
         try:
             # Look for template matching the objective name
@@ -879,7 +970,12 @@ def execute_am_decision(contact, strategy, decision, template=None):
         return {"status": "invalid", "reason": "no template found for action: %s" % action_type}
 
     # Step 3: generate AI copy
-    ai_content = _generate_ai_copy(contact, decision, decision.get("_intelligence", {}))
+    ai_content = _generate_ai_copy(
+        contact,
+        decision,
+        decision.get("_intelligence", {}),
+        reviewer_feedback=reviewer_feedback,
+    )
 
     # Step 4: inject AI text into template blocks
     blocks_raw = getattr(template, "blocks_json", "[]") or "[]"
@@ -912,6 +1008,7 @@ def execute_am_decision(contact, strategy, decision, template=None):
 
     html = result.get("html", "")
     subject = result.get("subject", "")
+    preview_text = result.get("preview_text", "")
 
     # Check validation_report for errors
     report = result.get("validation_report", [])
@@ -925,7 +1022,8 @@ def execute_am_decision(contact, strategy, decision, template=None):
     return {
         "status": "rendered",
         "subject": subject,
+        "preheader": preview_text,
         "html": html,
         "template_id": template.id,
-        "ai_tokens": ai_content.get("tokens_used", 0),
+        "ai_tokens": ai_content.get("token_usage", {"input": 0, "output": 0, "total": 0}),
     }

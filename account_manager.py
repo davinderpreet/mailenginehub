@@ -1,7 +1,8 @@
 """
 account_manager.py — AI Account Manager Engine
-Per-contact AI strategist: builds 6-month plans, generates daily emails,
-learns from human feedback, graduates to autonomous sending.
+Decision-driven orchestration for the Account Manager pillar.
+Builds on am_runtime for action selection and rendering, preserves review
+feedback, and graduates contacts back from flows into executable strategy state.
 Runs nightly at 3:40 AM before NBM (4:00 AM).
 """
 
@@ -417,45 +418,11 @@ def gather_business_context():
 
 
 def gather_cross_account_learnings():
-    """Aggregate patterns from all contacts for the AI to learn from."""
-    from database import (OutcomeLog, ActionPerformance,
-                          TemplatePerformance, AMPendingReview)
+    """DEPRECATED (Phase 4): was only used by generate_am_email_from_template.
 
-    lines = ["=== CROSS-ACCOUNT LEARNINGS ==="]
-
-    # Action type performance
-    try:
-        perfs = ActionPerformance.select().where(ActionPerformance.total_sent > 5)
-        for p in perfs:
-            open_rate = (p.total_opened / p.total_sent * 100) if p.total_sent > 0 else 0
-            click_rate = (p.total_clicked / p.total_sent * 100) if p.total_sent > 0 else 0
-            conv_rate = (p.total_converted / p.total_sent * 100) if p.total_sent > 0 else 0
-            lines.append(f"- {p.action_type}: {open_rate:.0f}% open, {click_rate:.0f}% click, {conv_rate:.0f}% conversion (n={p.total_sent})")
-    except Exception:
-        pass
-
-    # Approval/rejection patterns from AMPendingReview
-    try:
-        total_approved = AMPendingReview.select().where(AMPendingReview.status == "approved").count()
-        total_rejected = AMPendingReview.select().where(AMPendingReview.status == "rejected").count()
-        if total_approved + total_rejected > 0:
-            approval_rate = total_approved / (total_approved + total_rejected) * 100
-            lines.append(f"\nApproval rate: {approval_rate:.0f}% ({total_approved} approved, {total_rejected} rejected)")
-
-        # Recent rejection reasons
-        recent_rejections = (AMPendingReview.select()
-                             .where(AMPendingReview.status == "rejected",
-                                    AMPendingReview.reviewer_notes != "")
-                             .order_by(AMPendingReview.reviewed_at.desc())
-                             .limit(10))
-        if recent_rejections:
-            lines.append("Recent rejection reasons:")
-            for r in recent_rejections:
-                lines.append(f"  - {r.reviewer_notes}")
-    except Exception:
-        pass
-
-    return "\n".join(lines)
+    Kept as a stub for backward compatibility. Returns empty string.
+    """
+    return ""
 
 
 # ─────────────────────────────────
@@ -715,250 +682,15 @@ def seed_am_templates():
 
 
 def generate_am_email_from_template(contact, purpose, strategy_context=""):
+    """DEPRECATED (Phase 4): Use am_runtime.execute_am_decision() instead.
+
+    This function is no longer called by any production code path.
+    Raises RuntimeError to surface any accidental calls.
     """
-    Generate a personalized email using AM block templates as guardrails.
-    AI generates only the text content; template defines the structure.
-
-    Returns: {subject, preheader, body_html, template_id} or None
-    """
-    # DEPRECATED (Phase 4): replaced by am_runtime.execute_am_decision()
-    # Kept for backward compatibility but no longer called by run_account_manager()
-    from database import EmailTemplate, init_db
-    from block_registry import render_template_blocks
-    from discount_engine import get_or_create_discount, get_discount_display
-    init_db()
-
-    # Map purpose to template name
-    tpl_info = AM_TEMPLATES.get(purpose)
-    if not tpl_info:
-        # Fallback to education for unknown purposes
-        tpl_info = AM_TEMPLATES["education"]
-        purpose = "education"
-
-    template = EmailTemplate.get_or_none(EmailTemplate.name == tpl_info["name"])
-    if not template:
-        logger.warning("[AM] Template '%s' not found, seeding...", tpl_info["name"])
-        seed_am_templates()
-        template = EmailTemplate.get_or_none(EmailTemplate.name == tpl_info["name"])
-        if not template:
-            logger.error("[AM] Could not create template '%s'", tpl_info["name"])
-            return None
-
-    # ── Learning: try to pick a better template for this contact's segment ──
-    try:
-        from learning_context import get_best_template_for_family
-        from database import ContactScore as _CS_AM
-        _cs_am = _CS_AM.get_or_none(_CS_AM.contact == contact)
-        _seg_am = _cs_am.rfm_segment if _cs_am else None
-        _family = template.template_family if hasattr(template, 'template_family') and template.template_family else tpl_info.get("family", "")
-        if _family and _seg_am:
-            _better = get_best_template_for_family(_family, _seg_am)
-            if _better and _better != template.id:
-                _alt = EmailTemplate.get_or_none(EmailTemplate.id == _better)
-                if _alt:
-                    logger.info("[AM-Learn] Template swap %d→%d for %s (family=%s, segment=%s)",
-                                template.id, _better, contact.email, _family, _seg_am)
-                    template = _alt
-    except Exception:
-        pass
-
-    # Gather contact profile for AI prompt
-    profile_text = gather_contact_profile(contact)
-
-    # Build AI prompt — ask Claude ONLY for text content, not structure
-    email_gen_prompt = _get_active_prompt("am_email_generation_prompt",
-                                          DEFAULT_PROMPTS["am_email_generation_prompt"])
-
-    # Describe what blocks the template has so AI knows what to fill
-    block_types = [b["block_type"] for b in json.loads(template.blocks_json)]
-    has_products = "product_grid" in block_types or "product_hero" in block_types
-    has_discount = "discount" in block_types
-
-    # ── Learning: build insights section for Claude ──
-    _learning_section = ""
-    try:
-        from learning_context import build_learning_prompt_section
-        _learning_section = build_learning_prompt_section(contact.id, segment=None)
-    except Exception:
-        pass
-
-    # ── Learning: include cross-account patterns ──
-    _cross_learnings = ""
-    try:
-        _cross_learnings = gather_cross_account_learnings()
-    except Exception:
-        pass
-
-    # ── Resolve discount BEFORE Claude generates ──
-    # We must know the actual discount value so the AI prompt and discount block always match
-    _discount_context = ""
-    _smart_discount_display = None
-    _actual_discount_pct = None
-
-    # Step 1: Try profit-aware smart escalation for the computed percentage
-    if has_discount and purpose in ("winback", "browse_recovery", "cart_recovery",
-                                     "checkout_recovery", "browse_abandon"):
-        try:
-            from profit_engine import compute_smart_discount
-            from discount_engine import generate_discount_code
-            _smart = compute_smart_discount(contact.id, purpose)
-            if _smart["should_offer"]:
-                _disc_info = generate_discount_code(
-                    contact.email, "smart_escalation",
-                    override_value=str(_smart["discount_pct"]))
-                if _disc_info:
-                    _smart_discount_display = get_discount_display(_disc_info)
-                    _actual_discount_pct = int(_disc_info["value"])
-                    _discount_context = (
-                        "\n[DISCOUNT OFFER]\n"
-                        "You are authorized to offer this customer EXACTLY %d%% off.\n"
-                        "Discount code: %s\n"
-                        "Expires: %s\n"
-                        "Reason: %s\n"
-                        "IMPORTANT: The discount is %d%% — do NOT mention any other percentage.\n"
-                        "Weave this discount naturally into your email copy. "
-                        "Make it feel exclusive and urgent.\n"
-                    ) % (_actual_discount_pct, _disc_info["code"],
-                         _smart_discount_display.get("expires_text", "7 days"),
-                         _smart["reason"], _actual_discount_pct)
-                    logger.info("[AM-SmartDisc] %s: %d%% off (margin headroom: %.0f%%, products: %d)",
-                                contact.email, _actual_discount_pct,
-                                _smart["margin_headroom"], _smart["products_checked"])
-        except Exception as e:
-            logger.debug("[AM-SmartDisc] Error: %s", e)
-
-    # Step 2: Fallback — if smart escalation didn't produce a code, use the default for this purpose
-    if has_discount and not _smart_discount_display:
-        try:
-            _fallback_info = get_or_create_discount(contact.email, purpose)
-            if _fallback_info:
-                _smart_discount_display = get_discount_display(_fallback_info)
-                _actual_discount_pct = int(_fallback_info["value"])
-                _discount_context = (
-                    "\n[DISCOUNT OFFER]\n"
-                    "You are authorized to offer this customer EXACTLY %d%% off.\n"
-                    "Discount code: %s\n"
-                    "Expires: %s\n"
-                    "IMPORTANT: The discount is %d%% — do NOT mention any other percentage.\n"
-                    "Weave this discount naturally into your email copy. "
-                    "Make it feel exclusive and urgent.\n"
-                ) % (_actual_discount_pct, _fallback_info["code"],
-                     _smart_discount_display.get("expires_text", "7 days"),
-                     _actual_discount_pct)
-        except Exception as e:
-            logger.debug("[AM-Discount fallback] Error: %s", e)
-
-    prompt = """CUSTOMER PROFILE:
-%s
-
-STRATEGY CONTEXT: %s
-
-%s
-
-%s
-
-%s
-
-%s
-
-Generate the EMAIL CONTENT for this %s email. The template has these blocks: %s
-
-Respond with ONLY valid JSON:
-{
-  "subject": "email subject line (under 50 chars, personal, no generic filler)",
-  "preheader": "inbox preview text (max 80 chars)",
-  "hero_headline": "big headline (max 8 words, punchy, personal)",
-  "hero_subheadline": "smaller text below headline (max 15 words)",
-  "paragraphs": ["short paragraph 1 (1-2 sentences, under 30 words)", "short paragraph 2 (1-2 sentences, under 30 words)"],
-  "cta_text": "button text (2-4 words)",
-  "cta_url": "https://ldas.ca or https://ldas.ca/collections/... or https://ldas.ca/products/..."
-}
-
-ALL URLs must use ldas.ca domain. Use the customer's first name if available.""" % (
-        profile_text, strategy_context, email_gen_prompt,
-        _learning_section, _cross_learnings, _discount_context, purpose,
-        " → ".join(block_types)
+    raise RuntimeError(
+        "generate_am_email_from_template is deprecated. "
+        "Use am_runtime.build_am_decision() + am_runtime.execute_am_decision() instead."
     )
-
-    # Call Claude via OpenRouter
-    client = _get_openrouter_client()
-    system_prompt = _get_active_prompt("am_system_prompt", DEFAULT_PROMPTS["am_system_prompt"])
-
-    response = client.chat.completions.create(
-        model="anthropic/claude-haiku-4-5",
-        max_tokens=1000,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-        extra_headers={
-            "HTTP-Referer": "https://mailenginehub.com",
-            "X-Title": "MailEngineHub AM",
-        },
-    )
-
-    raw = response.choices[0].message.content.strip()
-    _input_tokens  = getattr(response.usage, "prompt_tokens", 0) or 0
-    _output_tokens = getattr(response.usage, "completion_tokens", 0) or 0
-    content = _parse_claude_json(raw)
-
-    # Deep-copy template blocks and inject AI content
-    import copy
-    blocks = copy.deepcopy(json.loads(template.blocks_json))
-
-    # Helper: replace only the first percentage in text with the actual discount value
-    import re
-    _pct_re = re.compile(r'\d+\s*%')
-    def _sanitize_pct(text):
-        """Replace only the first N% occurrence with the actual discount percentage."""
-        if _actual_discount_pct is not None and _pct_re.search(text):
-            return _pct_re.sub("%d%%" % _actual_discount_pct, text, count=1)
-        return text
-
-    for block in blocks:
-        bt = block["block_type"]
-        if bt == "hero":
-            block["content"]["headline"] = _sanitize_pct(content.get("hero_headline", ""))
-            block["content"]["subheadline"] = _sanitize_pct(content.get("hero_subheadline", ""))
-        elif bt == "text":
-            paragraphs = content.get("paragraphs", [])
-            block["content"]["paragraphs"] = [_sanitize_pct(p) for p in paragraphs]
-        elif bt == "cta":
-            block["content"]["text"] = content.get("cta_text", block["content"].get("text", "Shop Now"))
-            block["content"]["url"] = content.get("cta_url", block["content"].get("url", "https://ldas.ca"))
-        # product_grid and discount blocks are filled by render_template_blocks() automatically
-
-    # Create a temporary template-like object for rendering
-    class _TempTemplate:
-        pass
-    render_tpl = _TempTemplate()
-    render_tpl.blocks_json = json.dumps(blocks)
-    render_tpl.template_format = "blocks"
-    render_tpl.preview_text = content.get("preheader", "")
-    render_tpl.subject = content.get("subject", "")
-
-    # Discount already resolved before AI call — no fallback mismatch possible
-    discount_display = _smart_discount_display
-
-    # Render to full HTML via the block registry
-    html = render_template_blocks(render_tpl, contact, products=[], discount=discount_display)
-
-    # Replace unsubscribe placeholder
-    _unsub = "https://mailenginehub.com/unsubscribe?email=%s" % contact.email
-    html = html.replace("{{unsubscribe_url}}", _unsub)
-
-    # Sanitize subject/preheader percentages to match actual discount
-    _subject = _sanitize_pct(content.get("subject", ""))
-    _preheader = _sanitize_pct(content.get("preheader", ""))
-
-    return {
-        "subject": _subject,
-        "preheader": _preheader,
-        "body_html": html,
-        "template_id": template.id,
-        "input_tokens": _input_tokens,
-        "output_tokens": _output_tokens,
-    }
 
 
 # ─────────────────────────────────
@@ -973,8 +705,7 @@ def run_account_manager():
     Strategies are pre-populated by bootstrap — no per-contact re-strategizing.
     """
     from database import (ContactStrategy, AMPendingReview, Contact,
-                          SuppressionEntry, LearningConfig, DeliveryQueue,
-                          ContactScore, FlowEnrollment, AutoEmail, init_db)
+                          LearningConfig, AutoEmail, init_db)
     from delivery_engine import enqueue_email
     from action_ledger import log_action
     from datetime import date
@@ -1015,27 +746,6 @@ def run_account_manager():
     for cs in strategies:
         try:
             contact = cs.contact
-
-            # Skip checks
-            if not contact.subscribed:
-                skipped += 1
-                continue
-            sup = SuppressionEntry.get_or_none(SuppressionEntry.email == contact.email)
-            if sup:
-                skipped += 1
-                continue
-            cscore = ContactScore.get_or_none(ContactScore.contact == contact)
-            if cscore and cscore.sunset_score and cscore.sunset_score >= 85:
-                skipped += 1
-                continue
-            # Skip contacts still in active flows
-            active_flows = (FlowEnrollment.select()
-                            .where(FlowEnrollment.contact == contact,
-                                   FlowEnrollment.status.in_(["active", "paused"]))
-                            .count())
-            if active_flows > 0:
-                skipped += 1
-                continue
 
             processed += 1
 
@@ -1107,6 +817,7 @@ def run_account_manager():
                     ledger_id=ledger.id if ledger else 0,
                     scheduled_at=send_at,
                     auto_email_id=ae.id if ae else 0,
+                    decision_json=_decision_json_str,
                 ))
                 emails_generated += 1
             else:
@@ -1129,9 +840,12 @@ def run_account_manager():
                 emails_generated += 1
 
             # Track tokens for cost
-            ai_tokens = result.get("ai_tokens", {})
-            total_input_tokens += ai_tokens.get("input", 0)
-            total_output_tokens += ai_tokens.get("output", 0)
+            ai_tokens = result.get("ai_tokens", {}) or {}
+            if isinstance(ai_tokens, int):
+                total_output_tokens += ai_tokens
+            else:
+                total_input_tokens += ai_tokens.get("input", 0)
+                total_output_tokens += ai_tokens.get("output", 0)
 
             # Advance strategy with cadence policy
             try:
@@ -1255,6 +969,200 @@ def _get_optimal_send_time(contact):
     return target
 
 
+def _load_strategy_json_dict(cs):
+    """Parse ContactStrategy.strategy_json safely."""
+    try:
+        return json.loads(cs.strategy_json) if cs.strategy_json and cs.strategy_json != "{}" else {}
+    except Exception:
+        return {}
+
+
+def _pick_initial_am_action(allowed_actions, intelligence, preferred_action=""):
+    """Choose the next AM action deterministically from strategy + intelligence."""
+    allowed = [a for a in (allowed_actions or []) if a]
+    if preferred_action and preferred_action in allowed:
+        return preferred_action
+
+    scores = intelligence.get("scores", {}) if intelligence else {}
+    purchase = intelligence.get("purchase", {}) if intelligence else {}
+    classification = intelligence.get("classification", {}) if intelligence else {}
+
+    total_orders = int(purchase.get("total_orders") or 0)
+    churn_risk = float(scores.get("churn_risk") or 0)
+    reorder_likelihood = float(scores.get("reorder_likelihood") or 0)
+    intent = float(scores.get("intent") or 0)
+    lifecycle = (classification.get("lifecycle_stage") or "").lower()
+    segment = (classification.get("rfm_segment") or "").lower()
+
+    preference_ladders = []
+    if total_orders > 0:
+        if churn_risk >= 70 or lifecycle in ("dormant", "lapsed", "churned"):
+            preference_ladders.append(["winback", "loyalty", "education"])
+        elif reorder_likelihood >= 60:
+            preference_ladders.append(["reorder_reminder", "cross_sell", "education", "loyalty"])
+        elif segment in ("champion", "loyal", "vip"):
+            preference_ladders.append(["loyalty", "cross_sell", "education"])
+        else:
+            preference_ladders.append(["cross_sell", "product_recommendation", "education", "loyalty"])
+    else:
+        if intent >= 60:
+            preference_ladders.append(["product_recommendation", "cross_sell", "education"])
+        else:
+            preference_ladders.append(["education", "product_recommendation", "cross_sell"])
+
+    preference_ladders.append([
+        "education", "product_recommendation", "cross_sell",
+        "reorder_reminder", "loyalty", "winback",
+    ])
+
+    for ladder in preference_ladders:
+        for action in ladder:
+            if action in allowed:
+                return action
+
+    return allowed[0] if allowed else "education"
+
+
+def _build_executable_strategy_state(contact, existing_strategy=None, intelligence=None,
+                                     flow_graduation=None, resume_context=None):
+    """Build deterministic machine-usable AM strategy state for runtime use."""
+    import am_runtime
+    import intelligence_layer
+
+    strategy_state = dict(existing_strategy or {})
+
+    if intelligence is None:
+        try:
+            intelligence = intelligence_layer.get_contact_intelligence(contact.id)
+        except Exception:
+            intelligence = {}
+
+    if not intelligence.get("next_products"):
+        try:
+            intelligence["next_products"] = intelligence_layer.get_next_products(contact.id)
+        except Exception:
+            intelligence["next_products"] = {}
+
+    classification = intelligence.get("classification", {})
+    scores = intelligence.get("scores", {})
+    purchase = intelligence.get("purchase", {})
+    products = intelligence.get("products", {})
+    next_products = intelligence.get("next_products", {})
+
+    total_orders = int(purchase.get("total_orders") or getattr(contact, "total_orders", 0) or 0)
+    churn_risk = float(scores.get("churn_risk") or 0)
+    reorder_likelihood = float(scores.get("reorder_likelihood") or 0)
+    intent = float(scores.get("intent") or 0)
+    lifecycle = (classification.get("lifecycle_stage") or "").lower()
+
+    if total_orders > 0:
+        overall_goal = "maximize repeat purchase and lifetime value"
+        if churn_risk >= 70 or lifecycle in ("dormant", "lapsed", "churned"):
+            phase_name = "Phase 1: Re-Engage"
+            phase_goal = "Win back the customer with relevant, low-fatigue outreach."
+            allowed_actions = ["winback", "education", "loyalty"]
+            hypothesis = "A high-relevance re-engagement path can recover this buyer without over-mailing."
+        elif reorder_likelihood >= 60:
+            phase_name = "Phase 1: Repeat Purchase"
+            phase_goal = "Capture reorder intent and reinforce repeat buying behavior."
+            allowed_actions = ["reorder_reminder", "cross_sell", "education", "loyalty"]
+            hypothesis = "The customer is close to a repeat-purchase window and should see reorder-led messaging first."
+        else:
+            phase_name = "Phase 1: Grow LTV"
+            phase_goal = "Expand the account with cross-sell, education, and loyalty touches."
+            allowed_actions = ["cross_sell", "product_recommendation", "loyalty", "education", "reorder_reminder"]
+            hypothesis = "The customer is active enough for value-building recommendations instead of discount-heavy winback."
+    else:
+        overall_goal = "convert the first purchase"
+        if intent >= 60:
+            phase_name = "Phase 1: Convert Interest"
+            phase_goal = "Turn current interest into a credible first-order path."
+            allowed_actions = ["product_recommendation", "cross_sell", "education"]
+            hypothesis = "Focused product guidance should convert this prospect more effectively than broad nurture."
+        else:
+            phase_name = "Phase 1: Build Trust"
+            phase_goal = "Educate the prospect and build a believable first-purchase path."
+            allowed_actions = ["education", "product_recommendation", "cross_sell"]
+            hypothesis = "The prospect still needs helpful category education before a direct sell will work."
+
+    preferred_gap_days = 5 if churn_risk >= 70 else 7 if total_orders == 0 else 8
+    cadence_policy = {
+        "min_gap_days": max(3, preferred_gap_days - 2),
+        "max_gap_days": max(10, preferred_gap_days + 6),
+        "preferred_gap_days": preferred_gap_days,
+    }
+
+    max_discount_pct = 15 if (total_orders > 0 and churn_risk >= 70) else 10
+    offer_policy = {
+        "allow_discount": True,
+        "max_discount_pct": max_discount_pct,
+        "free_shipping_ok": True,
+    }
+
+    top_categories = products.get("top_categories") or []
+    top_pick = next_products.get("top_pick") or {}
+    category_focus = top_categories[0] if top_categories else products.get("next_purchase_category") or strategy_state.get("category_focus", "")
+    product_focus = (
+        top_pick.get("product_title")
+        or top_pick.get("product_key")
+        or strategy_state.get("product_focus")
+        or ""
+    )
+
+    previous_action = ""
+    if resume_context:
+        previous_action = resume_context.get("previous_next_action_type", "") or ""
+
+    next_action_type = _pick_initial_am_action(allowed_actions, intelligence, preferred_action=previous_action)
+
+    outcome_parts = []
+    if flow_graduation:
+        if flow_graduation.get("converted_during_flow"):
+            outcome_parts.append("Customer converted during flow ownership.")
+        completed_flows = flow_graduation.get("completed_flows") or flow_graduation.get("flow_outcomes") or []
+        if completed_flows:
+            outcome_parts.append("Flow history captured for AM handoff.")
+    if not outcome_parts:
+        outcome_parts.append("No recent AM outcome recorded.")
+
+    strategy_state.update({
+        "overall_goal": overall_goal,
+        "current_phase_name": phase_name,
+        "current_phase_goal": phase_goal,
+        "allowed_actions": allowed_actions,
+        "cadence_policy": cadence_policy,
+        "offer_policy": offer_policy,
+        "category_focus": category_focus,
+        "product_focus": product_focus,
+        "next_action_type": next_action_type,
+        "hypothesis": hypothesis,
+        "last_outcome_summary": " ".join(outcome_parts),
+    })
+
+    if flow_graduation:
+        strategy_state["flow_graduation"] = flow_graduation
+    strategy_state.pop("pause_context", None)
+
+    return am_runtime._normalize_strategy(strategy_state, current_phase=phase_name)
+
+
+def _apply_executable_strategy(cs, strategy_state, next_action_date=None, bump_version=False):
+    """Persist executable AM strategy state back to ContactStrategy."""
+    cs.strategy_json = json.dumps(strategy_state)
+    cs.current_phase = strategy_state.get("current_phase_name", "") or cs.current_phase or "Phase 1"
+    cs.current_phase_num = 1
+    cs.next_action_type = strategy_state.get("next_action_type", "") or cs.next_action_type or "education"
+    if next_action_date is not None:
+        cs.next_action_date = next_action_date
+    elif not cs.next_action_date:
+        gap_days = strategy_state.get("cadence_policy", {}).get("preferred_gap_days", 7)
+        cs.next_action_date = datetime.now() + timedelta(days=gap_days)
+    if bump_version:
+        cs.strategy_version = (cs.strategy_version or 0) + 1
+    cs.updated_at = datetime.now()
+    cs.save()
+
+
 # ─────────────────────────────────
 #  APPROVAL / REJECTION / EDIT
 # ─────────────────────────────────
@@ -1324,6 +1232,7 @@ def approve_email(pending_id):
         ledger_id=ledger.id if ledger else 0,
         scheduled_at=send_at,
         auto_email_id=ae.id,
+        decision_json=getattr(pe, 'decision_json', '{}') or "{}",
     )
 
     pe.status = "approved"
@@ -1376,44 +1285,69 @@ def reject_email(pending_id, reason=""):
 
 
 def regenerate_email(pending_id, feedback):
-    """Regenerate an email with reviewer feedback via Claude."""
-    from database import AMPendingReview, init_db
-    from ai_engine import generate_personalized_email
+    """Regenerate an AM email from stored decision + template context."""
+    from database import AMPendingReview, EmailTemplate, init_db
+    import am_runtime
     init_db()
 
     pe = AMPendingReview.get_or_none(AMPendingReview.id == pending_id)
     if not pe:
         return None
 
-    contact = pe.contact
-    purpose = pe.action_type
-    extra_context = f"{pe.strategy_context}\n\nREVIEWER FEEDBACK (must incorporate): {feedback}\n\nPrevious subject that was rejected/edited: {pe.subject}"
+    template = None
+    if getattr(pe, "template_id", 0):
+        template = EmailTemplate.get_or_none(EmailTemplate.id == pe.template_id)
 
-    result = generate_personalized_email(contact.email, purpose, extra_context=extra_context)
-    if result:
-        pe.edited_subject = result["subject"]
-        pe.edited_html = result["body_html"]
-        pe.status = "pending"  # Reset to pending for re-review
-        pe.save()
+    decision = am_runtime.restore_am_decision(
+        getattr(pe, "decision_json", "{}") or "{}",
+        strategy=pe.strategy,
+        template=template,
+    )
 
-        # Track the edit AND log feedback so AI learns from it
-        cs = pe.strategy
-        cs.total_edited += 1
-        try:
-            reasons = json.loads(cs.rejection_reasons) if cs.rejection_reasons and cs.rejection_reasons != "[]" else []
-        except Exception:
-            reasons = []
-        reasons.append({
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "action_type": pe.action_type,
-            "type": "edit_feedback",
-            "reason": feedback,
-            "original_subject": pe.subject
-        })
-        cs.rejection_reasons = json.dumps(reasons[-20:])
-        cs.save()
+    result = am_runtime.execute_am_decision(
+        pe.contact,
+        pe.strategy,
+        decision,
+        template=template,
+        reviewer_feedback=feedback,
+    )
+    if not result or result.get("status") != "rendered":
+        return None
 
-    return result
+    pe.edited_subject = result["subject"]
+    pe.edited_html = result["html"]
+    if result.get("preheader"):
+        pe.preheader = result["preheader"]
+    pe.status = "pending"  # Reset to pending for re-review
+    pe.reviewer_notes = feedback
+    pe.action_type = decision.get("action_type", pe.action_type)
+    pe.template_id = result.get("template_id", pe.template_id)
+    pe.decision_json = json.dumps(decision, default=str)
+    pe.save()
+
+    # Track the edit AND log feedback so future AM review context stays consistent
+    cs = pe.strategy
+    cs.total_edited += 1
+    try:
+        reasons = json.loads(cs.rejection_reasons) if cs.rejection_reasons and cs.rejection_reasons != "[]" else []
+    except Exception:
+        reasons = []
+    reasons.append({
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "action_type": pe.action_type,
+        "type": "edit_feedback",
+        "reason": feedback,
+        "original_subject": pe.subject
+    })
+    cs.rejection_reasons = json.dumps(reasons[-20:])
+    cs.save()
+
+    return {
+        "subject": result["subject"],
+        "preheader": result.get("preheader", ""),
+        "body_html": result["html"],
+        "template_id": result.get("template_id", 0),
+    }
 
 
 def _recalculate_confidence(cs):
@@ -1458,6 +1392,18 @@ def enroll_contact(contact_id):
     if not created:
         cs.enrolled = True
         cs.updated_at = datetime.now()
+
+    existing_strategy = _load_strategy_json_dict(cs)
+    needs_runtime_state = (not existing_strategy) or ("allowed_actions" not in existing_strategy)
+    if needs_runtime_state:
+        strategy_state = _build_executable_strategy_state(contact, existing_strategy=existing_strategy)
+        _apply_executable_strategy(
+            cs,
+            strategy_state,
+            next_action_date=cs.next_action_date or (datetime.now() + timedelta(days=1)),
+            bump_version=not created,
+        )
+    else:
         cs.save()
 
     return cs
@@ -1477,15 +1423,10 @@ def unenroll_contact(contact_id):
 
 
 def _resharpen_strategy(contact, cs, strategy_data):
-    """Resharpen an AM contact's strategy after they return from flows.
-
-    Called when all flows complete for a contact that was previously AM-managed.
-    Gathers flow outcome, updated profile, and old strategy performance,
-    then calls Claude to generate a fresh strategy.
-    """
+    """Rebuild executable AM strategy after a paused contact returns from flows."""
     from database import (FlowEnrollment, FlowEmail, ShopifyOrder,
                           CustomerProfile, LearningConfig)
-    from ai_provider import get_provider
+    import intelligence_layer
 
     pause_ctx = strategy_data.get("pause_context", {})
     paused_at_str = pause_ctx.get("paused_at", "")
@@ -1556,93 +1497,34 @@ def _resharpen_strategy(contact, cs, strategy_data):
     }
 
     # ── Call Claude to resharpen ──
-    flow_outcome_text = "No flows completed." if not flow_outcomes else ""
-    for fo in flow_outcomes:
-        flow_outcome_text += "%s (%s): %d emails sent, %d opened, %d clicked. " % (
-            fo["flow"], fo["status"], fo["emails_sent"], fo["emails_opened"], fo["emails_clicked"])
-    if purchases_during_flow > 0:
-        flow_outcome_text += "Customer CONVERTED during flows: %d order(s), $%.2f revenue." % (
-            purchases_during_flow, purchase_revenue)
-    else:
-        flow_outcome_text += "Customer did NOT convert during flows."
-
-    system_prompt = (
-        "You are a senior email marketing strategist for LDAS Electronics (ldas.ca), "
-        "a Shopify store selling trucker electronics (headsets, dash cams, accessories). "
-        "You are resharpening a per-contact email marketing strategy. "
-        "The customer was previously managed by your strategy, left for behavioral flows, "
-        "and has now returned. The fact that they returned means the previous strategy worked.\n\n"
-        "Output ONLY valid JSON matching this schema:\n"
-        '{"overall_goal": "string", "phases": [{"name": "string", "months": "string", '
-        '"goal": "string", "tactic": "string"}], "product_focus": "string", '
-        '"discount_approach": "string", "first_action_type": "string", "first_action_days": int}'
-    )
-
-    user_prompt = (
-        "PREVIOUS STRATEGY PERFORMANCE:\n"
-        "Phase when paused: %s\n"
-        "Emails approved: %d, rejected: %d, confidence: %d%%\n\n"
-        "WHAT JUST HAPPENED (FLOW OUTCOMES):\n%s\n\n"
-        "UPDATED CUSTOMER PROFILE:\n%s\n\n"
-        "Generate an updated strategy that:\n"
-        "- Builds on what was working before (they came back!)\n"
-        "- Accounts for the flow outcome above\n"
-        "- Adjusts timing and approach based on whether they converted\n"
-        "- Has 2-4 phases over 3-6 months\n"
-    ) % (
-        old_strategy_summary["phase_when_paused"],
-        old_strategy_summary["total_approved"],
-        old_strategy_summary["total_rejected"],
-        old_strategy_summary["confidence_score"],
-        flow_outcome_text,
-        json.dumps(profile_snapshot, indent=2),
-    )
-
-    try:
-        provider = get_provider()
-        response = provider.complete(system_prompt, user_prompt, max_tokens=1500)
-        # Parse JSON from response
-        import re
-        json_match = re.search(r'\{[\s\S]*\}', response)
-        if json_match:
-            new_strategy = json.loads(json_match.group())
-        else:
-            raise ValueError("No JSON found in Claude response")
-    except Exception as e:
-        # Fallback: restore previous strategy, just reset timing
-        logger.warning("[AccountManager] Resharpen failed for contact #%s: %s — restoring old strategy",
-                       contact.id, str(e))
-        del strategy_data["pause_context"]
-        cs.strategy_json = json.dumps(strategy_data)
-        resume_delay = int(LearningConfig.get_val("am_resume_delay_days", "3"))
-        cs.next_action_date = datetime.now() + timedelta(days=resume_delay)
-        cs.next_action_type = pause_ctx.get("previous_next_action_type", "education")
-        cs.updated_at = datetime.now()
-        cs.save()
-        return cs
-
-    # ── Update ContactStrategy with new strategy ──
-    resume_delay = int(LearningConfig.get_val("am_resume_delay_days", "3"))
-
-    # Preserve approval/rejection history, replace strategy content
-    new_strategy["flow_graduation"] = {
+    flow_graduation = {
         "resharpened_at": datetime.now().strftime("%Y-%m-%d"),
         "flow_outcomes": flow_outcomes,
+        "completed_flows": flow_outcomes,
         "converted_during_flow": purchases_during_flow > 0,
+        "purchase_revenue": round(purchase_revenue, 2),
         "previous_confidence": old_strategy_summary["confidence_score"],
     }
-    # pause_context is NOT carried forward — it's cleared by omission
+    try:
+        intelligence = intelligence_layer.get_contact_intelligence(contact.id)
+    except Exception:
+        intelligence = {}
 
-    cs.strategy_json = json.dumps(new_strategy)
-    cs.current_phase = new_strategy.get("phases", [{}])[0].get("name", "Phase 1") if new_strategy.get("phases") else "Phase 1"
-    cs.current_phase_num = 1
-    cs.next_action_date = datetime.now() + timedelta(days=resume_delay)
-    cs.next_action_type = new_strategy.get("first_action_type", "education")
-    cs.strategy_version = (cs.strategy_version or 0) + 1
-    cs.updated_at = datetime.now()
-    cs.save()
+    new_strategy = _build_executable_strategy_state(
+        contact,
+        existing_strategy=strategy_data,
+        intelligence=intelligence,
+        flow_graduation=flow_graduation,
+        resume_context=pause_ctx,
+    )
+    resume_delay = int(LearningConfig.get_val("am_resume_delay_days", "3"))
+    _apply_executable_strategy(
+        cs,
+        new_strategy,
+        next_action_date=datetime.now() + timedelta(days=resume_delay),
+        bump_version=True,
+    )
 
-    # Log the resharpen
     try:
         from action_ledger import log_action
         log_action(
@@ -1671,6 +1553,7 @@ def maybe_handover_from_flow(contact):
     """
     from database import (FlowEnrollment, ContactStrategy, LearningConfig,
                           FlowEmail, init_db)
+    import intelligence_layer
     init_db()
 
     # Check if contact still has active/paused flows
@@ -1719,7 +1602,6 @@ def maybe_handover_from_flow(contact):
         })
 
     # Enroll in AM with flow context
-    import json
     cs, created = ContactStrategy.get_or_create(
         contact=contact,
         defaults={
@@ -1732,17 +1614,28 @@ def maybe_handover_from_flow(contact):
         cs.enrolled = True
         cs.updated_at = datetime.now()
 
-    # Store flow graduation context so AI strategist knows the backstory
-    try:
-        existing_strategy = json.loads(cs.strategy_json) if cs.strategy_json and cs.strategy_json != "{}" else {}
-    except Exception:
-        existing_strategy = {}
-    existing_strategy["flow_graduation"] = {
+    flow_graduation = {
         "graduated_at": datetime.now().strftime("%Y-%m-%d"),
         "completed_flows": flow_history
     }
-    cs.strategy_json = json.dumps(existing_strategy)
-    cs.save()
+    try:
+        intelligence = intelligence_layer.get_contact_intelligence(contact.id)
+    except Exception:
+        intelligence = {}
+
+    strategy_state = _build_executable_strategy_state(
+        contact,
+        existing_strategy=_load_strategy_json_dict(cs),
+        intelligence=intelligence,
+        flow_graduation=flow_graduation,
+    )
+    resume_delay = int(LearningConfig.get_val("am_resume_delay_days", "3"))
+    _apply_executable_strategy(
+        cs,
+        strategy_state,
+        next_action_date=datetime.now() + timedelta(days=resume_delay),
+        bump_version=not created,
+    )
 
     # Tag contact as AM-managed
     existing_tags = [t.strip() for t in (contact.tags or "").split(",") if t.strip()]
