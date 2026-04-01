@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-01 16:10 -- `50cde17`
+
+**Fix P1: normalize strategy_phase on ready decisions, lock template during review regeneration**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+am_runtime.py
+tests/test_am_runtime.py
+```
+
+---
+
 ### 2026-04-01 12:55 -- `74fe154`
 
 **Phase 4 AM Core: remove dead AI strategist code, deprecate old template path, add 26 behavioral tests**
