@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-01 12:55 -- `74fe154`
+
+**Phase 4 AM Core: remove dead AI strategist code, deprecate old template path, add 26 behavioral tests**
+
+Files changed:
+```
+REFERENCE.md
+account_manager.py
+am_runtime.py
+tests/test_am_runtime.py
+```
+
+---
+
 ### 2026-03-31 12:55 -- `72ef221`
 
 **Fix ShopifyOrder field name: order_total not total_price**
