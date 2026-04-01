@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-04-01 12:53. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-04-01 16:08. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 41,668 lines)
+## Python Files — Detailed (63 files, 41,673 lines)
 
 ### `app.py` (7,347 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -398,7 +398,7 @@ Key functions:
 - `validate_rendered_email(html, subject, ...) — Post-render 6-category validation`
 - `substitute_preview_tokens(html) — Replace send-time tokens for browser preview display`
 
-### `am_runtime.py` (1,030 lines)
+### `am_runtime.py` (1,035 lines)
 **AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)**
 
 Phase 4 Account Manager decision engine. Provides build_am_decision() for structured

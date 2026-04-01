@@ -1319,3 +1319,247 @@ class TestDisabledMasterSwitch:
         result = run_account_manager()
         assert result["status"] == "completed"
         assert result["processed"] == 0
+
+
+# ═══════════════════════════════════════════════════════════════
+# P1 Fix: strategy_phase normalized on ready decisions
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestStrategyPhaseNormalized:
+    """build_am_decision ready decisions must use the normalized phase name,
+    not the raw model current_phase which may be empty/stale."""
+
+    def test_ready_decision_uses_normalized_phase(self, in_memory_db, make_contact):
+        """When ContactStrategy.current_phase is empty but strategy_json has
+        current_phase_name, the decision should use the normalized value."""
+        from am_runtime import build_am_decision
+        from database import ContactStrategy
+
+        contact = make_contact()
+        cs = ContactStrategy.create(
+            contact=contact, enrolled=True,
+            current_phase="",  # stale/empty
+            strategy_json=json.dumps({
+                "allowed_actions": ["education", "cross_sell"],
+                "current_phase_name": "Phase 1: Build Trust",
+                "cadence_policy": {"min_gap_days": 3, "max_gap_days": 10, "preferred_gap_days": 5},
+            }),
+        )
+
+        with patch("am_runtime.intelligence_layer") as mock_il:
+            mock_il.should_contact_now.return_value = {"can_send": True}
+            mock_il.get_contact_intelligence.return_value = _make_intel(intent=70)
+            mock_il.get_next_products.return_value = {
+                "schema_version": 1, "top_pick": None,
+                "cross_sells": [], "reorders": [], "replacements": [],
+                "upgrades": [], "accessories": [],
+            }
+            mock_il.get_discount_policy.return_value = {"offer_discount": False}
+
+            decision = build_am_decision(contact, cs)
+
+        # Even though model current_phase was empty, decision should have normalized phase
+        assert decision["strategy_phase"] == "Phase 1: Build Trust"
+
+    def test_legacy_phase_preserved_in_ready_decision(self, in_memory_db, make_contact):
+        """When strategy_json has no current_phase_name but model has current_phase,
+        the decision should use the model value."""
+        from am_runtime import build_am_decision
+        from database import ContactStrategy
+
+        contact = make_contact()
+        cs = ContactStrategy.create(
+            contact=contact, enrolled=True,
+            current_phase="Phase 2: Cross-sell",
+            strategy_json=json.dumps({
+                "allowed_actions": ["cross_sell", "product_recommendation"],
+                "cadence_policy": {"min_gap_days": 3, "max_gap_days": 10, "preferred_gap_days": 5},
+            }),
+        )
+
+        with patch("am_runtime.intelligence_layer") as mock_il:
+            mock_il.should_contact_now.return_value = {"can_send": True}
+            mock_il.get_contact_intelligence.return_value = _make_intel(intent=60)
+            mock_il.get_next_products.return_value = {
+                "schema_version": 1, "top_pick": {"product_key": "Cable Kit"},
+                "cross_sells": [{"target_key": "Mount", "is_product": True}],
+                "reorders": [], "replacements": [], "upgrades": [], "accessories": [],
+            }
+            mock_il.get_discount_policy.return_value = {"offer_discount": False}
+
+            decision = build_am_decision(contact, cs)
+
+        if decision["status"] == "ready":
+            assert decision["strategy_phase"] == "Phase 2: Cross-sell"
+
+    def test_decision_json_snapshot_has_normalized_phase(self, in_memory_db, make_contact):
+        """decision_json stored in AMPendingReview should carry the normalized phase."""
+        from am_runtime import build_am_decision
+        from database import ContactStrategy
+
+        contact = make_contact()
+        cs = ContactStrategy.create(
+            contact=contact, enrolled=True,
+            current_phase="",
+            strategy_json=json.dumps({
+                "allowed_actions": ["education"],
+                "current_phase_name": "Phase 1: Educate",
+                "cadence_policy": {"min_gap_days": 5, "max_gap_days": 14, "preferred_gap_days": 7},
+            }),
+        )
+
+        with patch("am_runtime.intelligence_layer") as mock_il:
+            mock_il.should_contact_now.return_value = {"can_send": True}
+            mock_il.get_contact_intelligence.return_value = _make_intel(intent=30)
+            mock_il.get_next_products.return_value = {
+                "schema_version": 1, "top_pick": None,
+                "cross_sells": [], "reorders": [], "replacements": [],
+                "upgrades": [], "accessories": [],
+            }
+            mock_il.get_discount_policy.return_value = {"offer_discount": False}
+
+            decision = build_am_decision(contact, cs)
+
+        # Serialize exactly as run_account_manager does
+        snapshot = {k: v for k, v in decision.items() if k != "render_result"}
+        decision_json = json.dumps(snapshot, default=str)
+        parsed = json.loads(decision_json)
+        assert parsed["strategy_phase"] == "Phase 1: Educate"
+
+
+# ═══════════════════════════════════════════════════════════════
+# P1 Fix: template locked during review regeneration
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestTemplateLockDuringRegeneration:
+    """execute_am_decision must NOT swap templates when an explicit template
+    is provided (review regeneration path). Learning swap is only for fresh
+    nightly/autonomous decisions."""
+
+    def test_explicit_template_not_swapped(self, in_memory_db, make_contact, make_template):
+        """When template is passed explicitly, learning swap is skipped."""
+        from am_runtime import execute_am_decision
+
+        contact = make_contact()
+        locked_template = make_template(name="AM: Win-Back")
+
+        decision = {
+            "action_type": "winback",
+            "objective": "AM: Win-Back",
+            "template_family": "winback",
+            "candidate_products": [],
+            "offer_context": None,
+            "_intelligence": {},
+        }
+
+        with patch("am_runtime._generate_ai_copy") as mock_ai, \
+             patch("am_runtime.te.make_render_contract") as mock_rc, \
+             patch("am_runtime.te.render_email") as mock_render:
+            mock_ai.return_value = {
+                "hero_headline": "Come Back",
+                "hero_subheadline": "We miss you",
+                "paragraphs": ["It's been a while."],
+                "cta_text": "Shop Now",
+                "cta_url": "https://ldas.ca",
+                "token_usage": {"input": 50, "output": 30, "total": 80},
+            }
+            mock_render.return_value = {
+                "html": "<p>rendered</p>",
+                "subject": "We miss you",
+                "preview_text": "Come back",
+                "validation_report": [],
+            }
+
+            result = execute_am_decision(
+                contact, {}, decision, template=locked_template,
+            )
+
+        assert result["status"] == "rendered"
+        # Template ID should be the locked template, not a swap
+        assert result["template_id"] == locked_template.id
+
+    def test_nightly_path_allows_learning_swap(self, in_memory_db, make_contact, make_template):
+        """When no explicit template is provided, learning swap is allowed."""
+        from am_runtime import execute_am_decision
+        from database import EmailTemplate
+
+        contact = make_contact()
+        original = make_template(name="AM: Education")
+        better = make_template(name="AM: Education v2")
+
+        decision = {
+            "action_type": "education",
+            "objective": "AM: Education",
+            "template_family": "post_purchase",
+            "candidate_products": [],
+            "offer_context": None,
+            "_intelligence": {},
+        }
+
+        with patch("am_runtime._generate_ai_copy") as mock_ai, \
+             patch("am_runtime.te.make_render_contract") as mock_rc, \
+             patch("am_runtime.te.render_email") as mock_render, \
+             patch("learning_context.get_best_template_for_family", return_value=better.id):
+            mock_ai.return_value = {
+                "hero_headline": "Tips",
+                "hero_subheadline": "Quick wins",
+                "paragraphs": ["Here's a tip."],
+                "cta_text": "Learn More",
+                "cta_url": "https://ldas.ca",
+                "token_usage": {"input": 50, "output": 30, "total": 80},
+            }
+            mock_render.return_value = {
+                "html": "<p>rendered</p>",
+                "subject": "Quick tip",
+                "preview_text": "Tips",
+                "validation_report": [],
+            }
+
+            # No explicit template — should resolve by name then allow swap
+            result = execute_am_decision(contact, {}, decision)
+
+        assert result["status"] == "rendered"
+        # Template should have been swapped to the better one
+        assert result["template_id"] == better.id
+
+    def test_regenerate_honors_stored_template(self, in_memory_db, make_contact, make_template):
+        """Full regenerate_email path: stored template_id is preserved, not swapped."""
+        from database import ContactStrategy, AMPendingReview
+        from account_manager import regenerate_email
+        import am_runtime
+
+        contact = make_contact()
+        locked_tpl = make_template(name="AM: Cross-Sell")
+        cs = ContactStrategy.create(
+            contact=contact, enrolled=True,
+            strategy_json=json.dumps({"allowed_actions": ["cross_sell"]}),
+        )
+        pe = AMPendingReview.create(
+            contact=contact, strategy=cs,
+            subject="Original subject", body_html="<p>original</p>",
+            reasoning="cross-sell", action_type="cross_sell",
+            template_id=locked_tpl.id,
+            decision_json=json.dumps({
+                "action_type": "cross_sell", "should_act": True, "status": "ready",
+            }),
+            status="pending",
+        )
+
+        with patch.object(am_runtime, "execute_am_decision") as mock_exec:
+            mock_exec.return_value = {
+                "status": "rendered",
+                "subject": "New subject",
+                "html": "<p>new</p>",
+                "template_id": locked_tpl.id,
+                "preheader": "preview",
+            }
+
+            regenerate_email(pe.id, "make it shorter")
+
+        # Verify execute_am_decision was called with the locked template
+        call_args = mock_exec.call_args
+        passed_template = call_args[1].get("template") or call_args[0][3] if len(call_args[0]) > 3 else call_args[1].get("template")
+        assert passed_template is not None
+        assert passed_template.id == locked_tpl.id

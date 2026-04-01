@@ -699,7 +699,7 @@ def build_am_decision(contact, strategy, intelligence=None):
         "status": "ready",
         "action_type": action_type,
         "objective": objective,
-        "strategy_phase": current_phase,
+        "strategy_phase": strategy_state.get("current_phase_name", "") or current_phase,
         "template_family": template_family,
         "candidate_products": candidate_products,
         "offer_context": offer_context,
@@ -924,7 +924,7 @@ def execute_am_decision(contact, strategy, decision, template=None, reviewer_fee
         contact: Contact instance
         strategy: strategy JSON dict or string
         decision: dict from build_am_decision
-        template: optional EmailTemplate override
+        template: optional EmailTemplate override (locked — no learning swap)
 
     Returns:
         dict: {status, subject, html, template_id, ai_tokens} or {status, reason}
@@ -934,6 +934,9 @@ def execute_am_decision(contact, strategy, decision, template=None, reviewer_fee
     action_type = decision.get("action_type", "")
     family_info = AM_ACTION_TO_FAMILY.get(action_type, ("AM: Unknown", "promo"))
     template_family = family_info[1]
+
+    # Track whether template was explicitly provided (locked for review regeneration)
+    _template_locked = template is not None
 
     # Step 1: find template
     if template is None and decision.get("template_id"):
@@ -952,7 +955,9 @@ def execute_am_decision(contact, strategy, decision, template=None, reviewer_fee
             pass
 
     # Step 2: apply learning swap if available
-    if template is not None:
+    # ONLY for fresh nightly/autonomous decisions — NOT when template was explicitly locked
+    # (review regeneration passes template explicitly to honor AMPendingReview.template_id)
+    if template is not None and not _template_locked:
         try:
             from database import ContactScore
             score = ContactScore.get_or_none(ContactScore.contact == contact.id)
