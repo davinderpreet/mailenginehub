@@ -6377,6 +6377,11 @@ def am_settings():
         LearningConfig.set_val("am_enabled", request.form.get("am_enabled", "false"))
         LearningConfig.set_val("am_max_daily_contacts", request.form.get("am_max_daily_contacts", "200"))
         LearningConfig.set_val("am_enrollment_mode", request.form.get("am_enrollment_mode", "manual"))
+        # Test redirect settings
+        LearningConfig.set_val("test_redirect_enabled", request.form.get("test_redirect_enabled", "false"))
+        _redirect_to = request.form.get("test_redirect_to", "").strip()
+        if _redirect_to:
+            LearningConfig.set_val("test_redirect_to", _redirect_to)
         flash("Account Manager settings saved.", "success")
         return redirect(url_for("am_settings"))
 
@@ -6384,7 +6389,9 @@ def am_settings():
         view="settings",
         am_enabled=LearningConfig.get_val("am_enabled", "false"),
         am_max_daily_contacts=LearningConfig.get_val("am_max_daily_contacts", "200"),
-        am_enrollment_mode=LearningConfig.get_val("am_enrollment_mode", "auto_post_flow"))
+        am_enrollment_mode=LearningConfig.get_val("am_enrollment_mode", "auto_post_flow"),
+        test_redirect_enabled=LearningConfig.get_val("test_redirect_enabled", "false"),
+        test_redirect_to=LearningConfig.get_val("test_redirect_to", ""))
 
 
 @app.route("/account-manager/preview/<int:pending_id>")

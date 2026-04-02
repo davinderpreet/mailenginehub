@@ -845,3 +845,98 @@ class TestSuchaVirkRegression:
             # Should mention at least ShopifyOrder and checkout_completed
             assert "ShopifyOrder" in evidence
             assert "checkout_completed" in evidence
+
+
+# ═══════════════════════════════════════════════════════════════
+# Test Inbox Redirect
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestTestRedirect:
+    """Test inbox redirect: when enabled, all sends go to a test address."""
+
+    @patch("delivery_engine.update_ledger_status")
+    @patch("delivery_engine.FlowEnrollment")
+    @patch("delivery_engine.Flow")
+    @patch("delivery_engine.Contact")
+    @patch("delivery_engine.BounceLog")
+    def test_redirect_changes_recipient_and_subject(
+            self, mock_bounce, mock_contact, mock_flow, mock_enrollment,
+            mock_ledger, in_memory_db):
+        """When redirect is enabled, send_fn receives the test inbox address."""
+        from delivery_engine import _send_one
+        from database import LearningConfig
+
+        LearningConfig.set_val("test_redirect_enabled", "true")
+        LearningConfig.set_val("test_redirect_to", "testbox@example.com")
+
+        mock_contact.get_or_none.return_value = MagicMock(subscribed=True)
+        _mock_bounce_none(mock_bounce)
+
+        item = _make_queue_item(email="real-customer@shop.com",
+                                email_type="auto", enrollment_id=0)
+        item.subject = "Your gear picks"
+        mock_send = MagicMock(return_value=(True, None, "msg-123"))
+
+        _send_one(item, mock_send)
+
+        call_kwargs = mock_send.call_args[1]
+        assert call_kwargs["to_email"] == "testbox@example.com"
+        assert "intended:real-customer@shop.com" in call_kwargs["subject"]
+        assert "Your gear picks" in call_kwargs["subject"]
+
+    @patch("delivery_engine.update_ledger_status")
+    @patch("delivery_engine.FlowEnrollment")
+    @patch("delivery_engine.Flow")
+    @patch("delivery_engine.Contact")
+    @patch("delivery_engine.BounceLog")
+    def test_redirect_disabled_sends_to_real_recipient(
+            self, mock_bounce, mock_contact, mock_flow, mock_enrollment,
+            mock_ledger, in_memory_db):
+        """When redirect is disabled, send_fn receives the real recipient."""
+        from delivery_engine import _send_one
+        from database import LearningConfig
+
+        LearningConfig.set_val("test_redirect_enabled", "false")
+        LearningConfig.set_val("test_redirect_to", "testbox@example.com")
+
+        mock_contact.get_or_none.return_value = MagicMock(subscribed=True)
+        _mock_bounce_none(mock_bounce)
+
+        item = _make_queue_item(email="real-customer@shop.com",
+                                email_type="auto", enrollment_id=0)
+        item.subject = "Your gear picks"
+        mock_send = MagicMock(return_value=(True, None, "msg-456"))
+
+        _send_one(item, mock_send)
+
+        call_kwargs = mock_send.call_args[1]
+        assert call_kwargs["to_email"] == "real-customer@shop.com"
+        assert call_kwargs["subject"] == "Your gear picks"
+
+    @patch("delivery_engine.update_ledger_status")
+    @patch("delivery_engine.FlowEnrollment")
+    @patch("delivery_engine.Flow")
+    @patch("delivery_engine.Contact")
+    @patch("delivery_engine.BounceLog")
+    def test_redirect_preserves_original_email_in_queue(
+            self, mock_bounce, mock_contact, mock_flow, mock_enrollment,
+            mock_ledger, in_memory_db):
+        """Redirect does NOT modify item.email — original is preserved in DB."""
+        from delivery_engine import _send_one
+        from database import LearningConfig
+
+        LearningConfig.set_val("test_redirect_enabled", "true")
+        LearningConfig.set_val("test_redirect_to", "testbox@example.com")
+
+        mock_contact.get_or_none.return_value = MagicMock(subscribed=True)
+        _mock_bounce_none(mock_bounce)
+
+        item = _make_queue_item(email="real-customer@shop.com",
+                                email_type="auto", enrollment_id=0)
+        mock_send = MagicMock(return_value=(True, None, "msg-789"))
+
+        _send_one(item, mock_send)
+
+        # item.email in DB is still the original
+        assert item.email == "real-customer@shop.com"

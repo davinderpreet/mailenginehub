@@ -17,6 +17,7 @@ from database import (
     ContactScore, AutoEmail, db, get_system_config,
     ShopifyOrder, BounceLog, SuppressionEntry,
     CustomerActivity, AbandonedCheckout,
+    LearningConfig,
 )
 from action_ledger import update_ledger_status
 
@@ -539,12 +540,33 @@ def _send_one(item, send_fn):
         item.status = "sending"
         item.save()
 
+        # ── Test inbox redirect ──
+        # When enabled, all sends are redirected to a test inbox.
+        # Original recipient is preserved in subject prefix + metadata.
+        _actual_to = item.email
+        _actual_subject = item.subject
+        _redirect_applied = False
+        try:
+            _redirect_enabled = LearningConfig.get_val("test_redirect_enabled", "false") == "true"
+            _redirect_to = LearningConfig.get_val("test_redirect_to", "").strip()
+            if _redirect_enabled and _redirect_to:
+                _intended = item.email
+                _action = getattr(item, "email_type", "unknown")
+                _actual_to = _redirect_to
+                _actual_subject = "[TEST intended:%s | type:%s] %s" % (
+                    _intended, _action, item.subject)
+                _redirect_applied = True
+                logger.info("[TestRedirect] Redirecting queue #%s: %s -> %s",
+                            item.id, _intended, _redirect_to)
+        except Exception as _redir_err:
+            logger.debug("[TestRedirect] Config check error: %s", _redir_err)
+
         success, error, msg_id = send_fn(
-            to_email=item.email,
+            to_email=_actual_to,
             to_name="",
             from_email=item.from_email,
             from_name=item.from_name,
-            subject=item.subject,
+            subject=_actual_subject,
             html_body=item.html,
             unsubscribe_url=item.unsubscribe_url,
             campaign_id=item.campaign_id or None,
