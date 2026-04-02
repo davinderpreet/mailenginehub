@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-02 13:17 -- `baff8a9`
+
+**Upgrade send window algorithm: correlate send hour → open speed across all journeys**
+
+Files changed:
+```
+REFERENCE.md
+customer_intelligence.py
+```
+
+---
+
 ### 2026-04-02 12:05 -- `d31701e`
 
 **Add test inbox redirect mode for lifecycle testing**
