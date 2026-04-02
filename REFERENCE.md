@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-04-02 12:03. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-04-02 13:15. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 41,702 lines)
+## Python Files — Detailed (63 files, 41,817 lines)
 
 ### `app.py` (7,354 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -313,25 +313,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 ### `account_manager.py` (1,650 lines)
 **Account Manager AI — autonomous nightly email campaign planning and execution via Claude**
 
-### `generate-context.py` (1,364 lines)
-**Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
-
-### `flow_runtime.py` (1,326 lines)
-**Flow send package builder — centralizes flow render/decision logic (Phase 3)**
-
-Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
-which resolves objective, timing, products, offers, and renders via template_engine for all flow sends.
-Replaces inline rendering in _process_flow_enrollments and _pause_lower_priority_enrollments.
-
-Key functions:
-- `build_flow_send_package(enrollment, step, contact, flow, template=None, trigger_context=None) → dict with status/subject/html/priority`
-- `_resolve_objective(flow, step, template) → (objective, urgency, discount_purpose)`
-- `_check_soft_timing_gate(contact, urgency) → ('ok', None) or ('deferred', next_available_at)`
-- `_resolve_products(contact, flow, enrollment, trigger_context) → list of product dicts`
-- `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
-- `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
-
-### `customer_intelligence.py` (1,314 lines)
+### `customer_intelligence.py` (1,429 lines)
 **Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV**
 
 Nightly (3:30 UTC). Computes complete intelligence profile per contact from all data sources:
@@ -356,6 +338,24 @@ Key functions:
 - `compute_churn_risk(contact) — 0-100 abandonment probability`
 - `compute_category_affinity(contact) — Per-category purchase + browse scores`
 - `compute_preferred_send_window(contact) — Optimal hour + day`
+
+### `generate-context.py` (1,364 lines)
+**Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
+
+### `flow_runtime.py` (1,326 lines)
+**Flow send package builder — centralizes flow render/decision logic (Phase 3)**
+
+Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()
+which resolves objective, timing, products, offers, and renders via template_engine for all flow sends.
+Replaces inline rendering in _process_flow_enrollments and _pause_lower_priority_enrollments.
+
+Key functions:
+- `build_flow_send_package(enrollment, step, contact, flow, template=None, trigger_context=None) → dict with status/subject/html/priority`
+- `_resolve_objective(flow, step, template) → (objective, urgency, discount_purpose)`
+- `_check_soft_timing_gate(contact, urgency) → ('ok', None) or ('deferred', next_available_at)`
+- `_resolve_products(contact, flow, enrollment, trigger_context) → list of product dicts`
+- `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
+- `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
 
 ### `identity_resolution.py` (1,084 lines)
 **Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching**
