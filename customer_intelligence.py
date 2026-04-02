@@ -733,20 +733,134 @@ def _compute_category_affinity(profile, orders_list):
 #  ALGORITHM 6: Preferred Send Window
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _compute_send_window(campaign_opens, flow_opens, auto_opens=None):
+def _compute_send_window(contact_id, campaign_opens=None, flow_opens=None, auto_opens=None):
     """
-    Analyze open timestamps to find preferred send hour and day of week.
+    Find the optimal send hour and day-of-week for a contact by correlating
+    SEND TIME → OPEN SPEED across all email types (campaigns, flows, AM auto).
+
+    Strategy (two-tier):
+      Tier 1 — Sent→Opened correlation (OutcomeLog pool).
+        Groups all opened emails by the hour they were SENT, computes the
+        median hours_to_open for each send hour, and picks the hour with
+        the fastest engagement.  Recent sends are weighted 2× (last 60 days)
+        so the model adapts as habits change.
+
+      Tier 2 — Open-hour mode fallback.
+        When there aren't enough varied send hours in OutcomeLog (< 3 opens
+        with sent_at), falls back to the original open-time mode using the
+        raw opened_at timestamps from campaign/flow/auto tables.
+
     Returns (hour, dow, confidence)  — hour -1 means unknown.
-    Minimum 1 open to start learning (was 3 — too high for early-stage).
     """
+    from database import OutcomeLog
+
+    # ── Tier 1: Sent→Opened correlation from OutcomeLog ──────────────────
+    # OutcomeLog pools ALL email types (campaign, flow, auto) — one big pool
+    # per contact across every journey they've been through.
+    try:
+        outcomes = list(
+            OutcomeLog.select(
+                OutcomeLog.sent_at,
+                OutcomeLog.hours_to_open,
+                OutcomeLog.opened,
+            ).where(
+                OutcomeLog.contact == contact_id,
+                OutcomeLog.opened == True,
+                OutcomeLog.sent_at.is_null(False),
+                OutcomeLog.hours_to_open.is_null(False),
+            )
+        )
+    except Exception:
+        outcomes = []
+
+    # Need opens from at least 3 different send hours to correlate
+    if len(outcomes) >= 3:
+        _now = datetime.now()
+        _recent_cutoff = _now - timedelta(days=60)
+
+        # Group by send hour → list of (hours_to_open, weight)
+        hour_buckets = {}   # {send_hour: [(hours_to_open, weight), ...]}
+        dow_buckets = {}    # {send_dow:  [(hours_to_open, weight), ...]}
+
+        for o in outcomes:
+            send_h = o.sent_at.hour
+            send_dow = o.sent_at.weekday()
+            # Recent sends get 2× weight — habits shift over time
+            weight = 2.0 if o.sent_at >= _recent_cutoff else 1.0
+            hto = min(o.hours_to_open, 48.0)  # cap outliers at 48h
+
+            hour_buckets.setdefault(send_h, []).append((hto, weight))
+            dow_buckets.setdefault(send_dow, []).append((hto, weight))
+
+        # Weighted median hours_to_open per send hour
+        def _weighted_median(pairs):
+            """Weighted median of (value, weight) pairs."""
+            pairs_sorted = sorted(pairs, key=lambda x: x[0])
+            total_w = sum(w for _, w in pairs_sorted)
+            cumulative = 0.0
+            for val, w in pairs_sorted:
+                cumulative += w
+                if cumulative >= total_w / 2.0:
+                    return val
+            return pairs_sorted[-1][0]
+
+        # Score each send hour — lower median hours_to_open = better
+        hour_scores = {}
+        for h, pairs in hour_buckets.items():
+            hour_scores[h] = _weighted_median(pairs)
+
+        # Apply ±1h smoothing: if adjacent hours have data, blend them
+        smoothed = {}
+        for h in hour_scores:
+            vals = [hour_scores[h] * 2.0]  # center weight ×2
+            if (h - 1) % 24 in hour_scores:
+                vals.append(hour_scores[(h - 1) % 24])
+            if (h + 1) % 24 in hour_scores:
+                vals.append(hour_scores[(h + 1) % 24])
+            smoothed[h] = sum(vals) / len(vals)
+
+        preferred_hour = min(smoothed, key=smoothed.get)
+
+        # Best day-of-week — same approach
+        if dow_buckets:
+            dow_scores = {d: _weighted_median(pairs) for d, pairs in dow_buckets.items()}
+            preferred_dow = min(dow_scores, key=dow_scores.get)
+        else:
+            preferred_dow = -1
+
+        # Confidence based on total pool size
+        n = len(outcomes)
+        n_hours = len(hour_buckets)
+        if n >= 20 and n_hours >= 4:
+            conf = 95
+        elif n >= 12 and n_hours >= 3:
+            conf = 85
+        elif n >= 6:
+            conf = 70
+        elif n >= 3:
+            conf = 50
+        else:
+            conf = 30
+
+        logger.info(
+            "[SendWindow] Contact %s: Tier1 correlation — %d outcomes, %d send hours | "
+            "best_hour=%d (median_hto=%.1fh) best_dow=%d conf=%d",
+            contact_id, n, n_hours, preferred_hour,
+            smoothed[preferred_hour], preferred_dow, conf
+        )
+        return preferred_hour, preferred_dow, conf
+
+    # ── Tier 2: Open-hour mode fallback ──────────────────────────────────
+    # For contacts with < 3 OutcomeLog opens, fall back to raw open timestamps.
     open_times = []
-    for ce in campaign_opens:
-        if ce.opened_at:
-            open_times.append(ce.opened_at)
-    for fe in flow_opens:
-        if fe.opened_at:
-            open_times.append(fe.opened_at)
-    # Include auto-pilot opens
+    if campaign_opens:
+        for ce in campaign_opens:
+            if ce.opened_at:
+                open_times.append(ce.opened_at)
+    if flow_opens:
+        for fe in flow_opens:
+            if fe.opened_at:
+                open_times.append(fe.opened_at)
     if auto_opens:
         for ae in auto_opens:
             if ae.opened_at:
@@ -756,23 +870,20 @@ def _compute_send_window(campaign_opens, flow_opens, auto_opens=None):
     if n < 1:
         return -1, -1, 0
 
-    # Extract hours and days
     hours = [t.hour for t in open_times]
     dows = [t.weekday() for t in open_times]
 
-    # Mode with ±1 hour smoothing for hour
+    # Mode with ±1 hour smoothing
     hour_counts = Counter()
     for h in hours:
-        hour_counts[h] += 2        # center weight
-        hour_counts[(h - 1) % 24] += 1  # adjacent hours
+        hour_counts[h] += 2
+        hour_counts[(h - 1) % 24] += 1
         hour_counts[(h + 1) % 24] += 1
     preferred_hour = hour_counts.most_common(1)[0][0]
 
-    # Simple mode for day of week
     dow_counts = Counter(dows)
     preferred_dow = dow_counts.most_common(1)[0][0]
 
-    # Confidence — starts learning from 1 open, gets more accurate over time
     if n >= 20:
         conf = 95
     elif n >= 11:
@@ -784,8 +895,12 @@ def _compute_send_window(campaign_opens, flow_opens, auto_opens=None):
     elif n >= 2:
         conf = 20
     else:
-        conf = 10  # single open — weak signal but better than nothing
+        conf = 10
 
+    logger.info(
+        "[SendWindow] Contact %s: Tier2 open-hour fallback — %d opens, hour=%d dow=%d conf=%d",
+        contact_id, n, preferred_hour, preferred_dow, conf
+    )
     return preferred_hour, preferred_dow, conf
 
 
@@ -1105,7 +1220,7 @@ def compute_intelligence(contact_id):
     intent, conf_intent = _compute_intent_score(contact, profile, activity_14d, opens_14d)
     reorder, conf_reorder = _compute_reorder_likelihood(profile, score)
     affinity, next_cat, conf_category = _compute_category_affinity(profile, orders_list)
-    send_hour, send_dow, conf_window = _compute_send_window(all_campaign_opens, all_flow_opens, all_auto_opens)
+    send_hour, send_dow, conf_window = _compute_send_window(contact_id, all_campaign_opens, all_flow_opens, all_auto_opens)
     channel, conf_channel = _compute_channel_preference(contact, score)
     churn_score, conf_churn = _compute_churn_normalized(profile)
 
