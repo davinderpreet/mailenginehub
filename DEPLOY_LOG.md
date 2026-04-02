@@ -4,6 +4,22 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-02 12:05 -- `d31701e`
+
+**Add test inbox redirect mode for lifecycle testing**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+app.py
+delivery_engine.py
+templates/account_manager.html
+tests/test_delivery_guards.py
+```
+
+---
+
 ### 2026-04-01 16:10 -- `50cde17`
 
 **Fix P1: normalize strategy_phase on ready decisions, lock template during review regeneration**
