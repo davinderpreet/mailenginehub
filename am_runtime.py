@@ -100,8 +100,18 @@ def _safe_json(raw, default):
 
 
 def _get_openrouter_client():
-    """Return an OpenAI-compatible client pointed at OpenRouter."""
-    from openai import OpenAI
+    """Return an OpenAI-compatible client pointed at OpenRouter.
+
+    Raises RuntimeError with a clear message if the openai package
+    is not installed or the API key is missing.
+    """
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise RuntimeError(
+            "openai package not installed — run: pip install openai  "
+            "(required for AM AI copy generation via OpenRouter)"
+        )
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY not set in .env")
@@ -256,7 +266,16 @@ def _check_timing(contact, intelligence):
 
     # Compute preferred send time from intelligence
     timing = intelligence.get("timing", {}) if intelligence else {}
-    preferred_hour = timing.get("preferred_hour", 10)
+    raw_hour = timing.get("preferred_hour")
+
+    # Sanitize: must be an int in 0..23; fall back to 10 (mid-morning)
+    _DEFAULT_SEND_HOUR = 10
+    try:
+        preferred_hour = int(raw_hour) if raw_hour is not None else _DEFAULT_SEND_HOUR
+    except (TypeError, ValueError):
+        preferred_hour = _DEFAULT_SEND_HOUR
+    if not (0 <= preferred_hour <= 23):
+        preferred_hour = max(0, min(23, preferred_hour))
 
     target = now.replace(hour=preferred_hour, minute=0, second=0, microsecond=0)
     if target <= now:
@@ -862,11 +881,12 @@ Return ONLY valid JSON, no markdown fences."""
             "output": output_tokens,
             "total": total_tokens,
         }
+        parsed["copy_source"] = "ai"
         return parsed
 
     except Exception as exc:
-        logger.warning("[am_runtime] AI copy generation failed: %s", exc)
-        # Fallback
+        logger.warning("[am_runtime] AI copy generation failed (using deterministic fallback): %s", exc)
+        # Deterministic fallback — acceptable commercial copy, clearly flagged
         return {
             "hero_headline": "New from LDAS Electronics",
             "hero_subheadline": "Discover what's waiting for you",
@@ -874,6 +894,8 @@ Return ONLY valid JSON, no markdown fences."""
             "cta_text": "Shop Now",
             "cta_url": "https://ldas.ca",
             "token_usage": {"input": 0, "output": 0, "total": 0},
+            "copy_source": "fallback",
+            "fallback_reason": str(exc),
         }
 
 
@@ -1031,4 +1053,6 @@ def execute_am_decision(contact, strategy, decision, template=None, reviewer_fee
         "html": html,
         "template_id": template.id,
         "ai_tokens": ai_content.get("token_usage", {"input": 0, "output": 0, "total": 0}),
+        "copy_source": ai_content.get("copy_source", "unknown"),
+        "fallback_reason": ai_content.get("fallback_reason", ""),
     }

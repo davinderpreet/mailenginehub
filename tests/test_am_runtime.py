@@ -1563,3 +1563,206 @@ class TestTemplateLockDuringRegeneration:
         passed_template = call_args[1].get("template") or call_args[0][3] if len(call_args[0]) > 3 else call_args[1].get("template")
         assert passed_template is not None
         assert passed_template.id == locked_tpl.id
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Blocker-fix tests: timing sanitization + provider fallback
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTimingSanitization:
+    """Tests for _check_timing preferred_hour sanitization (Blocker 1 fix)."""
+
+    @patch("am_runtime.intelligence_layer")
+    def test_preferred_hour_missing_uses_default(self, mock_il, in_memory_db, make_contact):
+        """When preferred_hour key is absent, fallback to default hour."""
+        from am_runtime import _check_timing
+        mock_il.should_contact_now.return_value = {"can_send": True}
+        contact = make_contact()
+        intel = {"timing": {}}  # no preferred_hour key
+        status, value = _check_timing(contact, intel)
+        assert status == "ok"
+        assert isinstance(value, datetime)
+        # Should use default hour (10) — verify it didn't crash
+        assert value.hour == 10
+
+    @patch("am_runtime.intelligence_layer")
+    def test_preferred_hour_none_uses_default(self, mock_il, in_memory_db, make_contact):
+        """When preferred_hour is explicitly None, fallback to default hour."""
+        from am_runtime import _check_timing
+        mock_il.should_contact_now.return_value = {"can_send": True}
+        contact = make_contact()
+        intel = {"timing": {"preferred_hour": None}}
+        status, value = _check_timing(contact, intel)
+        assert status == "ok"
+        assert isinstance(value, datetime)
+        assert value.hour == 10
+
+    @patch("am_runtime.intelligence_layer")
+    def test_preferred_hour_invalid_string_uses_default(self, mock_il, in_memory_db, make_contact):
+        """When preferred_hour is a non-numeric string, fallback to default hour."""
+        from am_runtime import _check_timing
+        mock_il.should_contact_now.return_value = {"can_send": True}
+        contact = make_contact()
+        intel = {"timing": {"preferred_hour": "not_a_number"}}
+        status, value = _check_timing(contact, intel)
+        assert status == "ok"
+        assert isinstance(value, datetime)
+        assert value.hour == 10
+
+    @patch("am_runtime.intelligence_layer")
+    def test_preferred_hour_out_of_range_clamped(self, mock_il, in_memory_db, make_contact):
+        """When preferred_hour is out of 0..23, it is clamped."""
+        from am_runtime import _check_timing
+        mock_il.should_contact_now.return_value = {"can_send": True}
+        contact = make_contact()
+        # Test > 23
+        intel = {"timing": {"preferred_hour": 99}}
+        status, value = _check_timing(contact, intel)
+        assert status == "ok"
+        assert 0 <= value.hour <= 23
+
+    @patch("am_runtime.intelligence_layer")
+    def test_preferred_hour_negative_clamped(self, mock_il, in_memory_db, make_contact):
+        """When preferred_hour is negative, it is clamped to 0."""
+        from am_runtime import _check_timing
+        mock_il.should_contact_now.return_value = {"can_send": True}
+        contact = make_contact()
+        intel = {"timing": {"preferred_hour": -5}}
+        status, value = _check_timing(contact, intel)
+        assert status == "ok"
+        assert value.hour == 0
+
+    @patch("am_runtime.intelligence_layer")
+    def test_preferred_hour_empty_string_uses_default(self, mock_il, in_memory_db, make_contact):
+        """When preferred_hour is empty string, fallback to default."""
+        from am_runtime import _check_timing
+        mock_il.should_contact_now.return_value = {"can_send": True}
+        contact = make_contact()
+        intel = {"timing": {"preferred_hour": ""}}
+        status, value = _check_timing(contact, intel)
+        assert status == "ok"
+        assert value.hour == 10
+
+    @patch("am_runtime.intelligence_layer")
+    def test_intelligence_none_uses_default(self, mock_il, in_memory_db, make_contact):
+        """When intelligence dict is None, timing still works."""
+        from am_runtime import _check_timing
+        mock_il.should_contact_now.return_value = {"can_send": True}
+        contact = make_contact()
+        status, value = _check_timing(contact, None)
+        assert status == "ok"
+        assert isinstance(value, datetime)
+
+
+class TestProviderFallback:
+    """Tests for AI copy generation fallback when openai is unavailable (Blocker 2 fix)."""
+
+    def test_get_openrouter_client_clear_error_on_missing_openai(self):
+        """_get_openrouter_client raises RuntimeError with clear message when openai missing."""
+        from am_runtime import _get_openrouter_client
+        with patch.dict("sys.modules", {"openai": None}):
+            with pytest.raises(RuntimeError, match="openai package not installed"):
+                _get_openrouter_client()
+
+    def test_generate_ai_copy_returns_fallback_on_import_error(self, in_memory_db, make_contact):
+        """_generate_ai_copy returns deterministic fallback when openai is unavailable."""
+        from am_runtime import _generate_ai_copy
+        contact = make_contact(first_name="Test")
+        decision = {"action_type": "education", "candidate_products": []}
+        intel = _make_intel()
+
+        with patch("am_runtime._get_openrouter_client", side_effect=RuntimeError("openai package not installed")):
+            result = _generate_ai_copy(contact, decision, intel)
+
+        assert result["hero_headline"] == "New from LDAS Electronics"
+        assert result["cta_text"] == "Shop Now"
+        assert result["copy_source"] == "fallback"
+        assert "openai" in result["fallback_reason"]
+
+    def test_generate_ai_copy_marks_ai_source_on_success(self, in_memory_db, make_contact):
+        """Successful AI generation is marked with copy_source='ai'."""
+        from am_runtime import _generate_ai_copy
+        contact = make_contact(first_name="Test")
+        decision = {"action_type": "education", "candidate_products": []}
+        intel = _make_intel()
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "hero_headline": "AI Generated",
+            "hero_subheadline": "Smart copy",
+            "paragraphs": ["Great content."],
+            "cta_text": "Buy Now",
+            "cta_url": "https://ldas.ca",
+        })
+        mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch("am_runtime._get_openrouter_client", return_value=mock_client):
+            result = _generate_ai_copy(contact, decision, intel)
+
+        assert result["copy_source"] == "ai"
+        assert result["hero_headline"] == "AI Generated"
+
+    def test_execute_am_decision_propagates_copy_source(self, in_memory_db, make_contact, make_template):
+        """execute_am_decision result includes copy_source from AI generation."""
+        import am_runtime
+        contact = make_contact()
+        template = make_template(name="AM: Education")
+
+        decision = {
+            "should_act": True,
+            "action_type": "education",
+            "objective": "Educate customer",
+            "candidate_products": [],
+            "offer_context": None,
+            "_intelligence": _make_intel(),
+        }
+
+        mock_render = {
+            "html": "<p>Hello</p>",
+            "subject": "Test Subject",
+            "preview_text": "Preview",
+            "validation_report": [],
+        }
+
+        with patch("am_runtime._generate_ai_copy") as mock_ai, \
+             patch("am_runtime.te.make_render_contract") as mock_contract, \
+             patch("am_runtime.te.render_email", return_value=mock_render):
+            mock_ai.return_value = {
+                "hero_headline": "Test",
+                "hero_subheadline": "Sub",
+                "paragraphs": ["Para"],
+                "cta_text": "Shop",
+                "cta_url": "https://ldas.ca",
+                "token_usage": {"input": 0, "output": 0, "total": 0},
+                "copy_source": "fallback",
+                "fallback_reason": "openai package not installed",
+            }
+            result = am_runtime.execute_am_decision(contact, {}, decision)
+
+        assert result["status"] == "rendered"
+        assert result["copy_source"] == "fallback"
+        assert result["fallback_reason"] == "openai package not installed"
+
+
+class TestBuildAmDecisionTimingRobust:
+    """Integration test: build_am_decision no longer crashes on bad timing data."""
+
+    @patch("am_runtime.intelligence_layer")
+    def test_build_decision_with_none_preferred_hour(self, mock_il, in_memory_db, make_contact):
+        """build_am_decision doesn't crash when preferred_hour is None."""
+        from am_runtime import build_am_decision
+        mock_il.should_contact_now.return_value = {"can_send": True}
+        mock_il.get_intelligence.return_value = _make_intel(preferred_hour=None)
+        mock_il.format_intelligence_for_prompt.return_value = ""
+
+        contact = make_contact()
+        strategy = _make_strategy(allowed_actions=["education"])
+
+        # This should NOT raise TypeError
+        decision = build_am_decision(contact, strategy, intelligence=_make_intel(preferred_hour=None))
+        # Decision may be "wait" or "act" — key thing is no crash
+        assert "should_act" in decision or "status" in decision
