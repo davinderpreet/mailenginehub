@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-04 13:22 -- `a9210c7`
+
+**Fix AM block override: use block_type/content keys matching block_registry**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+am_runtime.py
+```
+
+---
+
 ### 2026-04-04 13:07 -- `a19fd29`
 
 **Fix AM runtime blockers: timing crash + openai import fallback**
