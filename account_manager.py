@@ -567,6 +567,7 @@ AM_TEMPLATES = {
         "name": "AM: Education",
         "family": "post_purchase",
         "subject": "Quick tip for your setup, {{first_name}}",
+        "preview_text": "Get more from your gear with these quick tips",
         "blocks": [
             {"block_type": "hero", "content": {"headline": "Get More From Your Gear", "subheadline": "Tips and tricks from the LDAS team"}},
             {"block_type": "text", "content": {"paragraphs": [
@@ -580,6 +581,7 @@ AM_TEMPLATES = {
         "name": "AM: Product Recommendation",
         "family": "promo",
         "subject": "Picked for you, {{first_name}}",
+        "preview_text": "Hand-picked gear based on what you drive",
         "blocks": [
             {"block_type": "hero", "content": {"headline": "Gear That Fits Your Rig", "subheadline": "Hand-picked based on what you drive"}},
             {"block_type": "text", "content": {"paragraphs": [
@@ -594,6 +596,7 @@ AM_TEMPLATES = {
         "name": "AM: Win-Back",
         "family": "winback",
         "subject": "We miss you, {{first_name}}",
+        "preview_text": "We have new gear since your last visit — come take a look",
         "blocks": [
             {"block_type": "hero", "content": {"headline": "It's Been a While", "subheadline": "We've got new gear since your last visit"}},
             {"block_type": "text", "content": {"paragraphs": [
@@ -608,6 +611,7 @@ AM_TEMPLATES = {
         "name": "AM: Reorder Reminder",
         "family": "post_purchase",
         "subject": "Time to restock, {{first_name}}?",
+        "preview_text": "Your go-to gear might need restocking",
         "blocks": [
             {"block_type": "hero", "content": {"headline": "Ready for a Refresh?", "subheadline": "Your go-to gear might need restocking"}},
             {"block_type": "text", "content": {"paragraphs": [
@@ -622,6 +626,7 @@ AM_TEMPLATES = {
         "name": "AM: Loyalty",
         "family": "post_purchase",
         "subject": "Thanks for being loyal, {{first_name}}",
+        "preview_text": "A thank-you from the LDAS crew — plus something new",
         "blocks": [
             {"block_type": "hero", "content": {"headline": "You're One of Our Best", "subheadline": "A thank-you from the LDAS crew"}},
             {"block_type": "text", "content": {"paragraphs": [
@@ -635,6 +640,7 @@ AM_TEMPLATES = {
         "name": "AM: Cross-Sell",
         "family": "promo",
         "subject": "Goes great with your gear, {{first_name}}",
+        "preview_text": "Accessories that pair perfectly with what you already own",
         "blocks": [
             {"block_type": "hero", "content": {"headline": "Complete Your Setup", "subheadline": "Accessories that pair perfectly with what you already own"}},
             {"block_type": "text", "content": {"paragraphs": [
@@ -658,6 +664,7 @@ def seed_am_templates():
         if existing:
             # Update existing template with latest defaults
             existing.subject = tpl["subject"]
+            existing.preview_text = tpl.get("preview_text", "")
             existing.blocks_json = json.dumps(tpl["blocks"])
             existing.template_format = "blocks"
             existing.template_family = tpl["family"]
@@ -669,7 +676,7 @@ def seed_am_templates():
             EmailTemplate.create(
                 name=tpl["name"],
                 subject=tpl["subject"],
-                preview_text="",
+                preview_text=tpl.get("preview_text", ""),
                 html_body="",
                 template_format="blocks",
                 blocks_json=json.dumps(tpl["blocks"]),
