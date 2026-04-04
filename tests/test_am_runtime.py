@@ -1766,3 +1766,292 @@ class TestBuildAmDecisionTimingRobust:
         decision = build_am_decision(contact, strategy, intelligence=_make_intel(preferred_hour=None))
         # Decision may be "wait" or "act" — key thing is no crash
         assert "should_act" in decision or "status" in decision
+
+
+# ═══════════════════════════════════════════════════════════════
+# Quality gate, test mode, and fallback blocking tests
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestApplyAiOverrides:
+    """_apply_ai_overrides must preserve seed content on fallback and apply AI copy normally."""
+
+    def test_fallback_preserves_seed_content(self):
+        """When copy_source is 'fallback', seed blocks are returned unchanged."""
+        from am_runtime import _apply_ai_overrides
+
+        seed_blocks = [
+            {"block_type": "hero", "content": {"headline": "You're One of Our Best", "subheadline": "A thank-you from the LDAS crew"}},
+            {"block_type": "text", "content": {"paragraphs": ["We appreciate your loyalty."], "text": "We appreciate your loyalty."}},
+            {"block_type": "cta", "content": {"text": "See What's New", "url": "https://ldas.ca/collections/new"}},
+        ]
+        fallback_ai = {
+            "hero_headline": "New from LDAS Electronics",
+            "hero_subheadline": "Discover what's waiting for you",
+            "paragraphs": ["Generic fallback paragraph."],
+            "cta_text": "Shop Now",
+            "cta_url": "https://ldas.ca",
+            "copy_source": "fallback",
+            "fallback_reason": "openai package not installed",
+        }
+
+        result = _apply_ai_overrides(seed_blocks, fallback_ai)
+
+        # Seed content must be preserved — NOT overwritten with generic fallback
+        assert result[0]["content"]["headline"] == "You're One of Our Best"
+        assert result[0]["content"]["subheadline"] == "A thank-you from the LDAS crew"
+        assert result[1]["content"]["paragraphs"] == ["We appreciate your loyalty."]
+        assert result[2]["content"]["text"] == "See What's New"
+
+    def test_ai_copy_overrides_seed_content(self):
+        """When copy_source is 'ai', AI-generated copy replaces seed blocks."""
+        from am_runtime import _apply_ai_overrides
+
+        seed_blocks = [
+            {"block_type": "hero", "content": {"headline": "Seed Headline", "subheadline": "Seed sub"}},
+            {"block_type": "text", "content": {"paragraphs": ["Seed paragraph."], "text": "Seed paragraph."}},
+            {"block_type": "cta", "content": {"text": "Seed CTA", "url": "https://ldas.ca"}},
+        ]
+        ai_content = {
+            "hero_headline": "AI-Written Headline",
+            "hero_subheadline": "AI-written subheadline",
+            "paragraphs": ["AI paragraph one.", "AI paragraph two."],
+            "cta_text": "Explore Now",
+            "cta_url": "https://ldas.ca/shop",
+            "copy_source": "ai",
+        }
+
+        result = _apply_ai_overrides(seed_blocks, ai_content)
+
+        assert result[0]["content"]["headline"] == "AI-Written Headline"
+        assert result[0]["content"]["subheadline"] == "AI-written subheadline"
+        assert result[1]["content"]["paragraphs"] == ["AI paragraph one.", "AI paragraph two."]
+        assert result[2]["content"]["text"] == "Explore Now"
+        assert result[2]["content"]["url"] == "https://ldas.ca/shop"
+
+    def test_non_matching_blocks_untouched(self):
+        """Blocks like product_grid, stat_callout are not modified by AI overrides."""
+        from am_runtime import _apply_ai_overrides
+
+        seed_blocks = [
+            {"block_type": "hero", "content": {"headline": "Seed"}},
+            {"block_type": "stat_callout", "content": {"stats": [{"label": "Orders", "value": "12"}]}},
+            {"block_type": "product_grid", "content": {"columns": 2}},
+        ]
+        ai_content = {
+            "hero_headline": "AI Headline",
+            "paragraphs": [],
+            "copy_source": "ai",
+        }
+
+        result = _apply_ai_overrides(seed_blocks, ai_content)
+
+        # hero updated
+        assert result[0]["content"]["headline"] == "AI Headline"
+        # stat_callout and product_grid unchanged
+        assert result[1]["content"]["stats"][0]["label"] == "Orders"
+        assert result[2]["content"]["columns"] == 2
+
+    def test_empty_blocks_list(self):
+        """Empty blocks list returns empty list without error."""
+        from am_runtime import _apply_ai_overrides
+        result = _apply_ai_overrides([], {"copy_source": "ai", "hero_headline": "Test"})
+        assert result == []
+
+    def test_none_blocks_returns_empty(self):
+        """None blocks returns empty list."""
+        from am_runtime import _apply_ai_overrides
+        result = _apply_ai_overrides(None, {"copy_source": "ai"})
+        assert result == []
+
+
+class TestQualityGate:
+    """check_am_quality blocks fallback and generic content in production."""
+
+    def test_fallback_blocked_in_production(self):
+        """copy_source='fallback' is blocked in production mode."""
+        from am_runtime import check_am_quality
+
+        result = {"copy_source": "fallback", "fallback_reason": "openai missing", "html": "<p>test</p>"}
+        decision = {"action_type": "education"}
+
+        status, reason = check_am_quality(result, decision, test_mode=False)
+        assert status == "blocked"
+        assert "fallback_copy_not_allowed_in_production" in reason
+
+    def test_fallback_allowed_in_test_mode(self):
+        """test_mode=True bypasses quality gate entirely."""
+        from am_runtime import check_am_quality
+
+        result = {"copy_source": "fallback", "fallback_reason": "openai missing", "html": "<p>test</p>"}
+        decision = {"action_type": "education"}
+
+        status, reason = check_am_quality(result, decision, test_mode=True)
+        assert status == "pass"
+        assert reason == ""
+
+    def test_ai_copy_passes_gate(self):
+        """copy_source='ai' passes quality gate in production."""
+        from am_runtime import check_am_quality
+
+        result = {"copy_source": "ai", "html": "<p>Personalized content here</p>"}
+        decision = {"action_type": "loyalty"}
+
+        status, reason = check_am_quality(result, decision, test_mode=False)
+        assert status == "pass"
+
+    def test_generic_headline_blocked_in_production(self):
+        """Known generic headlines in HTML are blocked even with copy_source='ai'."""
+        from am_runtime import check_am_quality
+
+        result = {
+            "copy_source": "ai",
+            "html": "<h1>New from LDAS Electronics</h1><p>body</p>",
+        }
+        decision = {"action_type": "education"}
+
+        status, reason = check_am_quality(result, decision, test_mode=False)
+        assert status == "blocked"
+        assert "generic_content_detected" in reason
+
+    def test_generic_headline_allowed_in_test_mode(self):
+        """Generic content is allowed through in test mode."""
+        from am_runtime import check_am_quality
+
+        result = {
+            "copy_source": "ai",
+            "html": "<h1>New from LDAS Electronics</h1>",
+        }
+        decision = {"action_type": "education"}
+
+        status, reason = check_am_quality(result, decision, test_mode=True)
+        assert status == "pass"
+
+    def test_clean_ai_html_passes(self):
+        """Clean AI-generated HTML with no generic content passes."""
+        from am_runtime import check_am_quality
+
+        result = {
+            "copy_source": "ai",
+            "html": "<h1>You're One of Our Best Customers</h1><p>Thank you for your loyalty.</p>",
+        }
+        decision = {"action_type": "loyalty"}
+
+        status, reason = check_am_quality(result, decision, test_mode=False)
+        assert status == "pass"
+        assert reason == ""
+
+
+class TestTestMode:
+    """execute_am_decision test_mode prefixes subjects with [AM TEST]."""
+
+    def test_test_mode_prefixes_subject(self, in_memory_db, make_contact, make_template):
+        """When test_mode=True, subject is prefixed with [AM TEST]."""
+        from am_runtime import execute_am_decision
+
+        contact = make_contact()
+        template = make_template(name="AM: Education")
+        decision = {
+            "action_type": "education",
+            "objective": "AM: Education",
+            "template_family": "post_purchase",
+            "candidate_products": [],
+            "offer_context": None,
+            "_intelligence": _make_intel(),
+        }
+
+        with patch("am_runtime._generate_ai_copy") as mock_ai, \
+             patch("am_runtime.te.make_render_contract"), \
+             patch("am_runtime.te.render_email") as mock_render:
+            mock_ai.return_value = {
+                "hero_headline": "Tips for Your Gear",
+                "hero_subheadline": "Quick wins",
+                "paragraphs": ["Here's a tip."],
+                "cta_text": "Learn More",
+                "cta_url": "https://ldas.ca",
+                "token_usage": {"input": 50, "output": 30, "total": 80},
+                "copy_source": "ai",
+            }
+            mock_render.return_value = {
+                "html": "<p>rendered</p>",
+                "subject": "Tips for Your Gear",
+                "preview_text": "Tips",
+                "validation_report": [],
+            }
+
+            result = execute_am_decision(contact, {}, decision, template=template, test_mode=True)
+
+        assert result["status"] == "rendered"
+        assert result["subject"].startswith("[AM TEST]")
+
+    def test_production_mode_no_prefix(self, in_memory_db, make_contact, make_template):
+        """When test_mode=False (default), subject has no prefix."""
+        from am_runtime import execute_am_decision
+
+        contact = make_contact()
+        template = make_template(name="AM: Loyalty")
+        decision = {
+            "action_type": "loyalty",
+            "objective": "AM: Loyalty",
+            "template_family": "post_purchase",
+            "candidate_products": [],
+            "offer_context": None,
+            "_intelligence": _make_intel(),
+        }
+
+        with patch("am_runtime._generate_ai_copy") as mock_ai, \
+             patch("am_runtime.te.make_render_contract"), \
+             patch("am_runtime.te.render_email") as mock_render:
+            mock_ai.return_value = {
+                "hero_headline": "You're One of Our Best",
+                "hero_subheadline": "Thank you",
+                "paragraphs": ["We appreciate you."],
+                "cta_text": "See What's New",
+                "cta_url": "https://ldas.ca",
+                "token_usage": {"input": 50, "output": 30, "total": 80},
+                "copy_source": "ai",
+            }
+            mock_render.return_value = {
+                "html": "<p>rendered</p>",
+                "subject": "You're One of Our Best",
+                "preview_text": "Thank you",
+                "validation_report": [],
+            }
+
+            result = execute_am_decision(contact, {}, decision, template=template, test_mode=False)
+
+        assert result["status"] == "rendered"
+        assert not result["subject"].startswith("[AM TEST]")
+        assert result["subject"] == "You're One of Our Best"
+
+
+class TestProviderModelConfig:
+    """Verify _generate_ai_copy uses openai/gpt-4o-mini model via OpenRouter."""
+
+    def test_model_is_gpt4o_mini(self, in_memory_db, make_contact):
+        """AI copy generation calls OpenRouter with openai/gpt-4o-mini model."""
+        from am_runtime import _generate_ai_copy
+        contact = make_contact(first_name="Test")
+        decision = {"action_type": "education", "candidate_products": []}
+        intel = _make_intel()
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "hero_headline": "Test",
+            "hero_subheadline": "Sub",
+            "paragraphs": ["Para"],
+            "cta_text": "CTA",
+            "cta_url": "https://ldas.ca",
+        })
+        mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch("am_runtime._get_openrouter_client", return_value=mock_client):
+            _generate_ai_copy(contact, decision, intel)
+
+        # Verify the model passed to create()
+        call_kwargs = mock_client.chat.completions.create.call_args
+        assert call_kwargs[1].get("model") or call_kwargs.kwargs.get("model") == "openai/gpt-4o-mini"

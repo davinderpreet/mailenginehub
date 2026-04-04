@@ -574,7 +574,17 @@ AM_TEMPLATES = {
                 "Whether you just upgraded your headset or you've been rocking the same dash cam for years \u2014 there's always a way to get more out of your equipment.",
                 "Here are a few quick wins our customers swear by."
             ]}},
-            {"block_type": "cta", "content": {"text": "Learn More", "url": "https://ldas.ca/blogs/news"}},
+            {"block_type": "features_benefits", "content": {
+                "section_title": "Quick Wins",
+                "items": [
+                    "Mount your dash cam behind the rear-view mirror for the cleanest field of view",
+                    "Pair your Bluetooth headset before starting the engine for fastest connection",
+                    "Use the included cable clips to keep wiring tidy and out of sight",
+                    "Register your product at ldas.ca for extended warranty coverage"
+                ]
+            }},
+            {"block_type": "product_grid", "content": {"section_title": "Popular With Customers Like You", "columns": 2}},
+            {"block_type": "cta", "content": {"text": "Browse Our Blog", "url": "https://ldas.ca/blogs/news"}},
         ]
     },
     "product_recommendation": {
@@ -589,6 +599,12 @@ AM_TEMPLATES = {
                 "All built tough for Canadian roads. Free shipping on orders over $99."
             ]}},
             {"block_type": "product_grid", "content": {"section_title": "Picked for You", "columns": 2}},
+            {"block_type": "trust_reassurance", "content": {"items": [
+                {"icon": "truck", "text": "Free shipping over $99"},
+                {"icon": "shield", "text": "1-year warranty"},
+                {"icon": "maple", "text": "Ships from Canada"},
+                {"icon": "package", "text": "Easy returns"}
+            ]}},
             {"block_type": "cta", "content": {"text": "Shop Now", "url": "https://ldas.ca/collections/all"}},
         ]
     },
@@ -596,14 +612,20 @@ AM_TEMPLATES = {
         "name": "AM: Win-Back",
         "family": "winback",
         "subject": "We miss you, {{first_name}}",
-        "preview_text": "We have new gear since your last visit — come take a look",
+        "preview_text": "We have new gear since your last visit \u2014 come take a look",
         "blocks": [
             {"block_type": "hero", "content": {"headline": "It's Been a While", "subheadline": "We've got new gear since your last visit"}},
             {"block_type": "text", "content": {"paragraphs": [
                 "We noticed you haven't been by in a while. No hard feelings \u2014 but we've added a bunch of new products since your last order.",
                 "Use your personal discount below to save on your next order. It's our way of saying we'd love to have you back."
             ]}},
-            {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": ""}},
+            {"block_type": "best_seller_proof", "content": {
+                "section_title": "Here's What's Popular Now",
+                "proof_line": "Trending with Canadian drivers",
+                "badge_text": "Popular",
+                "show_rating": True
+            }},
+            {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": "", "mode": "runtime"}},
             {"block_type": "cta", "content": {"text": "Come Back & Save", "url": "https://ldas.ca"}},
         ]
     },
@@ -614,25 +636,35 @@ AM_TEMPLATES = {
         "preview_text": "Your go-to gear might need restocking",
         "blocks": [
             {"block_type": "hero", "content": {"headline": "Ready for a Refresh?", "subheadline": "Your go-to gear might need restocking"}},
+            {"block_type": "product_hero", "content": {"section_title": "Time to Restock", "cta_text": "Reorder Now"}},
             {"block_type": "text", "content": {"paragraphs": [
                 "Based on when you last ordered, it might be time to grab a replacement or top up on accessories.",
-                "Same great gear, ready to ship. Most orders arrive within 3-5 business days across Canada."
+                "Same great gear, ready to ship. Most orders arrive within 3\u20135 business days across Canada."
             ]}},
-            {"block_type": "product_hero", "content": {"section_title": "Time to Restock", "cta_text": "Reorder Now"}},
-            {"block_type": "cta", "content": {"text": "Reorder Now", "url": "https://ldas.ca"}},
+            {"block_type": "urgency", "content": {"message": "Most orders ship within 24 hours"}},
+            {"block_type": "cta", "content": {"text": "Reorder Now", "url": "https://ldas.ca/collections/all"}},
         ]
     },
     "loyalty": {
         "name": "AM: Loyalty",
         "family": "post_purchase",
         "subject": "Thanks for being loyal, {{first_name}}",
-        "preview_text": "A thank-you from the LDAS crew — plus something new",
+        "preview_text": "A thank-you from the LDAS crew \u2014 plus something new",
         "blocks": [
             {"block_type": "hero", "content": {"headline": "You're One of Our Best", "subheadline": "A thank-you from the LDAS crew"}},
+            {"block_type": "stat_callout", "content": {
+                "section_title": "Your LDAS Journey",
+                "stats": [
+                    {"value": "{{total_orders}}", "label": "Orders Placed"},
+                    {"value": "${{total_spent}}", "label": "Lifetime Value"},
+                    {"value": "${{avg_order_value}}", "label": "Avg Order"}
+                ]
+            }},
             {"block_type": "text", "content": {"paragraphs": [
                 "You've been with us through multiple orders and we don't take that lightly. Customers like you are the reason we keep building better products.",
                 "Here's a sneak peek at what's new \u2014 and a little something extra just for you."
             ]}},
+            {"block_type": "product_grid", "content": {"section_title": "New Arrivals for You", "columns": 2}},
             {"block_type": "cta", "content": {"text": "See What's New", "url": "https://ldas.ca/collections/new"}},
         ]
     },
@@ -648,6 +680,12 @@ AM_TEMPLATES = {
                 "Mounts, chargers, cables \u2014 the small stuff that makes a big difference on the road."
             ]}},
             {"block_type": "product_grid", "content": {"section_title": "Goes Great With Your Gear", "columns": 2}},
+            {"block_type": "trust_reassurance", "content": {"items": [
+                {"icon": "truck", "text": "Free shipping over $99"},
+                {"icon": "shield", "text": "30-day easy returns"},
+                {"icon": "star", "text": "2,000+ happy customers"},
+                {"icon": "maple", "text": "Canadian owned"}
+            ]}},
             {"block_type": "cta", "content": {"text": "Browse Accessories", "url": "https://ldas.ca/collections/accessories"}},
         ]
     },
@@ -725,6 +763,9 @@ def run_account_manager():
         return {"status": "disabled"}
 
     max_daily = int(LearningConfig.get_val("am_max_daily_contacts", "500"))
+    test_mode = LearningConfig.get_val("am_test_mode", "false") == "true"
+    if test_mode:
+        logger.info("[AccountManager] Running in TEST MODE — quality gate bypassed, subjects prefixed")
 
     # Get only contacts due today or overdue
     today_end = datetime.now().replace(hour=23, minute=59, second=59)
@@ -774,12 +815,40 @@ def run_account_manager():
                 skipped += 1
                 continue
 
-            # Execute the decision (includes Claude API call)
+            # Execute the decision (includes AI copy generation)
             _api_start = time.time()
-            result = am_runtime.execute_am_decision(contact, cs, decision)
+            result = am_runtime.execute_am_decision(contact, cs, decision, test_mode=test_mode)
             api_elapsed = time.time() - _api_start
 
             if not result or result["status"] == "invalid":
+                cs.next_action_date = datetime.now() + timedelta(days=1)
+                _retry_db_op(lambda: cs.save())
+                continue
+
+            # Quality gate — block low-quality output in production
+            qg_status, qg_reason = am_runtime.check_am_quality(result, decision, test_mode=test_mode)
+            if qg_status == "blocked":
+                logger.warning("[AccountManager] Quality gate BLOCKED contact %s: %s", contact.id, qg_reason)
+                # Create a review artifact so the block is diagnosable
+                try:
+                    _retry_db_op(lambda: AMPendingReview.create(
+                        contact=contact,
+                        strategy=cs,
+                        subject=result.get("subject", ""),
+                        preheader=result.get("preheader", ""),
+                        body_html=result.get("html", ""),
+                        reasoning="BLOCKED by quality gate: %s" % qg_reason,
+                        strategy_context="Phase: %s. Action: %s" % (
+                            decision.get("strategy_phase", ""), decision.get("action_type", "")),
+                        action_type=decision.get("action_type", ""),
+                        template_id=result.get("template_id", 0),
+                        decision_json=json.dumps({k: v for k, v in decision.items()
+                                                  if k not in ("render_result",)}, default=str),
+                        status="blocked_low_quality",
+                        created_at=datetime.now(),
+                    ))
+                except Exception:
+                    pass
                 cs.next_action_date = datetime.now() + timedelta(days=1)
                 _retry_db_op(lambda: cs.save())
                 continue

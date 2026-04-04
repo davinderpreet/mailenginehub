@@ -99,26 +99,35 @@ def _safe_json(raw, default):
         return default
 
 
-def _get_openrouter_client():
-    """Return an OpenAI-compatible client pointed at OpenRouter.
+# Known generic fallback strings — used by quality gate to detect low-quality output
+_GENERIC_HEADLINES = frozenset({
+    "New from LDAS Electronics",
+    "Discover what's waiting for you",
+    "We've got something special for you.",
+})
 
-    Raises RuntimeError with a clear message if the openai package
-    is not installed or the API key is missing.
+
+def check_am_quality(result, decision, test_mode=False):
+    """Check whether an AM render is good enough to send/review.
+
+    Returns:
+        ("pass", "") — acceptable for production
+        ("blocked", reason) — not acceptable, must not send
     """
-    try:
-        from openai import OpenAI
-    except ImportError:
-        raise RuntimeError(
-            "openai package not installed — run: pip install openai  "
-            "(required for AM AI copy generation via OpenRouter)"
-        )
-    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY not set in .env")
-    return OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=api_key,
-    )
+    if test_mode:
+        return ("pass", "")
+
+    # Block 1: Fallback copy must never reach real customers
+    if result.get("copy_source") == "fallback":
+        return ("blocked", "fallback_copy_not_allowed_in_production: %s" % result.get("fallback_reason", ""))
+
+    # Block 2: Detect generic content that slipped through
+    html = result.get("html", "")
+    for generic in _GENERIC_HEADLINES:
+        if generic in html:
+            return ("blocked", "generic_content_detected: '%s'" % generic)
+
+    return ("pass", "")
 
 
 # ==================================================================
@@ -798,6 +807,24 @@ def restore_am_decision(raw_decision, strategy=None, template=None):
 # AI copy generation
 # ==================================================================
 
+def _get_openrouter_client():
+    """Create an OpenAI client configured for OpenRouter.
+
+    Raises RuntimeError with a clear message if the openai package is not installed.
+    """
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise RuntimeError(
+            "openai package not installed — run 'pip install openai' on the VPS. "
+            "AM AI copy generation requires this package for OpenRouter access."
+        )
+    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY not set in environment")
+    return OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+
+
 def _generate_ai_copy(contact, decision, intelligence, reviewer_feedback=""):
     """Generate email copy via Claude (OpenRouter).
 
@@ -862,7 +889,7 @@ Return ONLY valid JSON, no markdown fences."""
     try:
         client = _get_openrouter_client()
         response = client.chat.completions.create(
-            model="anthropic/claude-haiku-4-5",
+            model="openai/gpt-4o-mini",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -906,12 +933,21 @@ Return ONLY valid JSON, no markdown fences."""
 def _apply_ai_overrides(blocks_json, ai_content):
     """Deep-copy blocks and inject AI-generated text into matching block types.
 
+    When copy_source is "fallback" (AI unavailable), skip overrides entirely
+    to preserve the seed template's purpose-specific content. The seed content
+    (e.g. "You're One of Our Best" for loyalty) is always better than the
+    generic fallback ("New from LDAS Electronics").
+
     Block format uses "block_type" key, with data nested under "content".
     - hero block -> content.headline, content.subheadline
     - text block -> content.paragraphs (list) or content.text
     - cta block  -> content.text, content.url
     """
     blocks = copy.deepcopy(blocks_json) if blocks_json else []
+
+    # Preserve seed template when AI copy generation failed
+    if ai_content.get("copy_source") == "fallback":
+        return blocks
 
     for block in blocks:
         btype = block.get("block_type", "")
@@ -945,7 +981,7 @@ def _apply_ai_overrides(blocks_json, ai_content):
 # Execution entry point
 # ==================================================================
 
-def execute_am_decision(contact, strategy, decision, template=None, reviewer_feedback=""):
+def execute_am_decision(contact, strategy, decision, template=None, reviewer_feedback="", test_mode=False):
     """Execute an AM decision: AI copy generation + template rendering.
 
     Args:
@@ -953,9 +989,12 @@ def execute_am_decision(contact, strategy, decision, template=None, reviewer_fee
         strategy: strategy JSON dict or string
         decision: dict from build_am_decision
         template: optional EmailTemplate override (locked — no learning swap)
+        reviewer_feedback: optional text from human review
+        test_mode: when True, subjects are prefixed with [AM TEST]
 
     Returns:
-        dict: {status, subject, html, template_id, ai_tokens} or {status, reason}
+        dict: {status, subject, html, template_id, ai_tokens, copy_source, fallback_reason}
+              or {status, reason}
     """
     from database import EmailTemplate
 
@@ -1019,6 +1058,14 @@ def execute_am_decision(contact, strategy, decision, template=None, reviewer_fee
     temp_template = copy.copy(template)
     temp_template.blocks_json = json.dumps(modified_blocks)
 
+    # Step 5b: enrich products with descriptions and compare_price
+    enriched_products = decision.get("candidate_products", [])
+    try:
+        from flow_runtime import enrich_products_for_merch
+        enriched_products = enrich_products_for_merch(enriched_products)
+    except Exception as exc:
+        logger.debug("[am_runtime] product enrichment skipped: %s", exc)
+
     # Step 6: build render contract and render
     try:
         contract = te.make_render_contract(
@@ -1026,7 +1073,7 @@ def execute_am_decision(contact, strategy, decision, template=None, reviewer_fee
             source_system="am",
             objective=decision.get("objective", ""),
             contact_id=contact.id,
-            product_context=decision.get("candidate_products", []),
+            product_context=enriched_products,
             offer_context=decision.get("offer_context"),
             mode="send",
         )
@@ -1051,6 +1098,10 @@ def execute_am_decision(contact, strategy, decision, template=None, reviewer_fee
 
     if not html:
         return {"status": "invalid", "reason": "empty HTML after render"}
+
+    # Test mode: prefix subject so it's clearly identifiable
+    if test_mode:
+        subject = "[AM TEST] " + subject
 
     return {
         "status": "rendered",
