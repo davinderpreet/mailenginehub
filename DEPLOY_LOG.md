@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-04 15:45 -- `ae712ac`
+
+**Fix loyalty template: replace stat_callout with features_benefits**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+account_manager.py
+```
+
+---
+
 ### 2026-04-04 15:40 -- `497a320`
 
 **Auto-update CLAUDE.md before deploy**
