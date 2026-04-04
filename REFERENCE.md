@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-04-04 15:51. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-04-04 16:43. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 41,988 lines)
+## Python Files — Detailed (63 files, 42,114 lines)
 
 ### `app.py` (7,354 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -280,7 +280,7 @@ Key functions:
 - `_process_flow_enrollments() — Every 60s: advance flow steps, send scheduled emails`
 - `_process_delivery_queue_wrapper() — Every 30s: drain queue respecting warmup limits`
 
-### `block_registry.py` (2,489 lines)
+### `block_registry.py` (2,499 lines)
 **Email template block rendering engine — 26 block types, validation, personalization**
 
 Defines BLOCK_TYPES registry (26 types) with schema (required/optional fields, defaults, label, category).
@@ -357,7 +357,7 @@ Key functions:
 - `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
 - `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
 
-### `am_runtime.py` (1,130 lines)
+### `am_runtime.py` (1,243 lines)
 **AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)**
 
 Phase 4 Account Manager decision engine. Provides build_am_decision() for structured
@@ -809,7 +809,7 @@ get_products_for_email(product_refs) returns product data formatted for email te
 ### `email_sanitizer.py` (253 lines)
 **Email HTML sanitizer — cleans AI-generated HTML for safe email rendering**
 
-### `email_sender.py` (249 lines)
+### `email_sender.py` (252 lines)
 **AWS SES integration — MIME-based, RFC 8058 one-click unsubscribe, suppression checks**
 
 Sends emails via boto3 SES raw send. Builds MIME multipart (text/plain + text/html).

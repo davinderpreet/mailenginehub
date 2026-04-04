@@ -1,6 +1,6 @@
 # MailEngineHub — Project Context
 > Email marketing platform for LDAS Electronics. Flask + SQLite (Peewee) + Amazon SES + Gunicorn.
-> 63 files, 41,988 lines. For full detail: read `REFERENCE.md`
+> 63 files, 42,114 lines. For full detail: read `REFERENCE.md`
 
 ## Deployment
 - **Repo**: `C:\Users\davin\Claude Work Folder\mailenginehub-repo\`
@@ -22,13 +22,13 @@ Studio: knowledge + performance -> studio_skills(6 AI skills) -> candidate -> ap
 | File | Lines | Role |
 |------|-------|------|
 | `app.py` | 7,354 | Flask application — all routes, scheduler, webhooks, auth |
-| `block_registry.py` | 2,489 | Email template block rendering engine — 26 block types, validation, personalization |
+| `block_registry.py` | 2,499 | Email template block rendering engine — 26 block types, validation, personalization |
 | `database.py` | 1,993 | All 53 Peewee ORM models + init_db() + migration helpers |
 | `account_manager.py` | 1,726 | Account Manager AI — autonomous nightly email campaign planning and execution via Claude |
 | `customer_intelligence.py` | 1,429 | Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV |
 | `generate-context.py` | 1,364 | Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file) |
 | `flow_runtime.py` | 1,326 | Flow send package builder — centralizes flow render/decision logic (Phase 3) |
-| `am_runtime.py` | 1,130 | AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4) |
+| `am_runtime.py` | 1,243 | AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4) |
 | `identity_resolution.py` | 1,084 | Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching |
 | `template_engine.py` | 1,043 | Shared template rendering & validation engine — single render path for all preview/send/studio/preflight |
 
