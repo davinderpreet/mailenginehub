@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-04 15:33 -- `f711b95`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-04-04 13:26 -- `eda7a3d`
 
 **Add preview_text to AM seed templates + fix seed to persist it**
