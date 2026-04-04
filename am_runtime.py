@@ -887,19 +887,33 @@ Write the email content as JSON with these exact keys:
 Return ONLY valid JSON, no markdown fences."""
 
     try:
-        client = _get_openrouter_client()
-        response = client.chat.completions.create(
-            model="openai/gpt-4o-mini",
-            max_tokens=1000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = response.choices[0].message.content.strip()
-        usage = response.usage
-        input_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
-        output_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
-        total_tokens = getattr(usage, "total_tokens", 0) if usage else 0
-        if not total_tokens:
-            total_tokens = input_tokens + output_tokens
+        raw = None
+        input_tokens = output_tokens = total_tokens = 0
+
+        # Try OpenRouter first (preferred: openai/gpt-4o-mini)
+        try:
+            client = _get_openrouter_client()
+            response = client.chat.completions.create(
+                model="openai/gpt-4o-mini",
+                max_tokens=1000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = response.choices[0].message.content.strip()
+            usage = response.usage
+            input_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
+            output_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
+            total_tokens = getattr(usage, "total_tokens", 0) if usage else 0
+            if not total_tokens:
+                total_tokens = input_tokens + output_tokens
+        except Exception as openrouter_exc:
+            # Fall back to ai_provider (uses Anthropic key if configured)
+            logger.info("[am_runtime] OpenRouter unavailable (%s), trying ai_provider fallback", openrouter_exc)
+            try:
+                from ai_provider import get_provider
+                provider = get_provider()
+                raw = provider.complete(system_prompt="", user_prompt=prompt, max_tokens=1000)
+            except Exception as provider_exc:
+                raise RuntimeError("Both OpenRouter and ai_provider failed: %s / %s" % (openrouter_exc, provider_exc))
 
         # Parse JSON
         parsed = json.loads(raw)

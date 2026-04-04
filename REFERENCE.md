@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-04-04 15:32. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-04-04 15:38. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 41,974 lines)
+## Python Files — Detailed (63 files, 41,988 lines)
 
 ### `app.py` (7,354 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -357,7 +357,7 @@ Key functions:
 - `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
 - `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
 
-### `am_runtime.py` (1,116 lines)
+### `am_runtime.py` (1,130 lines)
 **AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)**
 
 Phase 4 Account Manager decision engine. Provides build_am_decision() for structured
