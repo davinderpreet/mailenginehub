@@ -652,12 +652,13 @@ AM_TEMPLATES = {
         "preview_text": "A thank-you from the LDAS crew \u2014 plus something new",
         "blocks": [
             {"block_type": "hero", "content": {"headline": "You're One of Our Best", "subheadline": "A thank-you from the LDAS crew"}},
-            {"block_type": "stat_callout", "content": {
+            {"block_type": "features_benefits", "content": {
                 "section_title": "Your LDAS Journey",
-                "stats": [
-                    {"value": "{{total_orders}}", "label": "Orders Placed"},
-                    {"value": "${{total_spent}}", "label": "Lifetime Value"},
-                    {"value": "${{avg_order_value}}", "label": "Avg Order"}
+                "items": [
+                    {"icon": "repeat", "title": "Repeat Customer", "description": "You've placed multiple orders — that makes you one of our best."},
+                    {"icon": "star", "title": "Loyal Supporter", "description": "Customers like you keep us building better products."},
+                    {"icon": "truck", "title": "Always Shipping", "description": "We're always adding new gear — check out what's fresh."},
+                    {"icon": "shield", "title": "VIP Treatment", "description": "You'll always get priority support and early access to new drops."}
                 ]
             }},
             {"block_type": "text", "content": {"paragraphs": [
