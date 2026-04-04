@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-04 15:40 -- `497a320`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+DEPLOY_LOG.md
+```
+
+---
+
 ### 2026-04-04 15:40 -- `97bfe8e`
 
 **Add ai_provider fallback when OpenRouter key is unavailable**
