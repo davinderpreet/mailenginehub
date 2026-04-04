@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-04 13:26 -- `eda7a3d`
+
+**Add preview_text to AM seed templates + fix seed to persist it**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+account_manager.py
+```
+
+---
+
 ### 2026-04-04 13:22 -- `a9210c7`
 
 **Fix AM block override: use block_type/content keys matching block_registry**
