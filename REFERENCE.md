@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-04-04 13:05. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-04-04 13:21. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 41,841 lines)
+## Python Files — Detailed (63 files, 41,847 lines)
 
 ### `app.py` (7,354 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -373,7 +373,7 @@ Key functions:
 - `process_identity_jobs() — Drain IdentityJob queue`
 - `replay_triggers(contact) — Re-evaluate pending triggers after stitching`
 
-### `am_runtime.py` (1,059 lines)
+### `am_runtime.py` (1,065 lines)
 **AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)**
 
 Phase 4 Account Manager decision engine. Provides build_am_decision() for structured

@@ -906,31 +906,37 @@ Return ONLY valid JSON, no markdown fences."""
 def _apply_ai_overrides(blocks_json, ai_content):
     """Deep-copy blocks and inject AI-generated text into matching block types.
 
-    - hero block -> headline, subheadline
-    - text block -> paragraphs
-    - cta block  -> text, url
+    Block format uses "block_type" key, with data nested under "content".
+    - hero block -> content.headline, content.subheadline
+    - text block -> content.paragraphs (list) or content.text
+    - cta block  -> content.text, content.url
     """
     blocks = copy.deepcopy(blocks_json) if blocks_json else []
 
     for block in blocks:
-        btype = block.get("type", "")
+        btype = block.get("block_type", "")
+        content = block.get("content", {})
 
         if btype == "hero":
             if ai_content.get("hero_headline"):
-                block["headline"] = ai_content["hero_headline"]
+                content["headline"] = ai_content["hero_headline"]
             if ai_content.get("hero_subheadline"):
-                block["subheadline"] = ai_content["hero_subheadline"]
+                content["subheadline"] = ai_content["hero_subheadline"]
+            block["content"] = content
 
         elif btype == "text":
             paragraphs = ai_content.get("paragraphs", [])
             if paragraphs:
-                block["text"] = "\n\n".join(paragraphs)
+                content["paragraphs"] = paragraphs
+                content["text"] = "\n\n".join(paragraphs)
+            block["content"] = content
 
         elif btype == "cta":
             if ai_content.get("cta_text"):
-                block["text"] = ai_content["cta_text"]
+                content["text"] = ai_content["cta_text"]
             if ai_content.get("cta_url"):
-                block["url"] = ai_content["cta_url"]
+                content["url"] = ai_content["cta_url"]
+            block["content"] = content
 
     return blocks
 
