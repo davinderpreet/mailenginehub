@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-04 15:52 -- `86792fa`
+
+**Move AM templates to promo family for full block support**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+account_manager.py
+am_runtime.py
+```
+
+---
+
 ### 2026-04-04 15:45 -- `ae712ac`
 
 **Fix loyalty template: replace stat_callout with features_benefits**
