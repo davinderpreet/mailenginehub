@@ -4,6 +4,18 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-04 13:07 -- `a19fd29`
+
+**Fix AM runtime blockers: timing crash + openai import fallback**
+
+Files changed:
+```
+am_runtime.py
+tests/test_am_runtime.py
+```
+
+---
+
 ### 2026-04-02 13:17 -- `baff8a9`
 
 **Upgrade send window algorithm: correlate send hour → open speed across all journeys**
