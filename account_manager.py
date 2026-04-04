@@ -565,7 +565,7 @@ def seed_default_prompts():
 AM_TEMPLATES = {
     "education": {
         "name": "AM: Education",
-        "family": "post_purchase",
+        "family": "promo",
         "subject": "Quick tip for your setup, {{first_name}}",
         "preview_text": "Get more from your gear with these quick tips",
         "blocks": [
@@ -631,7 +631,7 @@ AM_TEMPLATES = {
     },
     "reorder_reminder": {
         "name": "AM: Reorder Reminder",
-        "family": "post_purchase",
+        "family": "promo",
         "subject": "Time to restock, {{first_name}}?",
         "preview_text": "Your go-to gear might need restocking",
         "blocks": [
@@ -641,24 +641,23 @@ AM_TEMPLATES = {
                 "Based on when you last ordered, it might be time to grab a replacement or top up on accessories.",
                 "Same great gear, ready to ship. Most orders arrive within 3\u20135 business days across Canada."
             ]}},
-            {"block_type": "urgency", "content": {"message": "Most orders ship within 24 hours"}},
+            {"block_type": "urgency", "content": {"message": "Most orders ship within 24 hours — restock before you run out"}},
             {"block_type": "cta", "content": {"text": "Reorder Now", "url": "https://ldas.ca/collections/all"}},
         ]
     },
     "loyalty": {
         "name": "AM: Loyalty",
-        "family": "post_purchase",
+        "family": "promo",
         "subject": "Thanks for being loyal, {{first_name}}",
         "preview_text": "A thank-you from the LDAS crew \u2014 plus something new",
         "blocks": [
             {"block_type": "hero", "content": {"headline": "You're One of Our Best", "subheadline": "A thank-you from the LDAS crew"}},
-            {"block_type": "features_benefits", "content": {
+            {"block_type": "stat_callout", "content": {
                 "section_title": "Your LDAS Journey",
-                "items": [
-                    {"icon": "repeat", "title": "Repeat Customer", "description": "You've placed multiple orders — that makes you one of our best."},
-                    {"icon": "star", "title": "Loyal Supporter", "description": "Customers like you keep us building better products."},
-                    {"icon": "truck", "title": "Always Shipping", "description": "We're always adding new gear — check out what's fresh."},
-                    {"icon": "shield", "title": "VIP Treatment", "description": "You'll always get priority support and early access to new drops."}
+                "stats": [
+                    {"value": "{{total_orders}}", "label": "Orders Placed"},
+                    {"value": "${{total_spent}}", "label": "Lifetime Value"},
+                    {"value": "${{avg_order_value}}", "label": "Avg Order"}
                 ]
             }},
             {"block_type": "text", "content": {"paragraphs": [

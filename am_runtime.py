@@ -38,11 +38,11 @@ logger = logging.getLogger(__name__)
 # ==================================================================
 
 AM_ACTION_TO_FAMILY = {
-    "education":              ("AM: Education", "post_purchase"),
+    "education":              ("AM: Education", "promo"),
     "product_recommendation": ("AM: Product Recommendation", "promo"),
     "winback":                ("AM: Win-Back", "winback"),
-    "reorder_reminder":       ("AM: Reorder Reminder", "post_purchase"),
-    "loyalty":                ("AM: Loyalty", "post_purchase"),
+    "reorder_reminder":       ("AM: Reorder Reminder", "promo"),
+    "loyalty":                ("AM: Loyalty", "promo"),
     "cross_sell":             ("AM: Cross-Sell", "promo"),
 }
 
