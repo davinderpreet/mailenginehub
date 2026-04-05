@@ -4,6 +4,21 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-05 10:04 -- `de9000a`
+
+**Fix 5 AM email quality issues from inbox audit**
+
+Files changed:
+```
+REFERENCE.md
+am_runtime.py
+block_registry.py
+email_sender.py
+tests/test_am_runtime.py
+```
+
+---
+
 ### 2026-04-04 15:52 -- `86792fa`
 
 **Move AM templates to promo family for full block support**
