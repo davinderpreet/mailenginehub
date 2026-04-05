@@ -35,6 +35,11 @@
   // ── Don't show if already subscribed ────────
   if (localStorage.getItem('meh_email')) return;
 
+  // ── Don't show on cart or checkout pages ───
+  var _path = window.location.pathname.toLowerCase();
+  if (_path.indexOf('/cart') === 0 || _path.indexOf('/checkout') === 0 ||
+      _path.indexOf('/checkouts') === 0) return;
+
   // Check cookie: '1' = fully dismissed, 'teaser' = show teaser on load
   var _cookieVal = getCookie(COOKIE_NAME);
   var _startAsTeaser = (_cookieVal === 'teaser');
