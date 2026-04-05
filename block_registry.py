@@ -2048,10 +2048,20 @@ def render_template_blocks(template, contact=None, products=None, discount=None,
         body_html = body_html.replace("{{first_name}}", getattr(contact, "first_name", "") or "Friend")
         body_html = body_html.replace("{{last_name}}", getattr(contact, "last_name", "") or "")
         body_html = body_html.replace("{{email}}", getattr(contact, "email", "") or "")
+        # Purchase stats (used by stat_callout in loyalty emails)
+        _orders = int(getattr(contact, "total_orders", 0) or 0)
+        _spent = float(getattr(contact, "total_spent", 0) or 0)
+        _aov = "%.2f" % (_spent / _orders) if _orders > 0 else "0.00"
+        body_html = body_html.replace("{{total_orders}}", str(_orders))
+        body_html = body_html.replace("{{total_spent}}", "%.2f" % _spent)
+        body_html = body_html.replace("{{avg_order_value}}", _aov)
     else:
         body_html = body_html.replace("{{first_name}}", "John")
         body_html = body_html.replace("{{last_name}}", "Smith")
         body_html = body_html.replace("{{email}}", "john@example.com")
+        body_html = body_html.replace("{{total_orders}}", "3")
+        body_html = body_html.replace("{{total_spent}}", "299.99")
+        body_html = body_html.replace("{{avg_order_value}}", "99.99")
 
     body_html = body_html.replace("{{unsubscribe_url}}", "{{unsubscribe_url}}")
 

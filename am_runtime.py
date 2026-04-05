@@ -46,6 +46,45 @@ AM_ACTION_TO_FAMILY = {
     "cross_sell":             ("AM: Cross-Sell", "promo"),
 }
 
+AM_ACTION_GUIDANCE = {
+    "education": {
+        "purpose": "Teach the customer how to get more value from products they already own",
+        "tone": "Helpful, expert, like a knowledgeable friend sharing tips",
+        "emphasize": "Usage tips, maintenance advice for THEIR specific product",
+        "avoid": "Do NOT pitch new products aggressively — this is about trust, not selling",
+    },
+    "product_recommendation": {
+        "purpose": "Introduce products hand-picked based on their purchase history",
+        "tone": "Enthusiastic, genuine — a trusted advisor who knows their preferences",
+        "emphasize": "Why THESE products fit THIS customer. Reference their past purchase.",
+        "avoid": "Never say 'customers like you'. Be specific about what they bought.",
+    },
+    "cross_sell": {
+        "purpose": "Suggest complementary accessories for products they already own",
+        "tone": "Practical, solution-oriented — 'complete your setup'",
+        "emphasize": "How these pair with what they own. Compatibility and convenience.",
+        "avoid": "Do NOT recommend products from unrelated categories.",
+    },
+    "reorder_reminder": {
+        "purpose": "Remind them it's time to replace or restock consumable items",
+        "tone": "Gentle, helpful — 'just checking in'",
+        "emphasize": "How long since purchase, typical replacement timing",
+        "avoid": "Do NOT introduce new products. Focus on RE-ordering what they know.",
+    },
+    "loyalty": {
+        "purpose": "Thank them for being a customer and make them feel valued",
+        "tone": "Warm, appreciative, exclusive",
+        "emphasize": "Their loyalty, how much they mean to the business, new items to explore",
+        "avoid": "Do NOT be transactional. Lead with gratitude, not discounts.",
+    },
+    "winback": {
+        "purpose": "Re-engage a customer who hasn't purchased in a while",
+        "tone": "Warm, no-pressure — 'we miss you' without guilt",
+        "emphasize": "What's new since their last visit, fresh products",
+        "avoid": "Do NOT guilt-trip. Keep it casual and inviting.",
+    },
+}
+
 AM_ACTION_TO_DISCOUNT_PURPOSE = {
     "winback": "winback",
     "cross_sell": "cross_sell",
@@ -425,11 +464,56 @@ def _evaluate_candidates(strategy_state, intel):
 # Step 4 -- Resolve products
 # ==================================================================
 
+def _find_products_by_category(key, limit=5):
+    """Resolve a category name like 'Dash Cams' to actual ProductImageCache rows.
+
+    Tries three strategies:
+      1. Exact product_type match
+      2. Contains match (e.g. "Dash Cam" matches "Dash Cam Hardwire Kit")
+      3. CATEGORY_KEYWORDS title search (e.g. "dash cam" keyword in product_title)
+    """
+    from database import ProductImageCache
+    from shared_constants import CATEGORY_KEYWORDS
+
+    # Strategy 1: Exact product_type match
+    try:
+        matches = list(ProductImageCache.select()
+                       .where(ProductImageCache.product_type == key).limit(limit))
+        if matches:
+            return matches
+    except Exception:
+        pass
+
+    # Strategy 2: Contains match (strip trailing 's' for singular form)
+    search_term = key.rstrip('s') if key.endswith('s') else key
+    try:
+        matches = list(ProductImageCache.select()
+                       .where(ProductImageCache.product_type.contains(search_term)).limit(limit))
+        if matches:
+            return matches
+    except Exception:
+        pass
+
+    # Strategy 3: Use CATEGORY_KEYWORDS to search product titles by keyword
+    keywords = CATEGORY_KEYWORDS.get(key, [])
+    for kw in keywords[:3]:
+        try:
+            matches = list(ProductImageCache.select()
+                           .where(ProductImageCache.product_title.contains(kw)).limit(limit))
+            if matches:
+                return matches
+        except Exception:
+            pass
+
+    return []
+
+
 def _resolve_products(contact, action_type, intelligence):
     """Get recommended products from intelligence layer, filtered for OOS.
 
     Same pattern as flow_runtime._get_intelligence_products.
     Action-type prioritization: reorder->reorders first, cross_sell->cross_sells, etc.
+    Excludes products the customer already owns.
     """
     from database import ProductImageCache, ProductCommercial
 
@@ -446,6 +530,15 @@ def _resolve_products(contact, action_type, intelligence):
             ProductCommercial.stock_pressure == "out_of_stock"
         ):
             out_of_stock.add(pc.product_title)
+    except Exception:
+        pass
+
+    # Build owned-product set (exclude from recommendations)
+    owned_titles = set()
+    try:
+        from product_intelligence import get_contact_purchase_history
+        history = get_contact_purchase_history(contact.id)
+        owned_titles = set(history.get("products_bought", {}).keys())
     except Exception:
         pass
 
@@ -514,10 +607,9 @@ def _resolve_products(contact, action_type, intelligence):
                 pass
 
         if not matches:
+            # Use smart category resolution (contains + keyword strategies)
             try:
-                matches = list(ProductImageCache.select()
-                               .where(ProductImageCache.product_type == key)
-                               .limit(5))
+                matches = _find_products_by_category(key, limit=5)
             except Exception:
                 pass
 
@@ -526,6 +618,8 @@ def _resolve_products(contact, action_type, intelligence):
                 break
             if m.product_title in out_of_stock:
                 continue
+            if m.product_title in owned_titles:
+                continue  # Don't recommend products they already own
             products.append({
                 "product_title": m.product_title,
                 "product_url": m.product_url or "https://ldas.ca",
@@ -853,8 +947,16 @@ def _generate_ai_copy(contact, decision, intelligence, reviewer_feedback=""):
         f"Include offer: {offer.get('display_text', 'Special offer')}"
     )
 
-    default_cta_url = "https://ldas.ca"
-    if len(products) == 1 and products[0].get("product_url"):
+    _ACTION_CTA_DEFAULTS = {
+        "education": "https://ldas.ca/blogs/news",
+        "product_recommendation": "https://ldas.ca/collections/all",
+        "cross_sell": "https://ldas.ca/collections/accessories",
+        "reorder_reminder": None,  # Use product URL
+        "loyalty": "https://ldas.ca/collections/new",
+        "winback": "https://ldas.ca/collections/new",
+    }
+    default_cta_url = _ACTION_CTA_DEFAULTS.get(action_type) or "https://ldas.ca"
+    if default_cta_url == "https://ldas.ca" and products and products[0].get("product_url"):
         default_cta_url = products[0]["product_url"]
 
     feedback_text = ""
@@ -865,8 +967,20 @@ def _generate_ai_copy(contact, decision, intelligence, reviewer_feedback=""):
             "Keep the same action, product set, and offer. Improve only the wording and emphasis.\n"
         )
 
+    # Build action-type guidance for differentiated AI copy
+    guidance = AM_ACTION_GUIDANCE.get(action_type, {})
+    guidance_text = ""
+    if guidance:
+        guidance_text = (
+            f"\nEMAIL PURPOSE: {guidance['purpose']}"
+            f"\nTONE: {guidance['tone']}"
+            f"\nEMPHASIZE: {guidance['emphasize']}"
+            f"\nAVOID: {guidance['avoid']}"
+        )
+
     prompt = f"""You are writing a marketing email for LDAS Electronics (ldas.ca).
 Action type: {action_type}
+{guidance_text}
 Customer: {contact.first_name or 'Customer'} ({contact.email})
 
 {intel_text}
@@ -984,8 +1098,7 @@ def _apply_ai_overrides(blocks_json, ai_content):
         elif btype == "cta":
             if ai_content.get("cta_text"):
                 content["text"] = ai_content["cta_text"]
-            if ai_content.get("cta_url"):
-                content["url"] = ai_content["cta_url"]
+            # Do NOT override CTA URL — seed template URLs are authoritative
             block["content"] = content
 
     return blocks

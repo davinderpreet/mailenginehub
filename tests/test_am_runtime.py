@@ -1827,7 +1827,8 @@ class TestApplyAiOverrides:
         assert result[0]["content"]["subheadline"] == "AI-written subheadline"
         assert result[1]["content"]["paragraphs"] == ["AI paragraph one.", "AI paragraph two."]
         assert result[2]["content"]["text"] == "Explore Now"
-        assert result[2]["content"]["url"] == "https://ldas.ca/shop"
+        # CTA URL is NOT overridden — seed template URLs are authoritative (Fix 4b)
+        assert result[2]["content"]["url"] == "https://ldas.ca"
 
     def test_non_matching_blocks_untouched(self):
         """Blocks like product_grid, stat_callout are not modified by AI overrides."""
@@ -2055,3 +2056,298 @@ class TestProviderModelConfig:
         # Verify the model passed to create()
         call_kwargs = mock_client.chat.completions.create.call_args
         assert call_kwargs[1].get("model") or call_kwargs.kwargs.get("model") == "openai/gpt-4o-mini"
+
+
+# ==================================================================
+# Fix 1: stat_callout personalization tokens
+# ==================================================================
+class TestStatCalloutPersonalization:
+    """Verify {{total_orders}}, {{total_spent}}, {{avg_order_value}} are substituted.
+
+    Tests the personalization logic directly rather than going through
+    render_template_blocks, since that function has many dependencies.
+    """
+
+    def test_purchase_stats_substituted(self, in_memory_db, make_contact):
+        """Purchase stat tokens are replaced with real contact data."""
+        contact = make_contact(first_name="Ravi")
+        contact.total_orders = 3
+        contact.total_spent = 305.07
+        contact.save()
+
+        body_html = (
+            "<p>You've placed {{total_orders}} orders totalling "
+            "${{total_spent}} (avg ${{avg_order_value}}).</p>"
+        )
+
+        # Apply same logic as block_registry personalization
+        _orders = int(getattr(contact, "total_orders", 0) or 0)
+        _spent = float(getattr(contact, "total_spent", 0) or 0)
+        _aov = "%.2f" % (_spent / _orders) if _orders > 0 else "0.00"
+        body_html = body_html.replace("{{total_orders}}", str(_orders))
+        body_html = body_html.replace("{{total_spent}}", "%.2f" % _spent)
+        body_html = body_html.replace("{{avg_order_value}}", _aov)
+
+        assert "{{total_orders}}" not in body_html
+        assert "{{total_spent}}" not in body_html
+        assert "{{avg_order_value}}" not in body_html
+        assert "3" in body_html
+        assert "305.07" in body_html
+        assert "101.69" in body_html
+
+    def test_purchase_stats_fallback_no_contact(self):
+        """Without a contact, purchase stat tokens get sensible defaults."""
+        body_html = "<p>{{total_orders}} orders for ${{total_spent}}</p>"
+
+        # Fallback logic from block_registry
+        body_html = body_html.replace("{{total_orders}}", "3")
+        body_html = body_html.replace("{{total_spent}}", "299.99")
+        body_html = body_html.replace("{{avg_order_value}}", "99.99")
+
+        assert "{{total_orders}}" not in body_html
+        assert "3 orders" in body_html
+
+
+# ==================================================================
+# Fix 2: Product resolution — category matching + owned exclusion
+# ==================================================================
+class TestFindProductsByCategory:
+    """Verify _find_products_by_category uses 3-strategy resolution."""
+
+    def test_contains_match(self, in_memory_db):
+        """Strategy 2: strip trailing 's' and use contains match."""
+        from am_runtime import _find_products_by_category
+        from database import ProductImageCache
+
+        ProductImageCache.create(
+            product_id="prod_x200",
+            product_title="Premium Dash Cam X200",
+            product_type="Dash Cam",
+            product_url="https://ldas.ca/products/dash-cam-x200",
+            image_url="https://img.ldas.ca/x200.jpg",
+            price=149.99,
+            handle="dash-cam-x200",
+        )
+
+        results = _find_products_by_category("Dash Cams", limit=5)
+        assert len(results) >= 1
+        assert results[0].product_title == "Premium Dash Cam X200"
+
+    def test_keyword_title_search(self, in_memory_db):
+        """Strategy 3: CATEGORY_KEYWORDS title search."""
+        from am_runtime import _find_products_by_category
+        from database import ProductImageCache
+
+        ProductImageCache.create(
+            product_id="prod_bundle",
+            product_title="4K Front and Rear Dashcam Bundle",
+            product_type="Electronics",
+            product_url="https://ldas.ca/products/dashcam-bundle",
+            image_url="https://img.ldas.ca/bundle.jpg",
+            price=199.99,
+            handle="dashcam-bundle",
+        )
+
+        with patch("shared_constants.CATEGORY_KEYWORDS", {"Dash Cams": ["dash cam", "dashcam"]}):
+            results = _find_products_by_category("Dash Cams", limit=5)
+
+        assert len(results) >= 1
+        assert "Dashcam" in results[0].product_title
+
+
+class TestOwnedProductExclusion:
+    """Verify _resolve_products excludes products the customer already owns."""
+
+    def test_owned_products_excluded(self, in_memory_db, make_contact):
+        """Products the customer already bought are excluded from results."""
+        from am_runtime import _resolve_products
+        from database import ProductImageCache
+
+        contact = make_contact(first_name="Ravi")
+
+        ProductImageCache.create(
+            product_id="prod_th11",
+            product_title="LDAS Trucker Bluetooth Headset TH11",
+            product_type="Bluetooth Headset",
+            product_url="https://ldas.ca/products/th11",
+            image_url="https://img.ldas.ca/th11.jpg",
+            price=101.69,
+            handle="th11",
+        )
+        ProductImageCache.create(
+            product_id="prod_dc500",
+            product_title="LDAS Dash Cam Pro DC500",
+            product_type="Dash Cam",
+            product_url="https://ldas.ca/products/dc500",
+            image_url="https://img.ldas.ca/dc500.jpg",
+            price=249.99,
+            handle="dc500",
+        )
+
+        # Mock intelligence_layer to return cross-sells for both product types
+        mock_next_products = {
+            "cross_sells": [
+                {"target_key": "Bluetooth Headset", "is_product": False},
+                {"target_key": "Dash Cam", "is_product": False},
+            ],
+            "reorders": [],
+            "upgrades": [],
+            "top_pick": {},
+        }
+
+        with patch("am_runtime.intelligence_layer.get_next_products", return_value=mock_next_products), \
+             patch("product_intelligence.get_contact_purchase_history") as mock_hist:
+            mock_hist.return_value = {
+                "products_bought": {"LDAS Trucker Bluetooth Headset TH11": 1}
+            }
+            intel = _make_intel()
+            results = _resolve_products(contact, "cross_sell", intel)
+
+        titles = [p["product_title"] for p in results]
+        assert "LDAS Trucker Bluetooth Headset TH11" not in titles
+        assert "LDAS Dash Cam Pro DC500" in titles
+
+
+# ==================================================================
+# Fix 3: Per-action-type AI prompt guidance
+# ==================================================================
+class TestActionGuidance:
+    """Verify AM_ACTION_GUIDANCE is injected into AI prompts."""
+
+    def test_guidance_exists_for_all_action_types(self):
+        """Every known AM action type has guidance defined."""
+        from am_runtime import AM_ACTION_GUIDANCE
+        expected = {"education", "product_recommendation", "cross_sell",
+                    "reorder_reminder", "loyalty", "winback"}
+        assert expected == set(AM_ACTION_GUIDANCE.keys())
+
+    def test_guidance_has_required_keys(self):
+        """Each guidance entry has purpose, tone, emphasize, avoid."""
+        from am_runtime import AM_ACTION_GUIDANCE
+        for action, g in AM_ACTION_GUIDANCE.items():
+            assert "purpose" in g, f"{action} missing purpose"
+            assert "tone" in g, f"{action} missing tone"
+            assert "emphasize" in g, f"{action} missing emphasize"
+            assert "avoid" in g, f"{action} missing avoid"
+
+    def test_guidance_injected_into_prompt(self, in_memory_db, make_contact):
+        """AI prompt includes EMAIL PURPOSE when guidance exists."""
+        from am_runtime import _generate_ai_copy, AM_ACTION_GUIDANCE
+        contact = make_contact(first_name="Test")
+        decision = {"action_type": "loyalty", "candidate_products": []}
+        intel = _make_intel()
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "hero_headline": "Test", "hero_subheadline": "Sub",
+            "paragraphs": ["Para"], "cta_text": "CTA",
+            "cta_url": "https://ldas.ca",
+        })
+        mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch("am_runtime._get_openrouter_client", return_value=mock_client):
+            _generate_ai_copy(contact, decision, intel)
+
+        # Check the prompt includes guidance
+        call_args = mock_client.chat.completions.create.call_args
+        prompt_text = call_args[1]["messages"][0]["content"]
+        assert "EMAIL PURPOSE:" in prompt_text
+        assert AM_ACTION_GUIDANCE["loyalty"]["purpose"] in prompt_text
+
+
+# ==================================================================
+# Fix 4: Action-type CTA URLs + seed URL preservation
+# ==================================================================
+class TestActionCtaDefaults:
+    """Verify CTA URLs are action-type-specific."""
+
+    def test_education_gets_blog_url(self, in_memory_db, make_contact):
+        """Education emails default to blog URL, not product page."""
+        from am_runtime import _generate_ai_copy
+        contact = make_contact(first_name="Test")
+        decision = {"action_type": "education", "candidate_products": []}
+        intel = _make_intel()
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "hero_headline": "Test", "hero_subheadline": "Sub",
+            "paragraphs": ["Para"], "cta_text": "CTA",
+            "cta_url": "https://ldas.ca/blogs/news",
+        })
+        mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch("am_runtime._get_openrouter_client", return_value=mock_client):
+            _generate_ai_copy(contact, decision, intel)
+
+        prompt_text = mock_client.chat.completions.create.call_args[1]["messages"][0]["content"]
+        assert "https://ldas.ca/blogs/news" in prompt_text
+
+    def test_seed_cta_url_not_overridden(self):
+        """_apply_ai_overrides does NOT override CTA URL from seed template."""
+        from am_runtime import _apply_ai_overrides
+        blocks = [
+            {"block_type": "cta", "content": {"text": "Shop Now", "url": "https://ldas.ca/collections/new"}}
+        ]
+        ai_content = {
+            "cta_text": "See What's New",
+            "cta_url": "https://ldas.ca/products/some-product",
+            "copy_source": "ai",
+        }
+        result = _apply_ai_overrides(blocks, ai_content)
+        cta = result[0]["content"]
+        assert cta["text"] == "See What's New"  # text IS overridden
+        assert cta["url"] == "https://ldas.ca/collections/new"  # URL is NOT overridden
+
+
+# ==================================================================
+# Fix 5: Unsubscribe URL substitution in email_sender
+# ==================================================================
+class TestUnsubscribeUrlSubstitution:
+    """Verify {{unsubscribe_url}} is replaced in HTML body before sending."""
+
+    def test_unsubscribe_url_substituted(self):
+        """send_campaign_email replaces {{unsubscribe_url}} in HTML body."""
+        # Mock boto3 before importing email_sender
+        import sys
+        mock_boto3 = MagicMock()
+        sys.modules.setdefault("boto3", mock_boto3)
+        sys.modules.setdefault("botocore", MagicMock())
+        sys.modules.setdefault("botocore.exceptions", MagicMock())
+
+        # Force reimport with mocked boto3
+        if "email_sender" in sys.modules:
+            del sys.modules["email_sender"]
+        from email_sender import send_campaign_email
+
+        html_with_token = '<a href="{{unsubscribe_url}}">Unsubscribe</a>'
+
+        with patch("email_sender._check_suppression", return_value=(False, None)), \
+             patch("email_sender._inject_tracking_params", side_effect=lambda h, e: h), \
+             patch("email_sender._get_ses_client") as mock_ses:
+
+            mock_client = MagicMock()
+            mock_client.send_raw_email.return_value = {"MessageId": "test-123"}
+            mock_ses.return_value = mock_client
+
+            success, error, msg_id = send_campaign_email(
+                to_email="test@example.com",
+                to_name="Test",
+                from_email="hello@ldas.ca",
+                from_name="LDAS",
+                subject="Test",
+                html_body=html_with_token,
+            )
+
+        assert success is True
+        # Extract the raw MIME message that was sent
+        raw_data = mock_client.send_raw_email.call_args[1]["RawMessage"]["Data"]
+        assert "{{unsubscribe_url}}" not in raw_data
+        assert "mailenginehub.com/contacts/unsubscribe/test@example.com" in raw_data

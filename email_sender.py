@@ -77,6 +77,9 @@ def send_campaign_email(to_email, to_name, from_email, from_name, subject, html_
     if not unsubscribe_url:
         unsubscribe_url = f"https://mailenginehub.com/contacts/unsubscribe/{to_email}"
 
+    # ── Substitute {{unsubscribe_url}} in HTML body ───────────────
+    html_body = html_body.replace("{{unsubscribe_url}}", unsubscribe_url)
+
     # ── Build MIME message ─────────────────────────────────────────
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
