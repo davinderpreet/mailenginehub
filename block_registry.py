@@ -1477,8 +1477,8 @@ def render_stat_callout(content):
     for idx, stat in enumerate(stats[:3]):
         if not isinstance(stat, dict):
             continue
-        value = html_mod.escape(str(stat.get("value", "")))[:10]
-        label = html_mod.escape(str(stat.get("label", "")))[:20]
+        value = html_mod.escape(str(stat.get("value", "")))[:30]
+        label = html_mod.escape(str(stat.get("label", "")))[:30]
 
         border_left = "border-left:1px solid %s;" % DESIGN["surface_border"] if idx > 0 else ""
         cells += '''<td style="width:33.3%%;text-align:center;padding:16px 8px;%s">

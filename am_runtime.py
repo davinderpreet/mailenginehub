@@ -50,8 +50,8 @@ AM_ACTION_GUIDANCE = {
     "education": {
         "purpose": "Teach the customer how to get more value from products they already own",
         "tone": "Helpful, expert, like a knowledgeable friend sharing tips",
-        "emphasize": "Usage tips, maintenance advice for THEIR specific product",
-        "avoid": "Do NOT pitch new products aggressively — this is about trust, not selling",
+        "emphasize": "Usage tips, setup guides, maintenance advice, hidden features for THEIR specific product",
+        "avoid": "Do NOT pitch new products. Do NOT include product recommendations. This email is about HELPING, not selling. Focus entirely on the product(s) they already own.",
     },
     "product_recommendation": {
         "purpose": "Introduce products hand-picked based on their purchase history",
@@ -552,7 +552,11 @@ def _resolve_products(contact, action_type, intelligence):
             candidates.append((key, is_product))
 
     # Action-type prioritization
-    if action_type == "reorder_reminder":
+    if action_type == "education":
+        # Education features products they ALREADY OWN (for tips/usage content)
+        for title in list(owned_titles)[:2]:
+            _add(title, is_product=True)
+    elif action_type == "reorder_reminder":
         for item in (intel_products.get("reorders") or []):
             _add(item.get("product_key"), is_product=True)
     elif action_type == "cross_sell":
@@ -575,17 +579,19 @@ def _resolve_products(contact, action_type, intelligence):
         if top_pick.get("product_key"):
             _add(top_pick["product_key"], is_product=True)
 
-    # Fill remaining from all categories
-    top_pick = intel_products.get("top_pick") or {}
-    if top_pick.get("product_key"):
-        _add(top_pick["product_key"], is_product=True)
-    for item in (intel_products.get("replacements") or []):
-        _add(item.get("product_key"), is_product=True)
-    for item in (intel_products.get("reorders") or []):
-        _add(item.get("product_key"), is_product=True)
-    for key in ("cross_sells", "accessories"):
-        for item in (intel_products.get(key) or []):
-            _add(item.get("target_key"), is_product=item.get("is_product", False))
+    # Fill remaining from all categories — only for action types that need product recs.
+    # Education shows owned products (tips), loyalty/reorder should not pad with unrelated products.
+    if action_type not in ("education", "loyalty", "reorder_reminder"):
+        top_pick = intel_products.get("top_pick") or {}
+        if top_pick.get("product_key"):
+            _add(top_pick["product_key"], is_product=True)
+        for item in (intel_products.get("replacements") or []):
+            _add(item.get("product_key"), is_product=True)
+        for item in (intel_products.get("reorders") or []):
+            _add(item.get("product_key"), is_product=True)
+        for key in ("cross_sells", "accessories"):
+            for item in (intel_products.get(key) or []):
+                _add(item.get("target_key"), is_product=item.get("is_product", False))
 
     if not candidates:
         return []
@@ -593,6 +599,8 @@ def _resolve_products(contact, action_type, intelligence):
     # Resolve into concrete products
     products = []
     limit = 4
+    # Education: show owned products (for tips), skip owned-product filter
+    skip_owned_filter = (action_type == "education")
     for key, is_product in candidates[:limit * 2]:
         if len(products) >= limit:
             break
@@ -618,7 +626,7 @@ def _resolve_products(contact, action_type, intelligence):
                 break
             if m.product_title in out_of_stock:
                 continue
-            if m.product_title in owned_titles:
+            if not skip_owned_filter and m.product_title in owned_titles:
                 continue  # Don't recommend products they already own
             products.append({
                 "product_title": m.product_title,
@@ -990,6 +998,13 @@ Products to feature:
 
 {offer_text}
 {feedback_text}
+
+HARD RULES (never break these):
+- ONLY mention products listed in "Products to feature" above — never invent or name other products
+- NEVER state specific days, timelines, or countdowns unless the intelligence brief above provides them
+- NEVER announce upcoming products, launches, or restocks — only reference what exists now
+- NEVER guess what the customer bought — only reference products from the intelligence brief
+- Keep claims factual: no fake reviews, no made-up statistics, no invented customer milestones
 
 Write the email content as JSON with these exact keys:
 - hero_headline: short punchy headline (max 8 words)

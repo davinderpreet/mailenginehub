@@ -626,7 +626,7 @@ AM_TEMPLATES = {
                 "show_rating": True
             }},
             {"block_type": "discount", "content": {"code": "", "value_display": "", "display_text": "", "expires_text": "", "mode": "runtime"}},
-            {"block_type": "cta", "content": {"text": "Come Back & Save", "url": "https://ldas.ca"}},
+            {"block_type": "cta", "content": {"text": "Come Back & Save", "url": "https://ldas.ca/collections/new"}},
         ]
     },
     "reorder_reminder": {
