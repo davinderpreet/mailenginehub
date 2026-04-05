@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-05 16:18 -- `2355670`
+
+**Round 3 AM email quality: fix 5 root causes from inbox audit**
+
+Files changed:
+```
+account_manager.py
+am_runtime.py
+block_registry.py
+```
+
+---
+
 ### 2026-04-05 15:27 -- `8dada99`
 
 **Auto-update CLAUDE.md before deploy**
