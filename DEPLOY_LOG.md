@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-05 15:27 -- `8dada99`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-04-05 10:04 -- `de9000a`
 
 **Fix 5 AM email quality issues from inbox audit**
