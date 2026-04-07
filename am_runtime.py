@@ -251,17 +251,23 @@ def _validate_ai_copy(ai_output, action_type, candidate_products):
                 para_text += " " + val
 
     if para_text and candidate_products:
-        # Build allowlist from candidate product titles
-        allow_titles_lower = set()
+        # Build allowlist: short recognizable fragments from candidate product titles
+        allow_fragments = set()
         for p in candidate_products:
-            allow_titles_lower.add(p.get("product_title", "").lower())
+            title = p.get("product_title", "")
+            allow_fragments.add(title.lower())
+            # Also add first N significant words as fragment (e.g. "ldas trucker bluetooth headset")
+            words = [w for w in title.lower().split() if len(w) > 2]
+            for i in range(2, min(len(words) + 1, 6)):
+                allow_fragments.add(" ".join(words[:i]))
 
-        # Find "LDAS <product name>" mentions in paragraph text
-        ldas_mentions = _re.findall(r'LDAS\s+[\w\s\-]+?(?=[\.,;!?\)]|$)', para_text)
+        # Find "LDAS <2-6 words>" mentions in paragraph text
+        ldas_mentions = _re.findall(r'LDAS\s+(?:\w+\s*){1,5}\w+', para_text)
         for mention in ldas_mentions:
-            mention_clean = mention.strip().rstrip(".,;!?)")
-            # Check if this LDAS product is in our candidate list
-            if not any(mention_clean.lower() in t for t in allow_titles_lower):
+            mention_clean = mention.strip()
+            mention_lower = mention_clean.lower()
+            # Check if any candidate fragment matches within this mention
+            if not any(frag in mention_lower for frag in allow_fragments):
                 violations.append("unlisted_product: '%s'" % mention_clean)
 
     return (len(violations) == 0), violations
