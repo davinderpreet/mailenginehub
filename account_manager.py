@@ -662,9 +662,8 @@ AM_TEMPLATES = {
             }},
             {"block_type": "text", "content": {"paragraphs": [
                 "You've been with us through multiple orders and we don't take that lightly. Customers like you are the reason we keep building better products.",
-                "Here's a sneak peek at what's new \u2014 and a little something extra just for you."
+                "We're always working on new gear — and you'll be the first to know when something special drops."
             ]}},
-            {"block_type": "product_grid", "content": {"section_title": "New Arrivals for You", "columns": 2}},
             {"block_type": "cta", "content": {"text": "See What's New", "url": "https://ldas.ca/collections/new"}},
         ]
     },
