@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-07 10:22 -- `4cbab28`
+
+**Remove product_grid from loyalty seed template**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+account_manager.py
+```
+
+---
+
 ### 2026-04-05 16:18 -- `2355670`
 
 **Round 3 AM email quality: fix 5 root causes from inbox audit**
