@@ -922,6 +922,97 @@ def format_intelligence_for_prompt(contact_id, segment=None):
 
 
 # ═══════════════════════════════════════════════════════════════
+# Action-Scoped Intelligence (Layer 1 of AM copy architecture)
+# ═══════════════════════════════════════════════════════════════
+
+def format_intelligence_for_action(contact_id, action_type):
+    """Action-scoped intelligence brief. Only exposes data the AI should use.
+
+    Unlike format_intelligence_for_prompt() which dumps everything, this
+    filters by action type so the AI can't latch onto irrelevant data
+    (e.g. reorder timelines in an education email).
+
+    Returns: str (ready to inject into prompt), or "" if no meaningful data
+    """
+    intel = get_contact_intelligence(contact_id)
+    seg = intel["classification"].get("rfm_segment", "new")
+    purchase = intel.get("purchase", {})
+    np = intel.get("next_products", {})
+    scores = intel.get("scores", {})
+    learning = intel.get("learning", {})
+
+    lines = ["[CUSTOMER CONTEXT]"]
+
+    # ── Shared across all: engagement + segment + feedback ──
+    lines.append("Segment: %s | Engagement: %s/100" % (
+        seg, scores.get("engagement", 0)))
+    if learning.get("rejection_summary"):
+        lines.append("[PAST FEEDBACK] %s" % learning["rejection_summary"])
+
+    # ── Action-specific data ──
+
+    if action_type == "education":
+        # Only: what they own, order count. No product recs, no timelines.
+        total = int(purchase.get("total_orders", 0))
+        if total:
+            lines.append("Customer has placed %d order(s)." % total)
+        # Owned product names come from candidate_products in the prompt,
+        # not from here — keeps a single source of truth.
+
+    elif action_type == "product_recommendation":
+        # Top pick reason + upgrades. No replacement timelines, no reorder data.
+        tp = np.get("top_pick")
+        if tp:
+            lines.append("Top recommendation: %s (%s)" % (
+                tp.get("product_key", ""), tp.get("reason", "")))
+        for u in (np.get("upgrades") or [])[:2]:
+            lines.append("Upgrade path: %s -> %s" % (
+                u.get("from_product", ""), u.get("to_product") or u.get("to_tier", "")))
+
+    elif action_type == "cross_sell":
+        # What they own (for "pairs with" framing). No timelines.
+        total = int(purchase.get("total_orders", 0))
+        if total:
+            lines.append("Customer has placed %d order(s)." % total)
+        # Candidate cross-sell products come from the prompt's product list.
+
+    elif action_type == "reorder_reminder":
+        # Replacement timelines + reorder items. This is the ONLY type that sees timelines.
+        if np.get("replacements"):
+            lines.append("Replacement timing:")
+            for r in np["replacements"][:3]:
+                lines.append("  - %s: due in %s days (%s)" % (
+                    r.get("product_key", ""), r.get("due_in_days", "?"), r.get("reason", "")))
+        if np.get("reorders"):
+            lines.append("Reorder candidates:")
+            for ro in np["reorders"][:3]:
+                lines.append("  - %s" % ro.get("product_key", ""))
+
+    elif action_type == "loyalty":
+        # Purchase stats for gratitude framing. No product recs, no timelines.
+        total = int(purchase.get("total_orders", 0))
+        spent = purchase.get("total_spent", 0)
+        aov = purchase.get("aov", 0)
+        if total:
+            lines.append("Loyalty stats: %d orders, $%.2f total spent, $%.2f average order." % (
+                total, float(spent), float(aov)))
+        lifecycle = intel["classification"].get("lifecycle_stage", "")
+        if lifecycle:
+            lines.append("Lifecycle: %s" % lifecycle)
+
+    elif action_type == "winback":
+        # Days since last order (approximate). No replacement data, no reorder timelines.
+        days_since = int(purchase.get("days_since_last", 0))
+        if days_since:
+            lines.append("Last purchase was approximately %d days ago." % days_since)
+
+    if len(lines) <= 1:
+        return ""
+
+    return "\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════
 # Diagnostics
 # ═══════════════════════════════════════════════════════════════
 

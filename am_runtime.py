@@ -85,6 +85,224 @@ AM_ACTION_GUIDANCE = {
     },
 }
 
+# ── Layer 2: Per-action prompt configs with named output slots ──────
+# Each action type gets a focused system role and purpose-specific output slots.
+# Named slots (tip_paragraph, compatibility_paragraph, etc.) prime the model's
+# direction better than generic "paragraphs" + prose rules.
+AM_ACTION_PROMPTS = {
+    "education": {
+        "system_role": "You write helpful product tips emails for LDAS Electronics (ldas.ca). Focus ONLY on the customer's owned product — usage tips, setup, maintenance, hidden features.",
+        "output_slots": {
+            "hero_headline": "Short headline about getting more from their product (max 8 words)",
+            "hero_subheadline": "Supporting line about tips/value (max 15 words)",
+            "tip_paragraph": "One paragraph with a specific, practical usage tip for the featured product. Do not mention any other products.",
+            "cta_text": "CTA button text (max 4 words)",
+        },
+        "banned_phrases": ["reorder", "restock", "replace your", "upgrade to", "new arrival",
+                           "check out our", "don't miss", "limited time", "days ago",
+                           "time to replace", "running low", "we miss you"],
+        "required_signals": ["tip", "usage", "how to", "get more", "your"],
+    },
+    "product_recommendation": {
+        "system_role": "You write product recommendation emails for LDAS Electronics (ldas.ca). Introduce the listed products as hand-picked matches for this customer.",
+        "output_slots": {
+            "hero_headline": "Short headline about curated picks (max 8 words)",
+            "hero_subheadline": "Supporting line (max 15 words)",
+            "recommendation_paragraph": "One paragraph explaining why THESE specific products are a great fit. Reference what they already own.",
+            "cta_text": "CTA button text (max 4 words)",
+        },
+        "banned_phrases": ["reorder", "restock", "time to replace", "days ago",
+                           "it's been.*since", "running low", "we miss you",
+                           "loyalty", "thank you for being"],
+        "required_signals": [],
+    },
+    "cross_sell": {
+        "system_role": "You write cross-sell emails for LDAS Electronics (ldas.ca). Show how the listed accessories complement what the customer already owns.",
+        "output_slots": {
+            "hero_headline": "Short headline about completing their setup (max 8 words)",
+            "hero_subheadline": "Supporting line about compatibility (max 15 words)",
+            "compatibility_paragraph": "One paragraph about how these products pair with what they own. Focus on compatibility and convenience.",
+            "cta_text": "CTA button text (max 4 words)",
+        },
+        "banned_phrases": ["reorder", "restock", "time to replace", "days ago",
+                           "it's been.*since", "running low", "we miss you",
+                           "loyalty", "ear cushion"],
+        "required_signals": [],
+    },
+    "reorder_reminder": {
+        "system_role": "You write gentle reorder reminder emails for LDAS Electronics (ldas.ca). Use ONLY the replacement timing data provided.",
+        "output_slots": {
+            "hero_headline": "Short headline about restocking (max 8 words)",
+            "hero_subheadline": "Supporting line (max 15 words)",
+            "reorder_paragraph": "One paragraph about why it might be time to restock, referencing ONLY the timing data provided in the customer context.",
+            "cta_text": "CTA button text (max 4 words)",
+        },
+        "banned_phrases": ["we miss you", "new arrival", "upgrade to",
+                           "loyalty", "thank you for being"],
+        "required_signals": [],
+    },
+    "loyalty": {
+        "system_role": "You write loyalty/thank-you emails for LDAS Electronics (ldas.ca). Express genuine gratitude. Do NOT pitch products or be transactional.",
+        "output_slots": {
+            "hero_headline": "Short headline expressing appreciation (max 8 words)",
+            "hero_subheadline": "Supporting line about their value (max 15 words)",
+            "gratitude_paragraph": "One heartfelt paragraph thanking them for their loyalty. Reference their order history stats if provided. Do NOT pitch products.",
+            "cta_text": "CTA button text (max 4 words)",
+        },
+        "banned_phrases": ["reorder", "restock", "replace", "days ago",
+                           "it's been.*since", "running low", "we miss you",
+                           "don't miss", "limited time", "upgrade to"],
+        "required_signals": ["thank", "appreciate", "value", "loyal", "gratitude", "mean"],
+    },
+    "winback": {
+        "system_role": "You write warm re-engagement emails for LDAS Electronics (ldas.ca). Invite the customer back with a no-pressure, casual tone. Mention what's new.",
+        "output_slots": {
+            "hero_headline": "Short warm headline about reconnecting (max 8 words)",
+            "hero_subheadline": "Supporting line (max 15 words)",
+            "winback_paragraph": "One warm paragraph inviting them back. Mention the listed products as things that are new/popular. No guilt-tripping.",
+            "cta_text": "CTA button text (max 4 words)",
+        },
+        "banned_phrases": ["reorder", "restock", "time to replace",
+                           "loyalty", "thank you for being", "ear cushion",
+                           "replacement pad"],
+        "required_signals": [],
+    },
+}
+
+
+# ── Layer 3: Structural output validation ──────────────────────────
+# Deterministic checks AFTER AI generation, BEFORE template injection.
+# No AI involved — pure string matching.
+
+import re as _re
+
+_TIMELINE_PATTERN = _re.compile(
+    r'\b\d+\s*(?:days?|weeks?|months?)\s*(?:ago|since|left|remaining)\b'
+    r'|\bexpires?\s+in\b'
+    r'|\bcountdown\b'
+    r'|\bonly\s+\d+\s+left\b',
+    _re.IGNORECASE
+)
+
+_BRAND_WORDS = frozenset({"ldas", "electronics", "canadian", "canada", "trucker"})
+
+
+def _validate_ai_copy(ai_output, action_type, candidate_products):
+    """Structural validation of AI-generated copy. Returns (ok, violations).
+
+    ok: bool — True if copy is safe to use
+    violations: list of str — human-readable reasons for failure
+    """
+    config = AM_ACTION_PROMPTS.get(action_type)
+    if not config:
+        return True, []
+
+    # Flatten all text from AI output into one string for scanning
+    parts = []
+    for key in ("hero_headline", "hero_subheadline", "cta_text"):
+        v = ai_output.get(key, "")
+        if v:
+            parts.append(str(v))
+    # Handle both named slots and generic paragraphs
+    for key, val in ai_output.items():
+        if key.endswith("_paragraph") or key == "paragraphs":
+            if isinstance(val, list):
+                parts.extend(str(p) for p in val)
+            elif isinstance(val, str):
+                parts.append(val)
+    text = " ".join(parts).strip()
+    text_lower = text.lower()
+
+    violations = []
+
+    # ── Check 1: Banned phrases ──
+    for phrase in config.get("banned_phrases", []):
+        if ".*" in phrase:
+            # Regex pattern
+            if _re.search(phrase, text_lower):
+                violations.append("banned_phrase: '%s'" % phrase)
+        else:
+            if phrase.lower() in text_lower:
+                violations.append("banned_phrase: '%s'" % phrase)
+
+    # ── Check 2: Timeline fabrication (all types except reorder_reminder) ──
+    if action_type != "reorder_reminder":
+        timeline_matches = _TIMELINE_PATTERN.findall(text)
+        if timeline_matches:
+            violations.append("timeline_fabrication: %s" % timeline_matches)
+
+    # ── Check 3: Required signals (at least one must be present) ──
+    required = config.get("required_signals", [])
+    if required:
+        found_any = any(sig.lower() in text_lower for sig in required)
+        if not found_any:
+            violations.append("missing_required_signal: need one of %s" % required)
+
+    # ── Check 4: Unlisted product mentions ──
+    # Only scan paragraph text (not headlines/CTA which are naturally title-cased).
+    # Look for product-name patterns: phrases containing model numbers (TH11, A20)
+    # or "LDAS" brand prefix followed by a product name not in our candidate list.
+    para_text = ""
+    for key, val in ai_output.items():
+        if key.endswith("_paragraph") or key == "paragraphs":
+            if isinstance(val, list):
+                para_text += " ".join(str(p) for p in val)
+            elif isinstance(val, str):
+                para_text += " " + val
+
+    if para_text and candidate_products:
+        # Build allowlist from candidate product titles
+        allow_titles_lower = set()
+        for p in candidate_products:
+            allow_titles_lower.add(p.get("product_title", "").lower())
+
+        # Find "LDAS <product name>" mentions in paragraph text
+        ldas_mentions = _re.findall(r'LDAS\s+[\w\s\-]+?(?=[\.,;!?\)]|$)', para_text)
+        for mention in ldas_mentions:
+            mention_clean = mention.strip().rstrip(".,;!?)")
+            # Check if this LDAS product is in our candidate list
+            if not any(mention_clean.lower() in t for t in allow_titles_lower):
+                violations.append("unlisted_product: '%s'" % mention_clean)
+
+    return (len(violations) == 0), violations
+
+
+def _normalize_ai_slots(ai_output, action_type):
+    """Map action-specific named slots to the standard format expected by _apply_ai_overrides().
+
+    Named slots like tip_paragraph, compatibility_paragraph, etc.
+    get mapped to the standard 'paragraphs' list.
+    """
+    result = {
+        "hero_headline": ai_output.get("hero_headline", ""),
+        "hero_subheadline": ai_output.get("hero_subheadline", ""),
+        "cta_text": ai_output.get("cta_text", ""),
+        "cta_url": ai_output.get("cta_url", ""),
+        "token_usage": ai_output.get("token_usage", {}),
+        "copy_source": ai_output.get("copy_source", "ai"),
+    }
+
+    # Collect paragraphs: check for named slots first, then fall back to generic
+    paragraphs = []
+    for key, val in ai_output.items():
+        if key.endswith("_paragraph") and val:
+            if isinstance(val, list):
+                paragraphs.extend(val)
+            else:
+                paragraphs.append(str(val))
+
+    if not paragraphs:
+        # Fall back to generic paragraphs key
+        raw = ai_output.get("paragraphs", [])
+        if isinstance(raw, list):
+            paragraphs = [str(p) for p in raw]
+        elif isinstance(raw, str):
+            paragraphs = [raw]
+
+    result["paragraphs"] = paragraphs
+    return result
+
+
 AM_ACTION_TO_DISCOUNT_PURPOSE = {
     "winback": "winback",
     "cross_sell": "cross_sell",
@@ -152,15 +370,27 @@ def check_am_quality(result, decision, test_mode=False):
     Returns:
         ("pass", "") — acceptable for production
         ("blocked", reason) — not acceptable, must not send
+
+    copy_source flow:
+        "ai"        → AI copy passed validation, injected into blocks. PASS.
+        "seed"      → AI copy failed validation, seed template preserved. PASS (seed is pre-vetted).
+        "api_error"  → API call failed, seed template preserved. PASS (seed is pre-vetted).
+        "fallback"  → Legacy generic fallback. BLOCKED (generic copy must never reach customers).
     """
     if test_mode:
         return ("pass", "")
 
-    # Block 1: Fallback copy must never reach real customers
-    if result.get("copy_source") == "fallback":
+    copy_source = result.get("copy_source", "")
+
+    # Block 1: Legacy generic fallback must never reach real customers
+    if copy_source == "fallback":
         return ("blocked", "fallback_copy_not_allowed_in_production: %s" % result.get("fallback_reason", ""))
 
-    # Block 2: Detect generic content that slipped through
+    # Block 2: API errors with seed fallback are acceptable — seed templates are pre-vetted
+    # Block 3: Validation-failed with seed fallback are acceptable — seed templates are pre-vetted
+    # (Both "seed" and "api_error" use the action-specific seed template, which is safe)
+
+    # Block 4: Detect generic content that slipped through
     html = result.get("html", "")
     for generic in _GENERIC_HEADLINES:
         if generic in html:
@@ -928,38 +1158,46 @@ def _get_openrouter_client():
 
 
 def _generate_ai_copy(contact, decision, intelligence, reviewer_feedback=""):
-    """Generate email copy via Claude (OpenRouter).
+    """Generate email copy via AI with 3-layer architecture.
+
+    Layer 1: Action-scoped intelligence brief (input filtering)
+    Layer 2: Per-action prompt template with named output slots
+    Layer 3: Structural output validation (banned phrases, timeline detection)
 
     Returns:
-        dict: {hero_headline, hero_subheadline, paragraphs, cta_text, cta_url, tokens_used}
+        dict: {hero_headline, hero_subheadline, paragraphs, cta_text, cta_url,
+               token_usage, copy_source, validation_violations}
+        copy_source values:
+            "ai"   — passed all validation, safe to inject
+            "seed" — AI output failed validation, use seed template instead
+            "api_error" — API call failed, use seed template instead
     """
     action_type = decision.get("action_type", "education")
     products = decision.get("candidate_products", [])
     offer = decision.get("offer_context")
 
-    # Build intelligence brief
+    # ── Layer 1: Action-scoped intelligence ──
     intel_text = ""
     try:
-        intel_text = intelligence_layer.format_intelligence_for_prompt(contact.id)
+        intel_text = intelligence_layer.format_intelligence_for_action(contact.id, action_type)
     except Exception:
         pass
 
     # Product context for prompt
     product_lines = []
     for p in products[:4]:
-        product_lines.append(f"- {p.get('product_title', 'Product')} (${p.get('price', '0')})")
+        product_lines.append("- %s ($%s)" % (p.get("product_title", "Product"), p.get("price", "0")))
     product_text = "\n".join(product_lines) if product_lines else "No specific products."
 
     # Offer context
     offer_text = "No discount offer." if not offer else (
-        f"Include offer: {offer.get('display_text', 'Special offer')}"
-    )
+        "Include offer: %s" % offer.get("display_text", "Special offer"))
 
     _ACTION_CTA_DEFAULTS = {
         "education": "https://ldas.ca/blogs/news",
         "product_recommendation": "https://ldas.ca/collections/all",
         "cross_sell": "https://ldas.ca/collections/accessories",
-        "reorder_reminder": None,  # Use product URL
+        "reorder_reminder": None,
         "loyalty": "https://ldas.ca/collections/new",
         "winback": "https://ldas.ca/collections/new",
     }
@@ -970,26 +1208,30 @@ def _generate_ai_copy(contact, decision, intelligence, reviewer_feedback=""):
     feedback_text = ""
     if reviewer_feedback:
         feedback_text = (
-            "\nReviewer feedback to incorporate:\n"
-            f"{reviewer_feedback}\n"
+            "\nReviewer feedback to incorporate:\n%s\n"
             "Keep the same action, product set, and offer. Improve only the wording and emphasis.\n"
-        )
+        ) % reviewer_feedback
 
-    # Build action-type guidance for differentiated AI copy
-    guidance = AM_ACTION_GUIDANCE.get(action_type, {})
-    guidance_text = ""
-    if guidance:
-        guidance_text = (
-            f"\nEMAIL PURPOSE: {guidance['purpose']}"
-            f"\nTONE: {guidance['tone']}"
-            f"\nEMPHASIZE: {guidance['emphasize']}"
-            f"\nAVOID: {guidance['avoid']}"
-        )
+    # ── Layer 2: Per-action prompt with named slots ──
+    config = AM_ACTION_PROMPTS.get(action_type, {})
+    system_role = config.get("system_role", "You write marketing emails for LDAS Electronics (ldas.ca).")
+    output_slots = config.get("output_slots", {
+        "hero_headline": "Short punchy headline (max 8 words)",
+        "hero_subheadline": "Supporting line (max 15 words)",
+        "paragraphs": "List of 1-2 short paragraphs",
+        "cta_text": "CTA button text (max 4 words)",
+    })
 
-    prompt = f"""You are writing a marketing email for LDAS Electronics (ldas.ca).
-Action type: {action_type}
-{guidance_text}
-Customer: {contact.first_name or 'Customer'} ({contact.email})
+    # Build slot schema for prompt
+    slot_lines = []
+    for key, desc in output_slots.items():
+        slot_lines.append('- "%s": %s' % (key, desc))
+    slot_lines.append('- "cta_url": "%s"' % default_cta_url)
+    slot_schema = "\n".join(slot_lines)
+
+    prompt = """{system_role}
+
+Customer: {name}
 
 {intel_text}
 
@@ -998,23 +1240,18 @@ Products to feature:
 
 {offer_text}
 {feedback_text}
+Write the email content as JSON with ONLY these keys:
+{slot_schema}
 
-HARD RULES (never break these):
-- ONLY mention products listed in "Products to feature" above — never invent or name other products or parts (no "ear cushions", "replacement pads", etc. unless listed)
-- NEVER state specific days, timelines, or countdowns unless the intelligence brief above provides them
-- NEVER announce upcoming products, launches, or restocks — only reference what exists now
-- NEVER guess what the customer bought — only reference products from the intelligence brief
-- Keep claims factual: no fake reviews, no made-up statistics, no invented customer milestones
-- STAY IN YOUR LANE: match the action type exactly. Do NOT use "reorder" language unless action type is reorder_reminder. Do NOT pitch new products if action type is education. Do NOT be transactional if action type is loyalty. Each action type has a distinct purpose — do not blend them.
-
-Write the email content as JSON with these exact keys:
-- hero_headline: short punchy headline (max 8 words)
-- hero_subheadline: supporting line (max 15 words)
-- paragraphs: list of 1-3 short paragraph strings
-- cta_text: call-to-action button text (max 4 words)
-- cta_url: "{default_cta_url}" (or another ldas.ca URL if justified)
-
-Return ONLY valid JSON, no markdown fences."""
+ONLY mention products listed above. Return ONLY valid JSON.""".format(
+        system_role=system_role,
+        name=contact.first_name or "Customer",
+        intel_text=intel_text,
+        product_text=product_text,
+        offer_text=offer_text,
+        feedback_text=feedback_text,
+        slot_schema=slot_schema,
+    )
 
     try:
         raw = None
@@ -1036,7 +1273,6 @@ Return ONLY valid JSON, no markdown fences."""
             if not total_tokens:
                 total_tokens = input_tokens + output_tokens
         except Exception as openrouter_exc:
-            # Fall back to ai_provider (uses Anthropic key if configured)
             logger.info("[am_runtime] OpenRouter unavailable (%s), trying ai_provider fallback", openrouter_exc)
             try:
                 from ai_provider import get_provider
@@ -1052,21 +1288,34 @@ Return ONLY valid JSON, no markdown fences."""
             "output": output_tokens,
             "total": total_tokens,
         }
-        parsed["copy_source"] = "ai"
-        return parsed
+
+        # ── Layer 3: Structural validation ──
+        ok, violations = _validate_ai_copy(parsed, action_type, products)
+        if ok:
+            parsed["copy_source"] = "ai"
+            parsed["validation_violations"] = []
+        else:
+            logger.warning("[am_runtime] AI copy validation FAILED for %s/%s: %s",
+                           contact.id, action_type, violations)
+            parsed["copy_source"] = "seed"
+            parsed["validation_violations"] = violations
+
+        # Normalize named slots to standard format
+        return _normalize_ai_slots(parsed, action_type)
 
     except Exception as exc:
-        logger.warning("[am_runtime] AI copy generation failed (using deterministic fallback): %s", exc)
-        # Deterministic fallback — acceptable commercial copy, clearly flagged
+        logger.warning("[am_runtime] AI copy generation failed: %s", exc)
+        # API failure — signal to use seed template (NOT generic fallback)
         return {
-            "hero_headline": "New from LDAS Electronics",
-            "hero_subheadline": "Discover what's waiting for you",
-            "paragraphs": ["We've got something special for you."],
-            "cta_text": "Shop Now",
-            "cta_url": "https://ldas.ca",
+            "hero_headline": "",
+            "hero_subheadline": "",
+            "paragraphs": [],
+            "cta_text": "",
+            "cta_url": "",
             "token_usage": {"input": 0, "output": 0, "total": 0},
-            "copy_source": "fallback",
-            "fallback_reason": str(exc),
+            "copy_source": "api_error",
+            "api_error_reason": str(exc),
+            "validation_violations": [],
         }
 
 
@@ -1089,8 +1338,10 @@ def _apply_ai_overrides(blocks_json, ai_content):
     """
     blocks = copy.deepcopy(blocks_json) if blocks_json else []
 
-    # Preserve seed template when AI copy generation failed
-    if ai_content.get("copy_source") == "fallback":
+    # Preserve seed template when AI copy is not usable.
+    # "seed" = validation failed, "api_error" = API call failed, "fallback" = legacy fallback.
+    # In all cases the pre-vetted seed template content is better than bad AI copy.
+    if ai_content.get("copy_source") in ("fallback", "seed", "api_error"):
         return blocks
 
     for block in blocks:
@@ -1255,4 +1506,6 @@ def execute_am_decision(contact, strategy, decision, template=None, reviewer_fee
         "ai_tokens": ai_content.get("token_usage", {"input": 0, "output": 0, "total": 0}),
         "copy_source": ai_content.get("copy_source", "unknown"),
         "fallback_reason": ai_content.get("fallback_reason", ""),
+        "api_error_reason": ai_content.get("api_error_reason", ""),
+        "validation_violations": ai_content.get("validation_violations", []),
     }

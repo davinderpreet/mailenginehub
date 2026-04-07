@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-04-07 10:42. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-04-07 11:11. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 42,120 lines)
+## Python Files — Detailed (63 files, 42,464 lines)
 
 ### `app.py` (7,354 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -313,6 +313,21 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 ### `account_manager.py` (1,716 lines)
 **Account Manager AI — autonomous nightly email campaign planning and execution via Claude**
 
+### `am_runtime.py` (1,512 lines)
+**AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)**
+
+Phase 4 Account Manager decision engine. Provides build_am_decision() for structured
+action decisions (reorder, cross_sell, winback, loyalty, education, wait) and execute_am_decision()
+for AI copy generation + template_engine rendering. Replaces inline logic in run_account_manager().
+
+Key functions:
+- `build_am_decision(contact, strategy, intelligence=None) → decision dict with action_type/products/offer/timing`
+- `execute_am_decision(contact, strategy, decision, template=None) → rendered subject/html or invalid`
+- `_normalize_strategy(strategy_json_dict, current_phase) → executable strategy state`
+- `_evaluate_candidates(strategy_state, intel) → (action_type, score, reasoning)`
+- `_check_preconditions(contact) → ('ok','') or ('skipped', reason)`
+- `_check_timing(contact, intelligence) → ('ok', scheduled_at) or ('wait', wait_until)`
+
 ### `customer_intelligence.py` (1,429 lines)
 **Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV**
 
@@ -357,20 +372,22 @@ Key functions:
 - `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
 - `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
 
-### `am_runtime.py` (1,259 lines)
-**AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)**
+### `intelligence_layer.py` (1,102 lines)
+**Unified intelligence API — contact profiles, timing gates, discount policy, diagnostics**
 
-Phase 4 Account Manager decision engine. Provides build_am_decision() for structured
-action decisions (reorder, cross_sell, winback, loyalty, education, wait) and execute_am_decision()
-for AI copy generation + template_engine rendering. Replaces inline logic in run_account_manager().
+Phase 1 of the architecture rebuild. Single entry point for all contact intelligence.
+Aggregates data from CustomerProfile, ContactScore, MessageDecision, and product_intelligence
+into a unified schema (schema_version=1). Includes timing gate (should_contact_now) that checks
+recency, suppression, and unsubscribe status. Discount policy engine decides whether to offer
+discounts based on customer type, lifecycle stage, and product margins. Used by studio, AM, and flows.
 
 Key functions:
-- `build_am_decision(contact, strategy, intelligence=None) → decision dict with action_type/products/offer/timing`
-- `execute_am_decision(contact, strategy, decision, template=None) → rendered subject/html or invalid`
-- `_normalize_strategy(strategy_json_dict, current_phase) → executable strategy state`
-- `_evaluate_candidates(strategy_state, intel) → (action_type, score, reasoning)`
-- `_check_preconditions(contact) → ('ok','') or ('skipped', reason)`
-- `_check_timing(contact, intelligence) → ('ok', scheduled_at) or ('wait', wait_until)`
+- `get_contact_intelligence(contact_id) — Returns unified profile dict with all intelligence sections`
+- `should_contact_now(contact_id) — Timing gate: checks recency, suppression, unsubscribe`
+- `get_discount_policy(contact_id, family, candidate_products) — Returns discount recommendation`
+- `get_next_products(contact_id) — Returns product recommendations from product_intelligence`
+- `format_intelligence_for_prompt(intel) — Formats intelligence dict for AI prompt context`
+- `diagnose_contact(contact_id) — Debug helper: returns full intelligence + timing + discount`
 
 ### `identity_resolution.py` (1,084 lines)
 **Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching**
@@ -412,23 +429,6 @@ Key functions:
 - `preview_email(template, ...) — Convenience wrapper: render in preview mode + explain=True`
 - `validate_rendered_email(html, subject, ...) — Post-render 6-category validation`
 - `substitute_preview_tokens(html) — Replace send-time tokens for browser preview display`
-
-### `intelligence_layer.py` (1,011 lines)
-**Unified intelligence API — contact profiles, timing gates, discount policy, diagnostics**
-
-Phase 1 of the architecture rebuild. Single entry point for all contact intelligence.
-Aggregates data from CustomerProfile, ContactScore, MessageDecision, and product_intelligence
-into a unified schema (schema_version=1). Includes timing gate (should_contact_now) that checks
-recency, suppression, and unsubscribe status. Discount policy engine decides whether to offer
-discounts based on customer type, lifecycle stage, and product margins. Used by studio, AM, and flows.
-
-Key functions:
-- `get_contact_intelligence(contact_id) — Returns unified profile dict with all intelligence sections`
-- `should_contact_now(contact_id) — Timing gate: checks recency, suppression, unsubscribe`
-- `get_discount_policy(contact_id, family, candidate_products) — Returns discount recommendation`
-- `get_next_products(contact_id) — Returns product recommendations from product_intelligence`
-- `format_intelligence_for_prompt(intel) — Formats intelligence dict for AI prompt context`
-- `diagnose_contact(contact_id) — Debug helper: returns full intelligence + timing + discount`
 
 ### `knowledge_scraper.py` (952 lines)
 **Auto-enrichment pipeline — scrapes products, blogs, competitors, FAQs into knowledge base**

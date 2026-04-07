@@ -1664,8 +1664,8 @@ class TestProviderFallback:
             with pytest.raises(RuntimeError, match="openai package not installed"):
                 _get_openrouter_client()
 
-    def test_generate_ai_copy_returns_fallback_on_import_error(self, in_memory_db, make_contact):
-        """_generate_ai_copy returns deterministic fallback when openai is unavailable."""
+    def test_generate_ai_copy_returns_api_error_on_import_error(self, in_memory_db, make_contact):
+        """_generate_ai_copy returns api_error (seed fallback) when openai is unavailable."""
         from am_runtime import _generate_ai_copy
         contact = make_contact(first_name="Test")
         decision = {"action_type": "education", "candidate_products": []}
@@ -1674,10 +1674,11 @@ class TestProviderFallback:
         with patch("am_runtime._get_openrouter_client", side_effect=RuntimeError("openai package not installed")):
             result = _generate_ai_copy(contact, decision, intel)
 
-        assert result["hero_headline"] == "New from LDAS Electronics"
-        assert result["cta_text"] == "Shop Now"
-        assert result["copy_source"] == "fallback"
-        assert "openai" in result["fallback_reason"]
+        # API error returns empty fields so seed template is preserved (not generic fallback)
+        assert result["hero_headline"] == ""
+        assert result["cta_text"] == ""
+        assert result["copy_source"] == "api_error"
+        assert "openai" in result["api_error_reason"]
 
     def test_generate_ai_copy_marks_ai_source_on_success(self, in_memory_db, make_contact):
         """Successful AI generation is marked with copy_source='ai'."""
@@ -1689,11 +1690,11 @@ class TestProviderFallback:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps({
-            "hero_headline": "AI Generated",
-            "hero_subheadline": "Smart copy",
-            "paragraphs": ["Great content."],
-            "cta_text": "Buy Now",
-            "cta_url": "https://ldas.ca",
+            "hero_headline": "Get More From Your Gear",
+            "hero_subheadline": "Quick tips for your headset",
+            "tip_paragraph": "Here is a usage tip to help you get more from your headset.",
+            "cta_text": "Learn More",
+            "cta_url": "https://ldas.ca/blogs/news",
         })
         mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
@@ -1704,7 +1705,7 @@ class TestProviderFallback:
             result = _generate_ai_copy(contact, decision, intel)
 
         assert result["copy_source"] == "ai"
-        assert result["hero_headline"] == "AI Generated"
+        assert result["hero_headline"] == "Get More From Your Gear"
 
     def test_execute_am_decision_propagates_copy_source(self, in_memory_db, make_contact, make_template):
         """execute_am_decision result includes copy_source from AI generation."""
@@ -1732,20 +1733,20 @@ class TestProviderFallback:
              patch("am_runtime.te.make_render_contract") as mock_contract, \
              patch("am_runtime.te.render_email", return_value=mock_render):
             mock_ai.return_value = {
-                "hero_headline": "Test",
-                "hero_subheadline": "Sub",
-                "paragraphs": ["Para"],
-                "cta_text": "Shop",
-                "cta_url": "https://ldas.ca",
+                "hero_headline": "",
+                "hero_subheadline": "",
+                "paragraphs": [],
+                "cta_text": "",
+                "cta_url": "",
                 "token_usage": {"input": 0, "output": 0, "total": 0},
-                "copy_source": "fallback",
-                "fallback_reason": "openai package not installed",
+                "copy_source": "api_error",
+                "api_error_reason": "openai package not installed",
+                "validation_violations": [],
             }
             result = am_runtime.execute_am_decision(contact, {}, decision)
 
         assert result["status"] == "rendered"
-        assert result["copy_source"] == "fallback"
-        assert result["fallback_reason"] == "openai package not installed"
+        assert result["copy_source"] == "api_error"
 
 
 class TestBuildAmDecisionTimingRobust:
@@ -2230,9 +2231,9 @@ class TestActionGuidance:
             assert "emphasize" in g, f"{action} missing emphasize"
             assert "avoid" in g, f"{action} missing avoid"
 
-    def test_guidance_injected_into_prompt(self, in_memory_db, make_contact):
-        """AI prompt includes EMAIL PURPOSE when guidance exists."""
-        from am_runtime import _generate_ai_copy, AM_ACTION_GUIDANCE
+    def test_per_action_prompt_used(self, in_memory_db, make_contact):
+        """AI prompt uses per-action system_role from AM_ACTION_PROMPTS."""
+        from am_runtime import _generate_ai_copy, AM_ACTION_PROMPTS
         contact = make_contact(first_name="Test")
         decision = {"action_type": "loyalty", "candidate_products": []}
         intel = _make_intel()
@@ -2240,9 +2241,11 @@ class TestActionGuidance:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps({
-            "hero_headline": "Test", "hero_subheadline": "Sub",
-            "paragraphs": ["Para"], "cta_text": "CTA",
-            "cta_url": "https://ldas.ca",
+            "hero_headline": "We Appreciate You",
+            "hero_subheadline": "Your loyalty means the world",
+            "gratitude_paragraph": "Thank you for being a valued customer.",
+            "cta_text": "Explore New",
+            "cta_url": "https://ldas.ca/collections/new",
         })
         mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
@@ -2252,11 +2255,12 @@ class TestActionGuidance:
         with patch("am_runtime._get_openrouter_client", return_value=mock_client):
             _generate_ai_copy(contact, decision, intel)
 
-        # Check the prompt includes guidance
+        # Check the prompt uses the per-action system role
         call_args = mock_client.chat.completions.create.call_args
         prompt_text = call_args[1]["messages"][0]["content"]
-        assert "EMAIL PURPOSE:" in prompt_text
-        assert AM_ACTION_GUIDANCE["loyalty"]["purpose"] in prompt_text
+        assert AM_ACTION_PROMPTS["loyalty"]["system_role"] in prompt_text
+        # Verify named slot is in schema
+        assert "gratitude_paragraph" in prompt_text
 
 
 # ==================================================================
