@@ -570,20 +570,11 @@ AM_TEMPLATES = {
         "preview_text": "Get more from your gear with these quick tips",
         "blocks": [
             {"block_type": "hero", "content": {"headline": "Get More From Your Gear", "subheadline": "Tips and tricks from the LDAS team"}},
+            {"block_type": "product_hero", "content": {"section_title": "Your Product", "cta_text": "View Product"}},
             {"block_type": "text", "content": {"paragraphs": [
-                "Whether you just upgraded your headset or you've been rocking the same dash cam for years \u2014 there's always a way to get more out of your equipment.",
-                "Here are a few quick wins our customers swear by."
+                "There's always a way to get more out of your equipment.",
+                "Here are a few tips to help you get the best experience."
             ]}},
-            {"block_type": "features_benefits", "content": {
-                "section_title": "Quick Wins",
-                "items": [
-                    "Mount your dash cam behind the rear-view mirror for the cleanest field of view",
-                    "Pair your Bluetooth headset before starting the engine for fastest connection",
-                    "Use the included cable clips to keep wiring tidy and out of sight",
-                    "Register your product at ldas.ca for extended warranty coverage"
-                ]
-            }},
-            {"block_type": "product_grid", "content": {"section_title": "Popular With Customers Like You", "columns": 2}},
             {"block_type": "cta", "content": {"text": "Browse Our Blog", "url": "https://ldas.ca/blogs/news"}},
         ]
     },

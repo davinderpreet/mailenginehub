@@ -1000,11 +1000,12 @@ Products to feature:
 {feedback_text}
 
 HARD RULES (never break these):
-- ONLY mention products listed in "Products to feature" above — never invent or name other products
+- ONLY mention products listed in "Products to feature" above — never invent or name other products or parts (no "ear cushions", "replacement pads", etc. unless listed)
 - NEVER state specific days, timelines, or countdowns unless the intelligence brief above provides them
 - NEVER announce upcoming products, launches, or restocks — only reference what exists now
 - NEVER guess what the customer bought — only reference products from the intelligence brief
 - Keep claims factual: no fake reviews, no made-up statistics, no invented customer milestones
+- STAY IN YOUR LANE: match the action type exactly. Do NOT use "reorder" language unless action type is reorder_reminder. Do NOT pitch new products if action type is education. Do NOT be transactional if action type is loyalty. Each action type has a distinct purpose — do not blend them.
 
 Write the email content as JSON with these exact keys:
 - hero_headline: short punchy headline (max 8 words)
