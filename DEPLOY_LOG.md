@@ -4,6 +4,21 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-07 11:13 -- `0394b02`
+
+**3-layer AM copy architecture: input filtering + named slots + output validation**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+am_runtime.py
+intelligence_layer.py
+tests/test_am_runtime.py
+```
+
+---
+
 ### 2026-04-07 10:43 -- `0eebd03`
 
 **Round 3.1: fix education seed template + AI action-type bleeding**
