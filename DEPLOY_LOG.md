@@ -4,6 +4,20 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-07 10:43 -- `0eebd03`
+
+**Round 3.1: fix education seed template + AI action-type bleeding**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+account_manager.py
+am_runtime.py
+```
+
+---
+
 ### 2026-04-07 10:22 -- `4cbab28`
 
 **Remove product_grid from loyalty seed template**
