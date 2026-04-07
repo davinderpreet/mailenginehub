@@ -1281,6 +1281,13 @@ ONLY mention products listed above. Return ONLY valid JSON.""".format(
             except Exception as provider_exc:
                 raise RuntimeError("Both OpenRouter and ai_provider failed: %s / %s" % (openrouter_exc, provider_exc))
 
+        # Strip markdown fences (gpt-4o-mini often wraps JSON in ```json...```)
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            raw = raw.strip()
+
         # Parse JSON
         parsed = json.loads(raw)
         parsed["token_usage"] = {
