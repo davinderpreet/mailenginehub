@@ -4,6 +4,19 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-07 11:21 -- `550adee`
+
+**Fix JSON parsing: strip markdown fences from gpt-4o-mini responses**
+
+Files changed:
+```
+CLAUDE.md
+REFERENCE.md
+am_runtime.py
+```
+
+---
+
 ### 2026-04-07 11:13 -- `0394b02`
 
 **3-layer AM copy architecture: input filtering + named slots + output validation**
