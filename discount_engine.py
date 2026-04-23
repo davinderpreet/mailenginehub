@@ -12,11 +12,27 @@ import os
 import string
 import random
 import requests
+import time
 import logging
 from datetime import datetime, timedelta, timezone
 from database import GeneratedDiscount, Contact, init_db
+from peewee import OperationalError
 
 logger = logging.getLogger("discount_engine")
+
+
+def _retry_db(fn, max_retries=5, base_delay=0.5):
+    """Retry a DB operation with exponential backoff on SQLite lock errors."""
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except OperationalError as e:
+            if ("locked" in str(e).lower() or "busy" in str(e).lower()) and attempt < max_retries:
+                delay = base_delay * (2 ** attempt) + random.uniform(0, base_delay)
+                logger.debug("DB locked, retry %d/%d in %.1fs", attempt + 1, max_retries, delay)
+                time.sleep(delay)
+            else:
+                raise
 
 STORE_URL = os.getenv("SHOPIFY_STORE_URL", "").strip().rstrip("/")
 ACCESS_TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
@@ -33,6 +49,7 @@ DISCOUNT_STRATEGIES = {
     "re_engagement":      {"type": "percentage",    "value": "5",   "expires_hours": 168,  "prefix": "RE"},
     "high_intent":        {"type": "free_shipping", "value": "100", "expires_hours": 72,   "prefix": "HI"},
     "smart_escalation":   {"type": "percentage",    "value": "10",  "expires_hours": 168,  "prefix": "SAVE"},
+    "reorder_reminder":   {"type": "percentage",    "value": "5",   "expires_hours": 168,  "prefix": "REORD"},
     # AM purpose aliases — map recovery-style names to their abandonment equivalents
     "cart_recovery":      {"type": "percentage",    "value": "5",   "expires_hours": 48,   "prefix": "CART"},
     "browse_recovery":    {"type": "free_shipping", "value": "100", "expires_hours": 72,   "prefix": "SHIP"},
@@ -218,18 +235,22 @@ def generate_discount_code(email, purpose, override_value=None, override_type=No
     try:
         # Store in our database only after successful Shopify sync
         contact = Contact.get_or_none(Contact.email == email)
-        GeneratedDiscount.create(
-            contact=contact,
-            email=email,
-            code=code,
-            purpose=purpose,
-            discount_type=discount_type,
-            value=value,
-            shopify_price_rule_id=price_rule_id,
-            shopify_discount_id=shopify_discount_id,
-            expires_at=expires_at,
-            created_at=now,
-        )
+
+        def _do_create():
+            return GeneratedDiscount.create(
+                contact=contact,
+                email=email,
+                code=code,
+                purpose=purpose,
+                discount_type=discount_type,
+                value=value,
+                shopify_price_rule_id=price_rule_id,
+                shopify_discount_id=shopify_discount_id,
+                expires_at=expires_at,
+                created_at=now,
+            )
+
+        _retry_db(_do_create)
 
         logger.info("Discount created (Shopify synced): %s for %s (%s, %s%% off, expires %s)",
                      code, email, purpose, value, expires_at.strftime("%b %d"))
