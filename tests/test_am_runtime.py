@@ -2255,10 +2255,11 @@ class TestActionGuidance:
         with patch("am_runtime._get_openrouter_client", return_value=mock_client):
             _generate_ai_copy(contact, decision, intel)
 
-        # Check the prompt uses the per-action system role
+        # Check the prompt uses the per-action system role (repeat variant for 3 orders)
         call_args = mock_client.chat.completions.create.call_args
         prompt_text = call_args[1]["messages"][0]["content"]
-        assert AM_ACTION_PROMPTS["loyalty"]["system_role"] in prompt_text
+        # With 3 orders in mock intel, should use system_role_repeat
+        assert AM_ACTION_PROMPTS["loyalty"]["system_role_repeat"] in prompt_text
         # Verify named slot is in schema
         assert "gratitude_paragraph" in prompt_text
 
@@ -2309,6 +2310,174 @@ class TestActionCtaDefaults:
         cta = result[0]["content"]
         assert cta["text"] == "See What's New"  # text IS overridden
         assert cta["url"] == "https://ldas.ca/collections/new"  # URL is NOT overridden
+
+
+# ==================================================================
+# Fix 6: Cross-sell ownership validation + loyalty order-count framing
+# ==================================================================
+class TestFalseOwnershipValidation:
+    """Check 5: AI can't claim customer owns a recommended (non-owned) product."""
+
+    def test_false_ownership_blocked(self):
+        """Cross-sell copy claiming customer ordered a candidate product is flagged."""
+        from am_runtime import _validate_ai_copy
+        ai_output = {
+            "hero_headline": "Complete Your Setup",
+            "hero_subheadline": "Accessories for your gear",
+            "compatibility_paragraph": "Since you've ordered our LDAS Dash Cam, consider adding the hardwire kit.",
+            "cta_text": "Shop Now",
+        }
+        candidate_products = [
+            {"product_title": "LDAS Dash Cam for Cars SD Card Included", "price": "89.99"},
+            {"product_title": "Dash Cam Hardwire Kit", "price": "21.99"},
+        ]
+        # Customer actually owns a headset, NOT the dash cam
+        owned_products = ["LDAS Trucker Bluetooth Headset TH11"]
+
+        ok, violations = _validate_ai_copy(ai_output, "cross_sell", candidate_products, owned_products)
+        assert not ok
+        assert any("false_ownership" in v for v in violations)
+
+    def test_correct_ownership_passes(self):
+        """Cross-sell copy referencing actual owned product is fine."""
+        from am_runtime import _validate_ai_copy
+        ai_output = {
+            "hero_headline": "Complete Your Setup",
+            "hero_subheadline": "Accessories for your headset",
+            "compatibility_paragraph": "Since you've ordered the LDAS Trucker Bluetooth Headset, these accessories pair perfectly.",
+            "cta_text": "Shop Now",
+        }
+        candidate_products = [
+            {"product_title": "Dash Cam Hardwire Kit", "price": "21.99"},
+            {"product_title": "LDAS USB C Car Charger", "price": "12.99"},
+        ]
+        owned_products = ["LDAS Trucker Bluetooth Headset TH11"]
+
+        ok, violations = _validate_ai_copy(ai_output, "cross_sell", candidate_products, owned_products)
+        # Should pass — ownership claim is about the actual owned product
+        assert ok or not any("false_ownership" in v for v in violations)
+
+    def test_no_owned_products_skips_check(self):
+        """If owned_products is None (unknown), skip Check 5."""
+        from am_runtime import _validate_ai_copy
+        ai_output = {
+            "hero_headline": "Test",
+            "hero_subheadline": "Sub",
+            "compatibility_paragraph": "Since you've ordered our LDAS Dash Cam, check this out.",
+            "cta_text": "Shop",
+        }
+        candidate_products = [{"product_title": "LDAS Dash Cam", "price": "89.99"}]
+
+        ok, violations = _validate_ai_copy(ai_output, "cross_sell", candidate_products, None)
+        assert not any("false_ownership" in v for v in violations)
+
+
+class TestLoyaltyOrderCountFraming:
+    """Loyalty prompt adjusts based on customer order count."""
+
+    def test_1_order_uses_appreciation_framing(self, in_memory_db, make_contact):
+        """1-order customer gets appreciation prompt, not loyalty."""
+        from am_runtime import _generate_ai_copy, AM_ACTION_PROMPTS
+        contact = make_contact(first_name="Test")
+        decision = {"action_type": "loyalty", "candidate_products": []}
+        intel = _make_intel()
+        # Override to 1 order
+        intel["purchase"]["total_orders"] = 1
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "hero_headline": "We Appreciate You",
+            "hero_subheadline": "Thank you for your purchase",
+            "gratitude_paragraph": "We truly appreciate your trust in choosing LDAS Electronics.",
+            "cta_text": "Explore New",
+            "cta_url": "https://ldas.ca/collections/new",
+        })
+        mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch("am_runtime._get_openrouter_client", return_value=mock_client):
+            _generate_ai_copy(contact, decision, intel)
+
+        prompt_text = mock_client.chat.completions.create.call_args[1]["messages"][0]["content"]
+        # Should use 1-order appreciation framing
+        assert AM_ACTION_PROMPTS["loyalty"]["system_role_1_order"] in prompt_text
+        # The 1-order prompt must NOT positively affirm loyalty (it may mention "loyal" in a prohibition)
+        system_section = prompt_text.split("Customer:")[0].lower()
+        assert "loyal customer" not in system_section or "not" in system_section.split("loyal customer")[0][-30:]
+
+    def test_repeat_customer_uses_loyalty_framing(self, in_memory_db, make_contact):
+        """3-order customer gets loyalty prompt."""
+        from am_runtime import _generate_ai_copy, AM_ACTION_PROMPTS
+        contact = make_contact(first_name="Test")
+        decision = {"action_type": "loyalty", "candidate_products": []}
+        intel = _make_intel()  # default has total_orders=3
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "hero_headline": "You're One of Our Best",
+            "hero_subheadline": "Thank you for your loyalty",
+            "gratitude_paragraph": "We truly value your continued support and loyalty.",
+            "cta_text": "Explore New",
+            "cta_url": "https://ldas.ca/collections/new",
+        })
+        mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch("am_runtime._get_openrouter_client", return_value=mock_client):
+            _generate_ai_copy(contact, decision, intel)
+
+        prompt_text = mock_client.chat.completions.create.call_args[1]["messages"][0]["content"]
+        assert AM_ACTION_PROMPTS["loyalty"]["system_role_repeat"] in prompt_text
+
+
+class TestCrossSellPromptSeparation:
+    """Cross-sell prompt clearly separates owned vs recommended products."""
+
+    def test_cross_sell_prompt_has_owned_and_recommend_sections(self, in_memory_db, make_contact):
+        """Cross-sell prompt includes CUSTOMER OWNS and RECOMMEND THESE sections."""
+        from am_runtime import _generate_ai_copy
+        contact = make_contact(first_name="Test")
+        decision = {
+            "action_type": "cross_sell",
+            "candidate_products": [
+                {"product_title": "LDAS Dash Cam", "price": "89.99"},
+            ]
+        }
+        intel = _make_intel()
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "hero_headline": "Complete Your Setup",
+            "hero_subheadline": "Pair with your gear",
+            "compatibility_paragraph": "These accessories pair perfectly with your existing product.",
+            "cta_text": "Shop Now",
+            "cta_url": "https://ldas.ca/collections/accessories",
+        })
+        mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch("am_runtime._get_openrouter_client", return_value=mock_client), \
+             patch("am_runtime.get_contact_purchase_history", create=True, return_value={"products_bought": {"LDAS Headset TH11": 1}}):
+            # Need to mock product_intelligence import inside _generate_ai_copy
+            import am_runtime
+            with patch.dict("sys.modules", {"product_intelligence": MagicMock(
+                get_contact_purchase_history=MagicMock(return_value={"products_bought": {"LDAS Headset TH11": 1}})
+            )}):
+                _generate_ai_copy(contact, decision, intel)
+
+        prompt_text = mock_client.chat.completions.create.call_args[1]["messages"][0]["content"]
+        assert "CUSTOMER OWNS" in prompt_text
+        assert "RECOMMEND THESE" in prompt_text
+        assert "LDAS Headset TH11" in prompt_text
 
 
 # ==================================================================

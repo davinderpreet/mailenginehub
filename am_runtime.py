@@ -91,11 +91,11 @@ AM_ACTION_GUIDANCE = {
 # direction better than generic "paragraphs" + prose rules.
 AM_ACTION_PROMPTS = {
     "education": {
-        "system_role": "You write helpful product tips emails for LDAS Electronics (ldas.ca). Focus ONLY on the customer's owned product — usage tips, setup, maintenance, hidden features.",
+        "system_role": "You write helpful product tips emails for LDAS Electronics (ldas.ca), a small Canadian electronics shop. Focus ONLY on the customer's owned product — usage tips, setup, maintenance, hidden features. Write casually and be specific — give them one tip they can use today.",
         "output_slots": {
-            "hero_headline": "Short headline about getting more from their product (max 8 words)",
-            "hero_subheadline": "Supporting line about tips/value (max 15 words)",
-            "tip_paragraph": "One paragraph with a specific, practical usage tip for the featured product. Do not mention any other products.",
+            "hero_headline": "Short punchy headline (max 6 words). Examples: 'Get More From Your Gear', 'Pro Tip Inside'",
+            "hero_subheadline": "One casual line about the tip (max 12 words)",
+            "tip_paragraph": "2-3 sentences with one specific, practical usage tip for the featured product. Be concrete (e.g. 'pair it with your phone first, then your GPS' not 'explore its features'). Write like a human.",
             "cta_text": "CTA button text (max 4 words)",
         },
         "banned_phrases": ["reorder", "restock", "replace your", "upgrade to", "new arrival",
@@ -104,28 +104,37 @@ AM_ACTION_PROMPTS = {
         "required_signals": ["tip", "usage", "how to", "get more", "your"],
     },
     "product_recommendation": {
-        "system_role": "You write product recommendation emails for LDAS Electronics (ldas.ca). Introduce the listed products as hand-picked matches for this customer.",
+        "system_role": (
+            "You write product recommendation emails for LDAS Electronics (ldas.ca), a small "
+            "Canadian electronics shop. Hook the reader using the CUSTOMER CONTEXT provided: "
+            "if they've been viewing/browsing a product or category, reference THAT interest "
+            "directly — e.g. 'noticed you've been eyeing our Bluetooth Headsets'. If they've "
+            "bought in a category before, acknowledge that lane. The recommendation must feel "
+            "earned, not random. Stay in the category they care about. Write casually, like "
+            "suggesting gear to a friend — not a catalog blurb, no generic 'check out our' fluff."
+        ),
         "output_slots": {
-            "hero_headline": "Short headline about curated picks (max 8 words)",
-            "hero_subheadline": "Supporting line (max 15 words)",
-            "recommendation_paragraph": "One paragraph explaining why THESE specific products are a great fit. Reference what they already own.",
+            "hero_headline": "Short punchy headline (max 6 words). Tie to their interest category if given. Examples: 'Your Next Headset Upgrade', 'For Your Dash Cam Setup'",
+            "hero_subheadline": "One casual line (max 12 words) that references their browsing/owning signal if available",
+            "recommendation_paragraph": "2-3 sentences. LEAD with the hook — what they've been viewing, bought, or show affinity for. Then say why THESE specific products fit that interest. If no signal is given, stay neutral and avoid fabricating reasons.",
             "cta_text": "CTA button text (max 4 words)",
         },
         "banned_phrases": ["reorder", "restock", "time to replace", "days ago",
-                           "it's been.*since", "running low", "we miss you",
-                           "loyalty", "thank you for being"],
+                           "it's been.*since (you|your|we|the)", "running low", "we miss you",
+                           "loyalty", "thank you for being",
+                           "check out our", "don't miss", "limited time"],
         "required_signals": [],
     },
     "cross_sell": {
-        "system_role": "You write cross-sell emails for LDAS Electronics (ldas.ca). Show how the listed accessories complement what the customer already owns.",
+        "system_role": "You write cross-sell emails for LDAS Electronics (ldas.ca), a small Canadian electronics shop. Show how the RECOMMENDED products complement what the customer ALREADY OWNS. CRITICAL RULE: Only reference the customer's owned product(s) listed under CUSTOMER OWNS. The products under RECOMMEND THESE are NEW suggestions — NEVER claim the customer already owns or ordered them. Write casually, like a friend giving gear advice.",
         "output_slots": {
-            "hero_headline": "Short headline about completing their setup (max 8 words)",
-            "hero_subheadline": "Supporting line about compatibility (max 15 words)",
-            "compatibility_paragraph": "One paragraph about how these products pair with what they own. Focus on compatibility and convenience.",
+            "hero_headline": "Short punchy headline (max 6 words). Examples: 'Complete Your Setup', 'Goes Great With Your Gear'",
+            "hero_subheadline": "One casual line about compatibility (max 12 words)",
+            "compatibility_paragraph": "2-3 sentences about how the recommended products pair with their owned gear. Be specific — mention the owned product by short name (e.g. 'your dash cam' not the full title). Write like a human, not a brand.",
             "cta_text": "CTA button text (max 4 words)",
         },
         "banned_phrases": ["reorder", "restock", "time to replace", "days ago",
-                           "it's been.*since", "running low", "we miss you",
+                           "it's been.*since (you|your|we|the)", "running low", "we miss you",
                            "loyalty", "ear cushion"],
         "required_signals": [],
     },
@@ -142,29 +151,36 @@ AM_ACTION_PROMPTS = {
         "required_signals": [],
     },
     "loyalty": {
+        # NOTE: system_role is dynamically adjusted in _generate_ai_copy based on order count.
+        # 1 order → appreciation/thank-you framing. 2+ orders → loyalty framing.
         "system_role": "You write loyalty/thank-you emails for LDAS Electronics (ldas.ca). Express genuine gratitude. Do NOT pitch products or be transactional.",
+        "system_role_1_order": "You write a short, casual thank-you email for LDAS Electronics (ldas.ca). This customer placed ONE order. Say thanks for choosing LDAS — keep it warm and brief like a note from a small Canadian shop, not a corporate letter. Do NOT use the word 'loyal', do NOT say 'Dear [name]', do NOT claim they are a repeat customer. Never say 'recent order' or 'recent purchase' unless their last order was within 30 days — check the days-ago number in the context. NEVER write phrases like 'it's been X since', 'days ago', 'running low', or any time-based references.",
+        "system_role_repeat": "You write a short, casual loyalty email for LDAS Electronics (ldas.ca). This is a real repeat customer — thank them for coming back. Keep it warm and brief like a note from a small Canadian shop, not a corporate letter. Do NOT say 'Dear [name]'. Never say 'recent order' or 'recent purchase' unless their last order was within 30 days — check the days-ago number in the context. NEVER write phrases like 'it's been X since', 'days ago', 'running low', or any time-based references.",
         "output_slots": {
-            "hero_headline": "Short headline expressing appreciation (max 8 words)",
-            "hero_subheadline": "Supporting line about their value (max 15 words)",
-            "gratitude_paragraph": "One heartfelt paragraph thanking them for their loyalty. Reference their order history stats if provided. Do NOT pitch products.",
+            "hero_headline": "Short punchy headline (max 6 words). Examples: 'You're the Real Deal', 'This One's for You'",
+            "hero_subheadline": "One casual line (max 12 words). No corporate speak.",
+            "gratitude_paragraph": "2-3 sentences max. Warm and specific — mention their order count or spend if provided. Write like a human, not a brand. No 'Dear', no 'sincerely', no 'invaluable'. If their last order was 60+ days ago, do NOT call it 'recent'.",
             "cta_text": "CTA button text (max 4 words)",
         },
         "banned_phrases": ["reorder", "restock", "replace", "days ago",
-                           "it's been.*since", "running low", "we miss you",
-                           "don't miss", "limited time", "upgrade to"],
+                           "it's been.*since (you|your|we|the)", "running low", "we miss you",
+                           "don't miss", "limited time", "upgrade to",
+                           "dear ", "sincerely", "invaluable", "esteemed",
+                           "recent order", "recent purchase", "your latest order"],
         "required_signals": ["thank", "appreciate", "value", "loyal", "gratitude", "mean"],
     },
     "winback": {
-        "system_role": "You write warm re-engagement emails for LDAS Electronics (ldas.ca). Invite the customer back with a no-pressure, casual tone. Mention what's new.",
+        "system_role": "You write re-engagement emails for LDAS Electronics (ldas.ca), a small Canadian electronics shop. Your tone is casual, warm, and confident — like texting a friend who hasn't been around in a while. No guilt-tripping, no begging. If the context mentions what they previously bought, reference it naturally. The product grid below the text will show specific items — do NOT list product names in your paragraph.",
         "output_slots": {
-            "hero_headline": "Short warm headline about reconnecting (max 8 words)",
-            "hero_subheadline": "Supporting line (max 15 words)",
-            "winback_paragraph": "One warm paragraph inviting them back. Mention the listed products as things that are new/popular. No guilt-tripping.",
+            "hero_headline": "Short punchy headline (max 6 words). Examples: 'Long Time No See', 'We Saved You a Spot'",
+            "hero_subheadline": "One casual line (max 12 words). Light, not salesy.",
+            "winback_paragraph": "2-3 sentences. Reference their OWNED products (e.g. 'your headset setup was solid' or 'loved the dash cam?'). Then tease the NEW recommendations below. NEVER say the customer bought or owned a product unless it appears under CUSTOMER OWNS. Write like a human — no 'Dear', no 'we sincerely', no bullet lists.",
             "cta_text": "CTA button text (max 4 words)",
         },
         "banned_phrases": ["reorder", "restock", "time to replace",
                            "loyalty", "thank you for being", "ear cushion",
-                           "replacement pad"],
+                           "replacement pad", "dear ", "sincerely",
+                           "we would love", "valued customer"],
         "required_signals": [],
     },
 }
@@ -187,11 +203,14 @@ _TIMELINE_PATTERN = _re.compile(
 _BRAND_WORDS = frozenset({"ldas", "electronics", "canadian", "canada", "trucker"})
 
 
-def _validate_ai_copy(ai_output, action_type, candidate_products):
+def _validate_ai_copy(ai_output, action_type, candidate_products, owned_products=None):
     """Structural validation of AI-generated copy. Returns (ok, violations).
 
     ok: bool — True if copy is safe to use
     violations: list of str — human-readable reasons for failure
+
+    owned_products: list of str (product titles the customer actually owns).
+        Used by Check 5 to detect false ownership claims in cross_sell/product_recommendation.
     """
     config = AM_ACTION_PROMPTS.get(action_type)
     if not config:
@@ -252,9 +271,14 @@ def _validate_ai_copy(ai_output, action_type, candidate_products):
 
     if para_text and candidate_products:
         # Build allowlist: short recognizable fragments from candidate product titles
+        # Also include owned products — cross_sell/product_rec are allowed to reference what customer owns
         allow_fragments = set()
-        for p in candidate_products:
-            title = p.get("product_title", "")
+        all_allowed_titles = list(candidate_products)
+        if owned_products:
+            for ot in owned_products:
+                all_allowed_titles.append({"product_title": ot})
+        for p in all_allowed_titles:
+            title = p.get("product_title", "") if isinstance(p, dict) else str(p)
             allow_fragments.add(title.lower())
             # Also add first N significant words as fragment (e.g. "ldas trucker bluetooth headset")
             words = [w for w in title.lower().split() if len(w) > 2]
@@ -269,6 +293,66 @@ def _validate_ai_copy(ai_output, action_type, candidate_products):
             # Check if any candidate fragment matches within this mention
             if not any(frag in mention_lower for frag in allow_fragments):
                 violations.append("unlisted_product: '%s'" % mention_clean)
+
+    # ── Check 5: False ownership claims (cross_sell, product_recommendation) ──
+    # If AI claims customer "ordered/bought/owns" a product that's in the
+    # candidate list but NOT in the owned list, that's a trust-breaking error.
+    if action_type in ("cross_sell", "product_recommendation") and owned_products is not None and para_text:
+        owned_lower = {t.lower() for t in owned_products}
+        para_lower = para_text.lower()
+
+        # Ownership phrases that indicate "customer has this product"
+        _ownership_phrases = [
+            "you ordered", "you bought", "you purchased", "you own",
+            "you've ordered", "you've bought", "you've got",
+            "since you got", "since you ordered", "since you bought",
+            "your order of", "you already have",
+        ]
+        has_ownership_claim = any(phrase in para_lower for phrase in _ownership_phrases)
+
+        if has_ownership_claim:
+            # Check if any candidate product (NOT owned) is mentioned near ownership language
+            for p in candidate_products:
+                ptitle = p.get("product_title", "")
+                ptitle_lower = ptitle.lower()
+                if ptitle_lower in owned_lower:
+                    continue  # This IS owned — OK to claim ownership
+
+                # Build key fragments of candidate title for matching
+                # Use first 3-4 significant words (keep words >= 2 chars to preserve "cam", "a20", etc.)
+                words = [w for w in ptitle_lower.split() if len(w) >= 2]
+                key_frags = set()
+                if len(words) >= 3:
+                    key_frags.add(" ".join(words[:3]))
+                if len(words) >= 2:
+                    key_frags.add(" ".join(words[:2]))
+                if not key_frags:
+                    key_frags.add(ptitle_lower)
+
+                matched_frag = None
+                for kf in key_frags:
+                    if kf in para_lower:
+                        matched_frag = kf
+                        break
+
+                if matched_frag:
+                    # Product mentioned + ownership claim present → check proximity
+                    found_violation = False
+                    for phrase in _ownership_phrases:
+                        idx = para_lower.find(phrase)
+                        while idx != -1:
+                            # Window: 80 chars after ownership phrase
+                            window = para_lower[idx:idx + len(phrase) + 80]
+                            if matched_frag in window:
+                                violations.append(
+                                    "false_ownership: AI claims customer owns '%s' but it's a recommended product, not owned" % ptitle)
+                                found_violation = True
+                                break
+                            idx = para_lower.find(phrase, idx + 1)
+                        if found_violation:
+                            break
+                    if found_violation:
+                        break  # One false ownership violation is enough
 
     return (len(violations) == 0), violations
 
@@ -330,8 +414,47 @@ _TACTIC_TO_ACTIONS = {
     "aggressive": ["cross_sell", "winback", "reorder_reminder", "product_recommendation", "loyalty", "education"],
 }
 
+# Keyword-based parsing for narrative tactics produced by bootstrap_strategies.
+# Iterated in order — all matches contribute, first keyword for an action wins its slot.
+# e.g. "Reorder reminder for products they typically buy" -> ["reorder_reminder", "cross_sell", "education"]
+_TACTIC_KEYWORDS = [
+    (["reorder", "restock", "replenish", "running low", "refill", "time to reorder"],
+        ["reorder_reminder", "cross_sell", "education"]),
+    (["win-back", "winback", "win back", "haven't bought", "come back", "bring back", "lapsed", "re-engage"],
+        ["winback", "education"]),
+    (["cross-sell", "cross sell", "complement", "pair with", "accessor", "complete your setup", "complete the setup", "bundle"],
+        ["cross_sell", "product_recommendation", "education"]),
+    (["loyalty", "vip", "appreciation", "thank you", "reward", "best customer"],
+        ["loyalty", "cross_sell", "education"]),
+    (["product recommendation", "product match", "product rec", "best pick", "suggest product",
+      "recommend a product", "top pick", "hot lead", "they've been viewing", "browsing"],
+        ["product_recommendation", "education"]),
+    (["upgrade", "upgrade path", "better option"],
+        ["product_recommendation", "education"]),
+    (["education", "tips", "guide", "how to", "how-to", "tutorial", "why truckers",
+      "helpful content", "product tips", "use their gear"],
+        ["education", "product_recommendation"]),
+]
+
 _DEFAULT_ACTIONS = ["education", "product_recommendation", "reorder_reminder",
                     "winback", "loyalty", "cross_sell"]
+
+
+def _parse_tactic_keywords(text):
+    """Parse narrative tactic/goal text and return an ordered list of allowed actions.
+
+    Returns [] if no keywords matched (caller falls back to defaults).
+    """
+    if not text:
+        return []
+    lowered = text.lower()
+    matched = []
+    for keywords, actions in _TACTIC_KEYWORDS:
+        if any(kw in lowered for kw in keywords):
+            for a in actions:
+                if a not in matched:
+                    matched.append(a)
+    return matched
 
 _DEFAULT_CADENCE = {
     "min_gap_days": 5,
@@ -419,38 +542,50 @@ def _normalize_strategy(strategy_json_dict, current_phase=""):
     """
     strat = copy.deepcopy(strategy_json_dict) if strategy_json_dict else {}
 
+    # Resolve phase_data up-front — used both for allowed_actions and for
+    # passing narrative goal/tactic context down to AI copy generation.
+    phases = strat.get("phases", {})
+    phase_data = {}
+    if isinstance(phases, list):
+        if current_phase:
+            for ph in phases:
+                if isinstance(ph, dict) and ph.get("name") == current_phase:
+                    phase_data = ph
+                    break
+        if not phase_data and phases:
+            first = phases[0]
+            if isinstance(first, dict):
+                phase_data = first
+    elif isinstance(phases, dict):
+        phase_data = phases.get(current_phase, {}) if current_phase else {}
+        if not phase_data and phases:
+            phase_data = next(iter(phases.values()), {})
+
+    tactic_text = (phase_data.get("tactic") or "").strip()
+    goal_text = (phase_data.get("goal") or "").strip()
+
+    # Preserve narrative context for downstream consumers (AI prompt etc.)
+    if tactic_text and not strat.get("phase_tactic"):
+        strat["phase_tactic"] = tactic_text
+    if goal_text and not strat.get("phase_goal"):
+        strat["phase_goal"] = goal_text
+    if strat.get("overall_goal") and not strat.get("overall_goal_text"):
+        strat["overall_goal_text"] = str(strat.get("overall_goal") or "").strip()
+
     # ── allowed_actions ──
     if not strat.get("allowed_actions"):
-        # Try to extract from phases -> current_phase -> tactic
-        # Supports both phase shapes:
-        #   - list of objects: [{"name": "Phase 1", "tactic": "education"}, ...]
-        #   - dict keyed by name: {"Phase 1": {"tactic": "education"}, ...}
-        phases = strat.get("phases", {})
-        phase_data = {}
-
-        if isinstance(phases, list):
-            # List-based (standard repo format): find matching phase by name
-            if current_phase:
-                for ph in phases:
-                    if isinstance(ph, dict) and ph.get("name") == current_phase:
-                        phase_data = ph
-                        break
-            # Fallback: use first phase if no match or no current_phase
-            if not phase_data and phases:
-                first = phases[0]
-                if isinstance(first, dict):
-                    phase_data = first
-        elif isinstance(phases, dict):
-            # Dict-based: look up by key
-            phase_data = phases.get(current_phase, {}) if current_phase else {}
-            if not phase_data and phases:
-                phase_data = next(iter(phases.values()), {})
-
-        tactic = phase_data.get("tactic", "")
-        if tactic and tactic in _TACTIC_TO_ACTIONS:
-            strat["allowed_actions"] = list(_TACTIC_TO_ACTIONS[tactic])
+        # 1) Back-compat: enum tactic ("retention", "growth", …)
+        if tactic_text and tactic_text.lower() in _TACTIC_TO_ACTIONS:
+            strat["allowed_actions"] = list(_TACTIC_TO_ACTIONS[tactic_text.lower()])
         else:
-            strat["allowed_actions"] = list(_DEFAULT_ACTIONS)
+            # 2) Smart keyword parse across tactic + goal + overall_goal
+            combined = " ".join(x for x in [
+                tactic_text,
+                goal_text,
+                str(strat.get("overall_goal") or ""),
+            ] if x)
+            parsed = _parse_tactic_keywords(combined)
+            strat["allowed_actions"] = parsed if parsed else list(_DEFAULT_ACTIONS)
 
     # ── cadence_policy ──
     if not strat.get("cadence_policy"):
@@ -640,31 +775,51 @@ def _evaluate_candidates(strategy_state, intel):
                 reason_parts.append(f"cross_sells={len(cross_sells)}, intent={intent:.2f}")
 
         elif action == "winback":
-            churn_risk = scores_data.get("churn_risk", 0) / 100.0
-            lifecycle = classification.get("lifecycle_stage", "")
-            is_lapsed = 1.0 if lifecycle in ("lapsed", "dormant", "churned") else 0.0
-            score = churn_risk * 0.7 + is_lapsed * 0.3
-            reason_parts.append(f"churn_risk={churn_risk:.2f}, lapsed={is_lapsed}")
+            total_orders = int(purchase.get("total_orders", 0) or 0)
+            if total_orders == 0:
+                score = 0.0
+                reason_parts.append("no_orders_skip_winback")
+            else:
+                churn_risk = scores_data.get("churn_risk", 0) / 100.0
+                lifecycle = classification.get("lifecycle_stage", "")
+                is_lapsed = 1.0 if lifecycle in ("lapsed", "dormant", "churned") else 0.0
+                score = churn_risk * 0.7 + is_lapsed * 0.3
+                reason_parts.append(f"churn_risk={churn_risk:.2f}, lapsed={is_lapsed}")
 
         elif action == "product_recommendation":
             intent = scores_data.get("intent", 0) / 100.0
             engagement = scores_data.get("engagement", 0) / 100.0
+            total_orders = int(purchase.get("total_orders", 0) or 0)
             score = intent * 0.5 + engagement * 0.3 + 0.2
-            reason_parts.append(f"intent={intent:.2f}, engagement={engagement:.2f}")
+            if total_orders == 0 and engagement > 0.3:
+                score = max(score, 0.5)
+                reason_parts.append(f"prospect_browser_boost, intent={intent:.2f}, engagement={engagement:.2f}")
+            else:
+                reason_parts.append(f"intent={intent:.2f}, engagement={engagement:.2f}")
 
         elif action == "loyalty":
-            is_vip = 1.0 if segment in ("champion", "loyal", "vip") else 0.3
-            disc_sens = scores_data.get("discount_sensitivity", 0.5)
-            if isinstance(disc_sens, (int, float)):
-                disc_sens = min(1.0, max(0.0, disc_sens))
+            total_orders = int(purchase.get("total_orders", 0) or 0)
+            if total_orders == 0:
+                score = 0.0
+                reason_parts.append("no_orders_skip_loyalty")
             else:
-                disc_sens = 0.5
-            score = is_vip * 0.6 + (1 - disc_sens) * 0.4
-            reason_parts.append(f"vip={is_vip}, disc_sens={disc_sens:.2f}")
+                is_vip = 1.0 if segment in ("champion", "loyal", "vip") else 0.3
+                disc_sens = scores_data.get("discount_sensitivity", 0.5)
+                if isinstance(disc_sens, (int, float)):
+                    disc_sens = min(1.0, max(0.0, disc_sens))
+                else:
+                    disc_sens = 0.5
+                score = is_vip * 0.6 + (1 - disc_sens) * 0.4
+                reason_parts.append(f"vip={is_vip}, disc_sens={disc_sens:.2f}")
 
         elif action == "education":
-            score = 0.25
-            reason_parts.append("base education score")
+            total_orders = int(purchase.get("total_orders", 0) or 0)
+            if total_orders == 0:
+                score = 0.55
+                reason_parts.append("prospect_education_boost")
+            else:
+                score = 0.25
+                reason_parts.append("base education score")
 
         # Apply performance boost
         boost = _get_performance_boost(action, segment)
@@ -699,6 +854,63 @@ def _evaluate_candidates(strategy_state, intel):
 # ==================================================================
 # Step 4 -- Resolve products
 # ==================================================================
+
+def _get_interest_categories(contact_id):
+    """Return an ordered list of categories this contact has shown interest in.
+
+    Signals combined, deduped, ordered by strength:
+        1. Categories they've actually bought from (strongest — real purchase)
+        2. Top categories in profile.category_affinity_json (browse scores)
+        3. Inferred category from profile.last_viewed_product (single product)
+
+    Used by product_recommendation to stay in-lane with what the customer cares
+    about, instead of falling through to cross-sell picks in random categories.
+
+    Returns:
+        list[str] — category names ordered by signal strength. Empty list if no signals.
+    """
+    from database import CustomerProfile
+    from shared_constants import infer_category
+
+    ordered = []
+    seen = set()
+
+    def _add(cat):
+        if not cat:
+            return
+        if cat in seen:
+            return
+        seen.add(cat)
+        ordered.append(cat)
+
+    # 1. Purchase history — strongest signal
+    try:
+        from product_intelligence import get_contact_purchase_history
+        history = get_contact_purchase_history(contact_id)
+        for cat in (history.get("categories_bought") or {}).keys():
+            _add(cat)
+    except Exception:
+        pass
+
+    # 2. Category affinity scores from nightly enrichment
+    try:
+        profile = CustomerProfile.get_or_none(CustomerProfile.contact == contact_id)
+        if profile:
+            affinities = _safe_json(getattr(profile, "category_affinity_json", "") or "{}", {})
+            if isinstance(affinities, dict) and affinities:
+                # Sort by score descending
+                for cat, _score in sorted(affinities.items(), key=lambda kv: -(kv[1] or 0)):
+                    _add(cat)
+
+            # 3. Last viewed product — infer category as weakest signal
+            last_viewed = getattr(profile, "last_viewed_product", "") or ""
+            if last_viewed:
+                _add(infer_category(last_viewed))
+    except Exception:
+        pass
+
+    return ordered
+
 
 def _find_products_by_category(key, limit=5):
     """Resolve a category name like 'Dash Cams' to actual ProductImageCache rows.
@@ -804,20 +1016,32 @@ def _resolve_products(contact, action_type, intelligence):
         if top_pick.get("product_key"):
             _add(top_pick["product_key"], is_product=True)
     elif action_type == "product_recommendation":
-        top_pick = intel_products.get("top_pick") or {}
-        if top_pick.get("product_key"):
-            _add(top_pick["product_key"], is_product=True)
+        # Stay in-lane with the customer's actual interest categories.
+        # Only use top_pick if it's a same-category upgrade/replacement — NOT a cross-sell.
+        interest_cats = _get_interest_categories(contact.id)
+
+        # 1. Upgrades (same-category by definition) — highest signal for recs
         for item in (intel_products.get("upgrades") or []):
             if item.get("to_product"):
                 _add(item["to_product"], is_product=True)
+
+        # 2. top_pick ONLY if it's not a cross-sell action (cross-sell jumps categories)
+        top_pick = intel_products.get("top_pick") or {}
+        if top_pick.get("product_key") and top_pick.get("action") != "cross_sell":
+            _add(top_pick["product_key"], is_product=True)
+
+        # 3. Fill from interest categories — keeps prospects in the category they browsed
+        for cat in interest_cats[:3]:
+            _add(cat, is_product=False)
     elif action_type == "loyalty":
         top_pick = intel_products.get("top_pick") or {}
         if top_pick.get("product_key"):
             _add(top_pick["product_key"], is_product=True)
 
-    # Fill remaining from all categories — only for action types that need product recs.
-    # Education shows owned products (tips), loyalty/reorder should not pad with unrelated products.
-    if action_type not in ("education", "loyalty", "reorder_reminder"):
+    # Fill remaining from all categories — ONLY for winback (needs breadth).
+    # Education shows owned products, loyalty/reorder should not pad with unrelated products,
+    # cross_sell has its own dedicated list, product_recommendation fills from interest categories above.
+    if action_type == "winback":
         top_pick = intel_products.get("top_pick") or {}
         if top_pick.get("product_key"):
             _add(top_pick["product_key"], is_product=True)
@@ -1059,6 +1283,14 @@ def build_am_decision(contact, strategy, intelligence=None):
         "action_type": action_type,
         "metadata": metadata,
     })
+    # Preserve narrative strategy context for AI copy generation
+    if strategy_state.get("phase_goal"):
+        metadata["phase_goal"] = strategy_state["phase_goal"]
+    if strategy_state.get("phase_tactic"):
+        metadata["phase_tactic"] = strategy_state["phase_tactic"]
+    if strategy_state.get("overall_goal_text") or strategy_state.get("overall_goal"):
+        metadata["overall_goal"] = strategy_state.get("overall_goal_text") or str(
+            strategy_state.get("overall_goal") or "")
 
     return {
         "should_act": True,
@@ -1138,6 +1370,16 @@ def restore_am_decision(raw_decision, strategy=None, template=None):
             {"action_type": decision["action_type"], "metadata": decision["metadata"]},
         )
 
+    # Back-fill narrative strategy context if the stored decision pre-dates this field.
+    if strategy_state.get("phase_goal") and "phase_goal" not in decision["metadata"]:
+        decision["metadata"]["phase_goal"] = strategy_state["phase_goal"]
+    if strategy_state.get("phase_tactic") and "phase_tactic" not in decision["metadata"]:
+        decision["metadata"]["phase_tactic"] = strategy_state["phase_tactic"]
+    if (strategy_state.get("overall_goal_text") or strategy_state.get("overall_goal")) \
+            and "overall_goal" not in decision["metadata"]:
+        decision["metadata"]["overall_goal"] = strategy_state.get("overall_goal_text") or str(
+            strategy_state.get("overall_goal") or "")
+
     return decision
 
 
@@ -1189,11 +1431,29 @@ def _generate_ai_copy(contact, decision, intelligence, reviewer_feedback=""):
     except Exception:
         pass
 
-    # Product context for prompt
+    # Fetch owned products for cross_sell/product_recommendation/winback
+    owned_product_titles = []
+    if action_type in ("cross_sell", "product_recommendation", "winback"):
+        try:
+            from product_intelligence import get_contact_purchase_history
+            history = get_contact_purchase_history(contact.id)
+            owned_product_titles = list(history.get("products_bought", {}).keys())[:5]
+        except Exception:
+            pass
+
+    # Product context for prompt — separate owned vs recommended for cross_sell
     product_lines = []
     for p in products[:4]:
         product_lines.append("- %s ($%s)" % (p.get("product_title", "Product"), p.get("price", "0")))
-    product_text = "\n".join(product_lines) if product_lines else "No specific products."
+
+    if action_type in ("cross_sell", "winback") and owned_product_titles:
+        owned_section = "CUSTOMER OWNS (their existing gear — you may reference these as owned):\n"
+        owned_section += "\n".join("- %s" % t for t in owned_product_titles[:3])
+        product_header = "RECOMMEND THESE (new products to suggest — customer does NOT own these yet):"
+        product_text = owned_section + "\n\n" + product_header + "\n" + (
+            "\n".join(product_lines) if product_lines else "No specific products.")
+    else:
+        product_text = "\n".join(product_lines) if product_lines else "No specific products."
 
     # Offer context
     offer_text = "No discount offer." if not offer else (
@@ -1218,9 +1478,46 @@ def _generate_ai_copy(contact, decision, intelligence, reviewer_feedback=""):
             "Keep the same action, product set, and offer. Improve only the wording and emphasis.\n"
         ) % reviewer_feedback
 
+    # Strategy context — narrative goal/tactic from the contact's bootstrap strategy.
+    # Gives the AI the "why" behind this send so the copy lands on-message.
+    decision_metadata = decision.get("metadata") or {}
+    phase_name = decision.get("strategy_phase", "") or ""
+    phase_goal = decision_metadata.get("phase_goal", "") or ""
+    phase_tactic = decision_metadata.get("phase_tactic", "") or ""
+    overall_goal = decision_metadata.get("overall_goal", "") or ""
+    strategy_lines = []
+    if phase_name:
+        strategy_lines.append("Phase: %s" % phase_name)
+    if phase_goal:
+        strategy_lines.append("Goal: %s" % phase_goal)
+    if phase_tactic:
+        strategy_lines.append("Tactic: %s" % phase_tactic)
+    if overall_goal and overall_goal != phase_goal:
+        strategy_lines.append("Overall strategy: %s" % overall_goal)
+    strategy_context = ""
+    if strategy_lines:
+        strategy_context = (
+            "STRATEGY CONTEXT (use as guidance for tone and angle — do NOT quote verbatim):\n"
+            + "\n".join(strategy_lines)
+            + "\n"
+        )
+
     # ── Layer 2: Per-action prompt with named slots ──
     config = AM_ACTION_PROMPTS.get(action_type, {})
     system_role = config.get("system_role", "You write marketing emails for LDAS Electronics (ldas.ca).")
+
+    # Loyalty: adjust framing based on order count (1 order = appreciation, 2+ = loyalty)
+    if action_type == "loyalty":
+        order_count = 0
+        try:
+            purchase_data = intelligence.get("purchase", {}) if intelligence else {}
+            order_count = int(purchase_data.get("total_orders", 0))
+        except (ValueError, TypeError):
+            pass
+        if order_count <= 1:
+            system_role = config.get("system_role_1_order", system_role)
+        else:
+            system_role = config.get("system_role_repeat", system_role)
     output_slots = config.get("output_slots", {
         "hero_headline": "Short punchy headline (max 8 words)",
         "hero_subheadline": "Supporting line (max 15 words)",
@@ -1235,14 +1532,17 @@ def _generate_ai_copy(contact, decision, intelligence, reviewer_feedback=""):
     slot_lines.append('- "cta_url": "%s"' % default_cta_url)
     slot_schema = "\n".join(slot_lines)
 
+    # For cross_sell/winback, product_text already has CUSTOMER OWNS / RECOMMEND THESE headers
+    product_section = product_text if action_type in ("cross_sell", "winback") and owned_product_titles else (
+        "Products to feature:\n" + product_text)
+
     prompt = """{system_role}
 
 Customer: {name}
 
-{intel_text}
+{strategy_context}{intel_text}
 
-Products to feature:
-{product_text}
+{product_section}
 
 {offer_text}
 {feedback_text}
@@ -1252,8 +1552,9 @@ Write the email content as JSON with ONLY these keys:
 ONLY mention products listed above. Return ONLY valid JSON.""".format(
         system_role=system_role,
         name=contact.first_name or "Customer",
+        strategy_context=strategy_context,
         intel_text=intel_text,
-        product_text=product_text,
+        product_section=product_section,
         offer_text=offer_text,
         feedback_text=feedback_text,
         slot_schema=slot_schema,
@@ -1303,7 +1604,7 @@ ONLY mention products listed above. Return ONLY valid JSON.""".format(
         }
 
         # ── Layer 3: Structural validation ──
-        ok, violations = _validate_ai_copy(parsed, action_type, products)
+        ok, violations = _validate_ai_copy(parsed, action_type, products, owned_product_titles)
         if ok:
             parsed["copy_source"] = "ai"
             parsed["validation_violations"] = []

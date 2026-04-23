@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-04-07 11:23. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-04-23 10:54. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (63 files, 42,477 lines)
+## Python Files — Detailed (59 files, 42,459 lines)
 
 ### `app.py` (7,354 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -310,10 +310,7 @@ init_db() creates all tables with safe=True. Models span 6 domains:
 (5) AI/Studio: KnowledgeEntry, StudioJob, TemplateCandidate, AIModelConfig
 (6) Learning: OutcomeLog, ActionPerformance, TemplatePerformance, ModelWeights, LearningConfig
 
-### `account_manager.py` (1,716 lines)
-**Account Manager AI — autonomous nightly email campaign planning and execution via Claude**
-
-### `am_runtime.py` (1,525 lines)
+### `am_runtime.py` (1,826 lines)
 **AM decision engine — structured action ranking, product/offer selection, template_engine rendering (Phase 4)**
 
 Phase 4 Account Manager decision engine. Provides build_am_decision() for structured
@@ -327,6 +324,9 @@ Key functions:
 - `_evaluate_candidates(strategy_state, intel) → (action_type, score, reasoning)`
 - `_check_preconditions(contact) → ('ok','') or ('skipped', reason)`
 - `_check_timing(contact, intelligence) → ('ok', scheduled_at) or ('wait', wait_until)`
+
+### `account_manager.py` (1,728 lines)
+**Account Manager AI — autonomous nightly email campaign planning and execution via Claude**
 
 ### `customer_intelligence.py` (1,429 lines)
 **Nightly enrichment — lifecycle stage, customer type, intent, churn risk, send window, LTV**
@@ -372,7 +372,7 @@ Key functions:
 - `_resolve_offer(contact, discount_purpose, candidate_products) → offer_context dict or None`
 - `_build_legacy_token_context(contact, flow, trigger_context, products, offer) → token map for legacy HTML`
 
-### `intelligence_layer.py` (1,102 lines)
+### `intelligence_layer.py` (1,156 lines)
 **Unified intelligence API — contact profiles, timing gates, discount policy, diagnostics**
 
 Phase 1 of the architecture rebuild. Single entry point for all contact intelligence.
@@ -389,7 +389,7 @@ Key functions:
 - `format_intelligence_for_prompt(intel) — Formats intelligence dict for AI prompt context`
 - `diagnose_contact(contact_id) — Debug helper: returns full intelligence + timing + discount`
 
-### `identity_resolution.py` (1,084 lines)
+### `identity_resolution.py` (1,085 lines)
 **Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching**
 
 Canonical entry point for all identity resolution. resolve_identity() takes any combination
@@ -654,6 +654,14 @@ Key functions:
 - `personalize_text_field(field_name, template_text, contact, fallback) — Send-time personalization`
 - `generate_template_content(blocks, family, contact) — Batch generation for all blocks`
 
+### `discount_engine.py` (478 lines)
+**Dynamic discount generation — per-contact codes via Shopify price rules**
+
+get_or_create_discount(email, purpose) returns a unique discount code for a contact.
+Creates Shopify price rule + discount code via API if none exists. Tracks in GeneratedDiscount table.
+get_discount_display(discount_info) formats for email insertion (code, expiry, value display).
+Supports percentage and fixed-amount discounts with configurable expiry.
+
 ### `create_showcase_templates.py` (474 lines)
 **Showcase template generator — creates example templates demonstrating all block types**
 
@@ -674,14 +682,6 @@ Key functions:
 - `compute_template_scoring() — Rolling 30d template performance`
 - `compute_action_effectiveness() — Action type performance per segment`
 - `compute_optimal_frequency() — Personalized send gap per contact`
-
-### `discount_engine.py` (457 lines)
-**Dynamic discount generation — per-contact codes via Shopify price rules**
-
-get_or_create_discount(email, purpose) returns a unique discount code for a contact.
-Creates Shopify price rule + discount code via API if none exists. Tracks in GeneratedDiscount table.
-get_discount_display(discount_info) formats for email insertion (code, expiry, value display).
-Supports percentage and fixed-amount discounts with configurable expiry.
 
 ### `outcome_tracker.py` (428 lines)
 **Nightly outcome collection — opened/clicked/purchased/revenue attribution for learning**
@@ -875,12 +875,6 @@ Normalizes CustomerActivity event_type values and event_data JSON structure
 across different sources (Shopify webhooks, tracking pixels, API events) into a
 consistent schema for downstream processing by intelligence and decision engines.
 
-### `rebuild_templates.py` (143 lines)
-**Batch template rebuild — regenerates blocks_json for multiple templates**
-
-### `render_previews.py` (139 lines)
-**Render preview HTML — generates preview files from block templates for testing**
-
 ### `sns_verify.py` (106 lines)
 **AWS SNS signature verification — validates webhook authenticity**
 
@@ -906,12 +900,6 @@ conservative (30-60 days OR <20 purchases — cautious adjustments),
 active (>=60 days AND >=20 purchases — full optimization).
 set_learning_phase_override(phase) forces a specific phase (for regression detection).
 IMPORTANT: Use LearningConfig.get_val(key, default) / LearningConfig.set_val(key, value) pattern.
-
-### `rebuild_one.py` (68 lines)
-**Rebuild single template — utility to regenerate one template's blocks_json**
-
-### `audit_send.py` (57 lines)
-**Audit send utility — one-off script for auditing sent email records**
 
 ### `search_contact.py` (33 lines)
 **Contact search utility — CLI helper to find contacts by email or name**

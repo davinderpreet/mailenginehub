@@ -639,10 +639,10 @@ AM_TEMPLATES = {
     "loyalty": {
         "name": "AM: Loyalty",
         "family": "promo",
-        "subject": "Thanks for being loyal, {{first_name}}",
+        "subject": "Thank you, {{first_name}}",
         "preview_text": "A thank-you from the LDAS crew \u2014 plus something new",
         "blocks": [
-            {"block_type": "hero", "content": {"headline": "You're One of Our Best", "subheadline": "A thank-you from the LDAS crew"}},
+            {"block_type": "hero", "content": {"headline": "Thank You, {{first_name}}!", "subheadline": "Your support means the world to us"}},
             {"block_type": "stat_callout", "content": {
                 "section_title": "Your LDAS Journey",
                 "stats": [
@@ -652,10 +652,10 @@ AM_TEMPLATES = {
                 ]
             }},
             {"block_type": "text", "content": {"paragraphs": [
-                "You've been with us through multiple orders and we don't take that lightly. Customers like you are the reason we keep building better products.",
-                "We're always working on new gear — and you'll be the first to know when something special drops."
+                "We truly appreciate you choosing LDAS Electronics. Every order strengthens our mission to build better gear for Canadian drivers and professionals.",
+                "We're always working on new products \u2014 and you'll be the first to know when something special drops."
             ]}},
-            {"block_type": "cta", "content": {"text": "See What's New", "url": "https://ldas.ca/collections/new"}},
+            {"block_type": "cta", "content": {"text": "Explore New Arrivals", "url": "https://ldas.ca/collections/new"}},
         ]
     },
     "cross_sell": {
@@ -771,6 +771,9 @@ def run_account_manager():
 
     total_due = strategies.count()
     logger.info("[AccountManager] %d contacts due today (limit %d)", total_due, max_daily)
+
+    # Convert to list so DB-locked contacts can be re-queued via .append()
+    strategies = list(strategies)
 
     processed = 0
     db_errors = 0
@@ -942,8 +945,17 @@ def run_account_manager():
         except Exception as e:
             err_str = str(e).lower()
             if "locked" in err_str or "busy" in err_str:
-                db_errors += 1
-                logger.warning("[AccountManager] DB lock for %s (after retries)", cs.contact.email)
+                # Retry the entire contact up to 2 times with a longer pause
+                _contact_retries = getattr(cs, '_lock_retries', 0)
+                if _contact_retries < 2:
+                    cs._lock_retries = _contact_retries + 1
+                    strategies.append(cs)  # re-queue for another attempt
+                    logger.debug("[AccountManager] DB lock for %s, re-queuing (attempt %d)",
+                                 cs.contact.email, _contact_retries + 1)
+                    time.sleep(2 + _contact_retries * 3)  # 2s, then 5s
+                else:
+                    db_errors += 1
+                    logger.warning("[AccountManager] DB lock for %s (after retries)", cs.contact.email)
             elif "overloaded" in err_str or "rate" in err_str or "529" in err_str:
                 api_errors += 1
                 logger.warning("[AccountManager] API error for %s: %s", cs.contact.email, e)

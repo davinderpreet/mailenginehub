@@ -960,20 +960,60 @@ def format_intelligence_for_action(contact_id, action_type):
         # not from here — keeps a single source of truth.
 
     elif action_type == "product_recommendation":
-        # Top pick reason + upgrades. No replacement timelines, no reorder data.
+        # Give the AI something to hook onto: what the customer owns, what they've
+        # been browsing, and which category matters to them. No timelines, no reorder data.
+        products_info = intel.get("products", {}) or {}
+        engagement_info = intel.get("engagement", {}) or {}
+        total_orders = int(purchase.get("total_orders", 0))
+
+        # Buyer signals
+        if total_orders:
+            lines.append("Customer has placed %d order(s)." % total_orders)
+            top_categories = products_info.get("top_categories") or []
+            if top_categories:
+                lines.append("Bought in categories: %s." % ", ".join(top_categories[:3]))
+            # Upgrade path is the strongest same-category hook for buyers
+            for u in (np.get("upgrades") or [])[:2]:
+                from_p = u.get("from_product", "")
+                to_p = u.get("to_product") or u.get("to_tier", "")
+                if from_p and to_p:
+                    lines.append("Upgrade path: from %s to %s." % (from_p, to_p))
+
+        # Browse signals — critical for prospects (no purchase data)
+        last_viewed = products_info.get("last_viewed_product", "") or ""
+        if last_viewed:
+            lines.append("Most recently viewed product: %s." % last_viewed)
+        views = int(engagement_info.get("total_product_views", 0) or 0)
+        if views >= 3:
+            lines.append("Has viewed %d products on the site." % views)
+
+        # Category affinity — top interest category with score
+        affinities = products_info.get("category_affinities") or {}
+        if isinstance(affinities, dict) and affinities:
+            top_cat, top_score = max(affinities.items(), key=lambda kv: (kv[1] or 0))
+            if top_score and top_score > 0:
+                lines.append("Strongest interest: %s (affinity score %s)." % (top_cat, top_score))
+
+        # Framing hint for the AI — only include top_pick if it's a same-category signal
         tp = np.get("top_pick")
-        if tp:
-            lines.append("Top recommendation: %s (%s)" % (
+        if tp and tp.get("action") in ("replacement", "upgrade") and tp.get("product_key"):
+            lines.append("Best same-category match: %s (%s)." % (
                 tp.get("product_key", ""), tp.get("reason", "")))
-        for u in (np.get("upgrades") or [])[:2]:
-            lines.append("Upgrade path: %s -> %s" % (
-                u.get("from_product", ""), u.get("to_product") or u.get("to_tier", "")))
 
     elif action_type == "cross_sell":
         # What they own (for "pairs with" framing). No timelines.
         total = int(purchase.get("total_orders", 0))
         if total:
             lines.append("Customer has placed %d order(s)." % total)
+        # Include owned product names so the AI knows what the customer actually has
+        try:
+            from product_intelligence import get_contact_purchase_history
+            history = get_contact_purchase_history(contact_id)
+            owned = list(history.get("products_bought", {}).keys())[:3]
+            if owned:
+                lines.append("CUSTOMER OWNS: %s" % ", ".join(owned))
+        except Exception:
+            pass
         # Candidate cross-sell products come from the prompt's product list.
 
     elif action_type == "reorder_reminder":
@@ -992,19 +1032,33 @@ def format_intelligence_for_action(contact_id, action_type):
         # Purchase stats for gratitude framing. No product recs, no timelines.
         total = int(purchase.get("total_orders", 0))
         spent = purchase.get("total_spent", 0)
-        aov = purchase.get("aov", 0)
+        aov = purchase.get("avg_order_value", 0)
         if total:
             lines.append("Loyalty stats: %d orders, $%.2f total spent, $%.2f average order." % (
                 total, float(spent), float(aov)))
-        lifecycle = intel["classification"].get("lifecycle_stage", "")
-        if lifecycle:
-            lines.append("Lifecycle: %s" % lifecycle)
+        # How long ago they last ordered — prevents "recent order" hallucination
+        days_since = int(purchase.get("days_since_last_order", 0))
+        if days_since:
+            lines.append("Last order was %d days ago." % days_since)
 
     elif action_type == "winback":
-        # Days since last order (approximate). No replacement data, no reorder timelines.
-        days_since = int(purchase.get("days_since_last", 0))
+        # Days since last order + purchase context. No replacement data, no reorder timelines.
+        total = int(purchase.get("total_orders", 0))
+        spent = purchase.get("total_spent", 0)
+        days_since = int(purchase.get("days_since_last_order", 0))
+        if total:
+            lines.append("Customer placed %d order(s), spent $%.2f total." % (total, float(spent)))
         if days_since:
             lines.append("Last purchase was approximately %d days ago." % days_since)
+        # Include owned products so AI can reference what they liked
+        try:
+            from product_intelligence import get_contact_purchase_history
+            history = get_contact_purchase_history(contact_id)
+            owned = list(history.get("products_bought", {}).keys())[:3]
+            if owned:
+                lines.append("Previously bought: %s" % ", ".join(owned))
+        except Exception:
+            pass
 
     if len(lines) <= 1:
         return ""
