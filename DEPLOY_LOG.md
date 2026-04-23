@@ -4,6 +4,17 @@ Automatically updated by `deploy.sh` after each deploy.
 
 ---
 
+### 2026-04-23 11:11 -- `6f8772f`
+
+**Auto-update CLAUDE.md before deploy**
+
+Files changed:
+```
+REFERENCE.md
+```
+
+---
+
 ### 2026-04-07 11:24 -- `9f6b82d`
 
 **Fix unlisted product check: use fragment matching instead of full-title**
