@@ -11,7 +11,7 @@ from database import (db, Contact, EmailTemplate, Campaign, CampaignEmail, init_
                       Flow, FlowStep, FlowEnrollment, FlowEmail, AbandonedCheckout, AgentMessage,
                       SuppressionEntry, BounceLog, PreflightLog, PendingTrigger,
                       get_bounce_stats_by_domain, AutoEmail, DeliveryQueue,
-                      AMPendingReview, ContactStrategy)
+                      AMPendingReview, ContactStrategy, GeneratedDiscount)
 from email_sender import send_campaign_email, test_ses_connection
 from discount_engine import generate_discount_code
 from token_utils import create_token, verify_token
@@ -6839,8 +6839,8 @@ def api_subscribe():
         # ── Generate 10% discount code ──
         discount_code = None
         try:
-            from discount_codes import generate_popup_discount
-            discount_code = generate_popup_discount(contact.id, email)
+            from discount_engine import get_or_create_discount
+            discount_code = get_or_create_discount(email, "welcome")
         except Exception as e:
             app.logger.error(f"Popup discount generation failed for {email}: {e}")
 
@@ -7263,7 +7263,7 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
         except Exception as _e:
             app.logger.error(f"Knowledge enrichment failed: {_e}")
 
-    _scheduler.add_job(_run_nightly_knowledge_enrichment, "cron", hour=4, minute=30,
+    _scheduler.add_job(_run_nightly_knowledge_enrichment, "cron", hour=5, minute=20,
                        id="knowledge_enrichment", replace_existing=True)
 
     def _run_outcome_tracker():

@@ -640,27 +640,28 @@ def _send_welcome_step1_immediately(enrollment, flow, first_step, contact):
 
     _priority = get_priority_for_trigger(flow.trigger_type)
 
+    _from_name = first_step.from_name or os.environ.get("DEFAULT_FROM_NAME", "LDAS Electronics")
+    _from_email = first_step.from_email or os.environ.get("DEFAULT_FROM_EMAIL", "")
+
     enqueue_email(
-        contact_id=contact.id,
-        email=contact.email,
-        subject=subject,
-        html=html,
+        contact=contact,
         email_type="flow",
         source_id=flow.id,
         enrollment_id=enrollment.id,
         step_id=first_step.id,
         template_id=first_step.template_id,
-        priority=_priority,
+        from_name=_from_name,
+        from_email=_from_email,
+        subject=subject,
+        html=html,
         unsubscribe_url=_unsub,
+        priority=_priority,
+        ledger_id=0,
     )
 
-    # Record flow email so the processor knows Step 1 is done
-    FlowEmail.create(
-        enrollment=enrollment,
-        step=first_step,
-        contact=contact,
-        status="queued",
-    )
+    # NOTE: Do NOT create FlowEmail here — delivery_engine._create_compat_record
+    # creates the authoritative FlowEmail(status="sent") after SES send.
+    # Creating one here with status="queued" caused duplicate rows in the dashboard.
 
     # Advance enrollment to step 2 so flow processor continues from there
     second_step = (FlowStep.select()
