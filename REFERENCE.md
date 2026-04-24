@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-04-24 10:34. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-04-24 10:36. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (59 files, 42,459 lines)
+## Python Files — Detailed (59 files, 42,466 lines)
 
 ### `app.py` (7,354 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -357,7 +357,7 @@ Key functions:
 ### `generate-context.py` (1,364 lines)
 **Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file)**
 
-### `flow_runtime.py` (1,326 lines)
+### `flow_runtime.py` (1,333 lines)
 **Flow send package builder — centralizes flow render/decision logic (Phase 3)**
 
 Centralized flow runtime helper for Phase 3 Flows pillar. Provides build_flow_send_package()

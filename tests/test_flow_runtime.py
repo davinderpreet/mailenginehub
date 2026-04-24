@@ -1408,6 +1408,49 @@ class TestRepairFlowTemplates:
         repaired = repair_flow_templates()
         assert len(repaired) == 0  # nothing to repair
 
+    def test_repair_neutralizes_last_chance_5pct_subject(self, in_memory_db):
+        """Regression: template #7 'Welcome — Last Chance 5% Off' had subject
+        'Last chance for 5% off, {{first_name}}' which cancelled welcome
+        enrollments when intelligence_layer declined to resolve a discount
+        (validator: 'subject contains discount language but no offer context').
+        repair_flow_templates must strip the percentage from the subject.
+        """
+        from flow_runtime import repair_flow_templates
+        from database import EmailTemplate
+
+        tpl = EmailTemplate.create(
+            name="Welcome — Last Chance 5% Off",
+            subject="Last chance for 5% off, {{first_name}}",
+            html_body="<p>Hi {{first_name}}</p>",
+            template_format="html",
+            template_family="welcome",
+        )
+
+        repaired = repair_flow_templates()
+        assert len(repaired) == 1
+        assert repaired[0][0] == tpl.id
+
+        tpl_refreshed = EmailTemplate.get_by_id(tpl.id)
+        assert "5% off" not in tpl_refreshed.subject.lower()
+        assert "{{first_name}}" in tpl_refreshed.subject  # token preserved
+        assert tpl_refreshed.subject == "Last chance, {{first_name}}"
+
+    def test_repair_subject_idempotent_after_neutralize(self, in_memory_db):
+        """Running repair a second time on a neutralized subject must not change it."""
+        from flow_runtime import repair_flow_templates
+        from database import EmailTemplate
+
+        EmailTemplate.create(
+            name="Clean welcome",
+            subject="Last chance, {{first_name}}",
+            html_body="<p>Hi</p>",
+            template_format="html",
+            template_family="welcome",
+        )
+
+        repaired = repair_flow_templates()
+        assert len(repaired) == 0
+
 
 # ═══════════════════════════════════════════════════════════════
 # Commercial-grade validation + approve_email + template audit

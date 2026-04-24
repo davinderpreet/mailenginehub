@@ -1208,9 +1208,16 @@ def repair_flow_templates():
 
     # Subject patterns that hardcode mutable discount percentages
     # e.g. "Here's 10% Off" or "Last Chance: 5% Off" or "Final Offer: 15% Off"
+    # Why: intelligence_layer.get_discount_policy() can return offer_discount=False
+    # for certain contacts (e.g., full-price VIPs), so flow_runtime._resolve_offer
+    # returns None and template_engine._check_offer_consistency flags the subject
+    # as "discount language but no offer context", cancelling the enrollment after
+    # 3 retries. These rewrites strip the percentage from the subject so the email
+    # can still ship even when no discount resolves.
     _SUBJECT_REWRITES = {
         "Here's 10% Off": "A Little Extra Incentive",
         "Last Chance: 5% Off": "Last Chance",
+        "Last chance for 5% off": "Last chance",
         "10% Off to Come Back": "A Reason to Come Back",
         "Final Offer: 15% Off": "Final Offer",
         "Claim 10% Off": "Complete Your Order",
