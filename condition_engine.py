@@ -510,7 +510,7 @@ TEMPLATE_FAMILIES = {
         "label": "Browse Recovery",
         "description": "Re-engage contacts who viewed products but didn't add to cart",
         "allowed_blocks": ["hero", "text", "product_grid", "product_hero", "comparison_block", "trust_reassurance", "features_benefits", "feature_highlights", "cta", "urgency", "divider",
-                           "comparison", "best_seller_proof", "why_choose_this",
+                           "comparison", "driver_testimonial", "best_seller_proof", "why_choose_this",
                            "spec_table", "faq", "use_case_match"],
         "recommended_order": ["hero", "product_hero", "comparison", "trust_reassurance", "cta"],
         "required_blocks": ["cta"],
