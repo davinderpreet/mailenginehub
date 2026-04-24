@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-04-24 10:41. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-04-24 11:03. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (59 files, 42,502 lines)
+## Python Files — Detailed (59 files, 42,518 lines)
 
 ### `app.py` (7,360 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -389,7 +389,7 @@ Key functions:
 - `format_intelligence_for_prompt(intel) — Formats intelligence dict for AI prompt context`
 - `diagnose_contact(contact_id) — Debug helper: returns full intelligence + timing + discount`
 
-### `identity_resolution.py` (1,085 lines)
+### `identity_resolution.py` (1,101 lines)
 **Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching**
 
 Canonical entry point for all identity resolution. resolve_identity() takes any combination

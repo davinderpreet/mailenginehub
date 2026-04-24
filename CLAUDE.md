@@ -1,6 +1,6 @@
 # MailEngineHub — Project Context
 > Email marketing platform for LDAS Electronics. Flask + SQLite (Peewee) + Amazon SES + Gunicorn.
-> 59 files, 42,502 lines. For full detail: read `REFERENCE.md`
+> 59 files, 42,518 lines. For full detail: read `REFERENCE.md`
 
 ## Deployment
 - **Repo**: `C:\Users\davin\Claude Work Folder\mailenginehub-repo\`
@@ -30,7 +30,7 @@ Studio: knowledge + performance -> studio_skills(6 AI skills) -> candidate -> ap
 | `generate-context.py` | 1,364 | Auto-generates CLAUDE.md, REFERENCE.md, MEMORY.md by scanning codebase (this file) |
 | `flow_runtime.py` | 1,333 | Flow send package builder — centralizes flow render/decision logic (Phase 3) |
 | `intelligence_layer.py` | 1,156 | Unified intelligence API — contact profiles, timing gates, discount policy, diagnostics |
-| `identity_resolution.py` | 1,085 | Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching |
+| `identity_resolution.py` | 1,101 | Cross-channel identity stitching — email, session, Shopify ID, cart/checkout token matching |
 
 ## Gotchas
 - `LearningConfig`: use `get_val(key, default)` / `set_val(key, value)` — NOT field access

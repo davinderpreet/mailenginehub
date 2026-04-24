@@ -638,6 +638,22 @@ def _send_welcome_step1_immediately(enrollment, flow, first_step, contact):
     subject = (first_step.subject_override or template.subject or "Welcome!").replace(
         "{{first_name}}", contact.first_name or "Friend")
 
+    # ── Open-tracking pixel ────────────────────────────────────────────
+    # CRITICAL: every flow email needs this or open rate reads as 0%.
+    # The main flow processor appends this at app.py:3515 for emails it
+    # sends. Because this function bypasses that processor for a fast
+    # welcome, we must append the pixel here too. Skipping this silently
+    # cost 2+ weeks of welcome open-rate data (2026-04-10 → 2026-04-24).
+    # See tests/test_identity_resolution.py for a regression guard.
+    _pixel_token = create_token({
+        "p": "fopen",
+        "eid": enrollment.id,
+        "sid": first_step.id,
+        "cid": contact.id,
+    })
+    _pixel_url = "%s/track/flow-open/%s" % (SITE_URL, _pixel_token)
+    html += '<img src="%s" width="1" height="1" alt="" style="display:none" />' % _pixel_url
+
     _priority = get_priority_for_trigger(flow.trigger_type)
 
     _from_name = first_step.from_name or os.environ.get("DEFAULT_FROM_NAME", "LDAS Electronics")
