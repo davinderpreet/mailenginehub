@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-04-24 10:38. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-04-24 10:40. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,9 +260,9 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (59 files, 42,467 lines)
+## Python Files — Detailed (59 files, 42,502 lines)
 
-### `app.py` (7,354 lines)
+### `app.py` (7,360 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
 
 Main Flask application with HTTP Basic Auth (admin:DavinderS@1993), APScheduler integration,
@@ -464,6 +464,16 @@ Key functions:
 - `process_queue() — Drain queue respecting warmup limits and delivery mode`
 - `_get_warmup_remaining() — Calculate remaining daily capacity`
 
+### `profit_engine.py` (845 lines)
+**Product profitability scoring — Shopify cost/inventory sync, margin computation, promo eligibility**
+
+Syncs product commercial data from Shopify: cost_per_unit (from variant cost field),
+inventory levels, sales velocity. Computes margin_pct per product. Margin estimates by type
+when cost data unavailable: headsets 45%, dash cams 35%, accessories 55%, etc.
+score_product_profitability(product_id) returns composite score: margin % + inventory level + velocity.
+get_promotion_eligibility(product_id) recommends discount/promotion strategy.
+Stored in ProductCommercial model (product_id, current_price, cost_per_unit, margin_pct, etc.).
+
 ### `ai_engine.py` (836 lines)
 **Autonomous nightly AI pipeline — RFM scoring, Claude-powered plan generation, execution**
 
@@ -483,16 +493,6 @@ Key functions:
 - `execute_plan(plan) — Sends emails per plan actions, logs to AIDecisionLog`
 - `generate_personalized_email(email, purpose) — On-demand AI email generation`
 - `update_template_performance() — Rolls up open/click/revenue rates per template`
-
-### `profit_engine.py` (836 lines)
-**Product profitability scoring — Shopify cost/inventory sync, margin computation, promo eligibility**
-
-Syncs product commercial data from Shopify: cost_per_unit (from variant cost field),
-inventory levels, sales velocity. Computes margin_pct per product. Margin estimates by type
-when cost data unavailable: headsets 45%, dash cams 35%, accessories 55%, etc.
-score_product_profitability(product_id) returns composite score: margin % + inventory level + velocity.
-get_promotion_eligibility(product_id) recommends discount/promotion strategy.
-Stored in ProductCommercial model (product_id, current_price, cost_per_unit, margin_pct, etc.).
 
 ### `next_best_message.py` (824 lines)
 **Deterministic decision engine — 10 action types, per-contact scoring with cooldowns**
@@ -654,7 +654,7 @@ Key functions:
 - `personalize_text_field(field_name, template_text, contact, fallback) — Send-time personalization`
 - `generate_template_content(blocks, family, contact) — Batch generation for all blocks`
 
-### `discount_engine.py` (479 lines)
+### `discount_engine.py` (499 lines)
 **Dynamic discount generation — per-contact codes via Shopify price rules**
 
 get_or_create_discount(email, purpose) returns a unique discount code for a contact.

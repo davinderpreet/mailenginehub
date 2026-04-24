@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 # Single source of constants — shared_constants.py
 from shared_constants import MARGIN_ESTIMATES, DEFAULT_MARGIN, CATEGORY_KEYWORDS
 
+# Shared DB-lock retry helper — SQLite contention is routine during the
+# nightly 04:45 UTC window when many scheduled jobs run concurrently.
+# Before this was wrapped, every lock killed the entire scoring pass.
+from discount_engine import retry_db
+
 
 def _infer_product_type(product_title, existing_type=""):
     """Infer product type from title if not set."""
@@ -188,9 +193,10 @@ def sync_product_commercial_data():
         if cost_per_unit is not None and current_price > 0:
             margin_pct = round((current_price - cost_per_unit) / current_price * 100, 1)
 
-        # Upsert
-        try:
-            ProductCommercial.insert(
+        # Upsert — wrapped in retry_db to survive SQLite lock contention
+        # during the nightly 04:45 UTC window (shared with other writers).
+        def _do_upsert():
+            return ProductCommercial.insert(
                 product_id=pid,
                 product_title=title,
                 sku=sku,
@@ -219,6 +225,9 @@ def sync_product_commercial_data():
                     ProductCommercial.last_synced: datetime.now(),
                 }
             ).execute()
+
+        try:
+            retry_db(_do_upsert)
             stats["synced"] += 1
         except Exception as e:
             logger.error(f"Failed to upsert ProductCommercial for {pid}: {e}")
@@ -412,7 +421,7 @@ def compute_product_scores():
 
         prof_score = max(0, min(100, prof_score))
 
-        # ── Save ──
+        # ── Save ── wrapped in retry_db — see module-level import for rationale
         pc.units_sold_30d = units_30d
         pc.units_sold_90d = units_90d
         pc.revenue_30d = round(revenue_30d, 2)
@@ -430,7 +439,7 @@ def compute_product_scores():
         pc.promotion_reason = promo_reason
         pc.profitability_score = prof_score
         pc.last_computed = datetime.now()
-        pc.save()
+        retry_db(pc.save)
         count += 1
 
     print(f"[OK] Scored {count} products")

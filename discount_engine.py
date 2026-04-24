@@ -21,8 +21,23 @@ from peewee import OperationalError
 logger = logging.getLogger("discount_engine")
 
 
-def _retry_db(fn, max_retries=5, base_delay=0.5):
-    """Retry a DB operation with exponential backoff on SQLite lock errors."""
+def retry_db(fn, max_retries=5, base_delay=0.5):
+    """Retry a DB operation with exponential backoff on SQLite lock errors.
+
+    Shared across modules that write to the SQLite DB during periods of
+    contention (nightly batch windows, concurrent webhook + scheduler traffic).
+
+    Args:
+        fn: zero-arg callable performing the DB write
+        max_retries: number of retry attempts (total tries = max_retries + 1)
+        base_delay: initial backoff in seconds; doubles each attempt + jitter
+
+    Returns:
+        The return value of fn() on success.
+
+    Raises:
+        peewee.OperationalError: if all retries exhausted or error isn't lock/busy.
+    """
     for attempt in range(max_retries + 1):
         try:
             return fn()
@@ -33,6 +48,11 @@ def _retry_db(fn, max_retries=5, base_delay=0.5):
                 time.sleep(delay)
             else:
                 raise
+
+
+# Backwards-compat alias — keep the private name working for any callers
+# that imported it before the rename.
+_retry_db = retry_db
 
 STORE_URL = os.getenv("SHOPIFY_STORE_URL", "").strip().rstrip("/")
 ACCESS_TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
@@ -251,7 +271,7 @@ def generate_discount_code(email, purpose, override_value=None, override_type=No
                 created_at=now,
             )
 
-        _retry_db(_do_create)
+        retry_db(_do_create)
 
         logger.info("Discount created (Shopify synced): %s for %s (%s, %s%% off, expires %s)",
                      code, email, purpose, value, expires_at.strftime("%b %d"))

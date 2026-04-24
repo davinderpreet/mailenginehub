@@ -7170,16 +7170,22 @@ if os.environ.get("ENABLE_SCHEDULER", "1") == "1" and not _scheduler.running and
             app.logger.error(f"Nightly opportunity scan failed: {_e}")
 
     def _run_nightly_profit_scoring():
+        # Do NOT swallow exceptions — APScheduler needs the raise to mark
+        # the job run as failed. Previous silent-success behavior masked
+        # recurring SQLite lock failures (e.g. 2026-04-24 04:45 UTC) from
+        # monitoring. Now retry_db handles transient locks inside
+        # profit_engine; anything that still escapes is a real failure.
+        import sys as _sp2; _sp2.path.insert(0, APP_DIR)
+        from profit_engine import sync_product_commercial_data, compute_product_scores
+        app.logger.info("Nightly profit scoring starting...")
         try:
-            import sys as _sp2; _sp2.path.insert(0, APP_DIR)
-            from profit_engine import sync_product_commercial_data, compute_product_scores
-            app.logger.info("Nightly profit scoring starting...")
             sync_result = sync_product_commercial_data()
             app.logger.info(f"Product sync: {sync_result}")
             count = compute_product_scores()
             app.logger.info(f"Profit scoring complete: {count} products scored")
         except Exception as _e:
-            app.logger.error(f"Nightly profit scoring failed: {_e}")
+            app.logger.error(f"Nightly profit scoring failed: {_e}", exc_info=True)
+            raise
 
     _scheduler.add_job(_run_nightly_opportunity_scan, "cron", hour=5, minute=10,
                        id="opportunity_scan", replace_existing=True)
