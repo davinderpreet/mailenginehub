@@ -1,5 +1,5 @@
 # MailEngineHub -- Full Reference
-> Auto-generated on 2026-04-24 10:36. This file is NOT loaded into conversation context.
+> Auto-generated on 2026-04-24 10:38. This file is NOT loaded into conversation context.
 > Read on-demand when you need model fields, function signatures, or file details.
 
 ---
@@ -260,7 +260,7 @@ Competitor product data. brand, model, price, features, source_url. Scraped by k
 
 ---
 
-## Python Files — Detailed (59 files, 42,466 lines)
+## Python Files — Detailed (59 files, 42,467 lines)
 
 ### `app.py` (7,354 lines)
 **Flask application — all routes, scheduler, webhooks, auth**
@@ -654,7 +654,7 @@ Key functions:
 - `personalize_text_field(field_name, template_text, contact, fallback) — Send-time personalization`
 - `generate_template_content(blocks, family, contact) — Batch generation for all blocks`
 
-### `discount_engine.py` (478 lines)
+### `discount_engine.py` (479 lines)
 **Dynamic discount generation — per-contact codes via Shopify price rules**
 
 get_or_create_discount(email, purpose) returns a unique discount code for a contact.

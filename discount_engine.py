@@ -50,6 +50,7 @@ DISCOUNT_STRATEGIES = {
     "high_intent":        {"type": "free_shipping", "value": "100", "expires_hours": 72,   "prefix": "HI"},
     "smart_escalation":   {"type": "percentage",    "value": "10",  "expires_hours": 168,  "prefix": "SAVE"},
     "reorder_reminder":   {"type": "percentage",    "value": "5",   "expires_hours": 168,  "prefix": "REORD"},
+    "cross_sell":         {"type": "percentage",    "value": "5",   "expires_hours": 168,  "prefix": "XSELL"},
     # AM purpose aliases — map recovery-style names to their abandonment equivalents
     "cart_recovery":      {"type": "percentage",    "value": "5",   "expires_hours": 48,   "prefix": "CART"},
     "browse_recovery":    {"type": "free_shipping", "value": "100", "expires_hours": 72,   "prefix": "SHIP"},
